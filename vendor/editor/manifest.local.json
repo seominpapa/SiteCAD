@@ -1,0 +1,85 @@
+{
+  "source": "https://www.opencadstudio.com/app/",
+  "fetchedAt": "2026-10-21T12:40:58.115Z",
+  "note": "Published distribution snapshot. HTML startup and caching adapted for local hosting; engine files unchanged.",
+  "files": [
+    {
+      "path": "index.html",
+      "source": "https://www.opencadstudio.com/app/index.html",
+      "bytes": 5705,
+      "sha256": "b289cd6e6f528faac42c84111f6287a82085d1b215141fb46973a9fd5d1109f9"
+    },
+    {
+      "path": "ocs-control.js",
+      "source": "https://www.opencadstudio.com/app/ocs-control.js",
+      "bytes": 2899,
+      "sha256": "58d4b6bc3ad63f13275f70762b5184e47010fe6e1123c28fc0894854d6067cf5"
+    },
+    {
+      "path": "locale-labels.json",
+      "source": "https://www.opencadstudio.com/app/locale-labels.json",
+      "bytes": 2092,
+      "sha256": "862201184fbc05f3bc8be46da338735e4122da2d9620f32b2112de9637f2cf2d"
+    },
+    {
+      "path": "OpenCADStudio-aa8b21a441e9e104.js",
+      "source": "https://www.opencadstudio.com/app/OpenCADStudio-aa8b21a441e9e104.js",
+      "bytes": 183669,
+      "sha256": "83a79b8455f11e7aa5026a7820697e5386e162e06e49af764d5a03b328b03628"
+    },
+    {
+      "path": "snippets/OpenCADStudio-bebc73e86cf914fc/web/clipboard.js",
+      "source": "https://www.opencadstudio.com/app/snippets/OpenCADStudio-bebc73e86cf914fc/web/clipboard.js",
+      "bytes": 970,
+      "sha256": "2645337a10a3d77da5ebde0177aabdb37ec0c691c6650b8b3d5ecb2b53cfedc1"
+    },
+    {
+      "path": "OpenCADStudio-aa8b21a441e9e104_bg.wasm",
+      "source": "https://www.opencadstudio.com/app/OpenCADStudio-aa8b21a441e9e104_bg.wasm",
+      "bytes": 77339857,
+      "sha256": "d6a0960716b943f338fb4cdd17f72dde59f52eddedb31bb5f6a07b3f658bc6af"
+    },
+    {
+      "path": "ocs-parse-worker.js",
+      "source": "https://www.opencadstudio.com/app/ocs-parse-worker.js",
+      "bytes": 1744,
+      "sha256": "14ac8c2ef7bc00565644746f9045ead973c65b949e4f137a489528872ae6aee8"
+    },
+    {
+      "path": "worker_pkg/ocs_web_worker.js",
+      "source": "https://www.opencadstudio.com/app/worker_pkg/ocs_web_worker.js",
+      "bytes": 12988,
+      "sha256": "5026ddefdfa3ef1d36c7bc1e597f2555cd6545a7d5c4c812eb5b4972d745ee60"
+    },
+    {
+      "path": "worker_pkg/ocs_web_worker_bg.wasm",
+      "source": "https://www.opencadstudio.com/app/worker_pkg/ocs_web_worker_bg.wasm",
+      "bytes": 10672964,
+      "sha256": "b0dedeb5a8b232698a027010e970310768d385e1243282a559a4822cfd98d330"
+    },
+    {
+      "path": "fonts/korean.ttf",
+      "source": "https://www.opencadstudio.com/app/fonts/korean.ttf",
+      "bytes": 1797468,
+      "sha256": "8ee3cee3f50b323f988481b91ce34492bad0e56d3b900b7f37bd73567c44e58b"
+    },
+    {
+      "path": "supporters.json",
+      "source": "https://www.opencadstudio.com/app/supporters.json",
+      "bytes": 3623,
+      "sha256": "5bb7d22a4a8cfd6458dfd71c455ab156d576c7f4b9b173d84b16bf7cc0a1f982"
+    },
+    {
+      "path": "videos.json",
+      "source": "https://www.opencadstudio.com/app/videos.json",
+      "bytes": 1198,
+      "sha256": "ee1941f5c08bf576300e9d72dbf230e190ac1225542f4f8d892a71db4902f060"
+    },
+    {
+      "path": "discussions.json",
+      "source": "https://www.opencadstudio.com/app/discussions.json",
+      "bytes": 10447,
+      "sha256": "7febae81241b8a7dcce0e20327af198432423482ba037e3f61cdbab7248c1f11"
+    }
+  ]
+}

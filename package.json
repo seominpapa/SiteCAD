@@ -1,0 +1,36 @@
+{
+  "name": "sitecad-local",
+  "version": "0.12.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "setup": "node scripts/install-editor.mjs",
+    "test": "node --test --experimental-test-coverage tests/*.test.mjs",
+    "desktop": "electron desktop/main.mjs",
+    "local-web": "node local-web.mjs",
+    "local-web:build": "node scripts/build-local-web.mjs",
+    "desktop:build": "node scripts/build-desktop.mjs"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "45.0.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "allowScripts": {
+    "electron@45.0.0": true,
+    "frida@17.23.2": true
+  },
+  "overrides": {
+    "zod": "4.6.6"
+  },
+  "dependencies": {
+    "@napi-rs/keyring": "2.1.2",
+    "pdfjs-dist": "6.4.299",
+    "proj4": "2.21.0",
+    "rea-agents": "6.7.0",
+    "shapefile": "0.6.6"
+  }
+}

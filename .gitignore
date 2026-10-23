@@ -1,0 +1,10 @@
+.runtime/
+test-results/
+node_modules/
+runtime/
+dist/
+.env
+.env.*
+*.enc
+.DS_Store
+coverage/

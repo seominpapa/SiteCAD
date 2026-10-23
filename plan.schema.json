@@ -1,0 +1,204 @@
+{
+  "type": "object",
+  "properties": {
+    "reply": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "operations": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": { "const": "delete" },
+              "target": { "type": "string", "enum": ["selection", "last"] }
+            },
+            "required": ["type", "target"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": { "type": { "const": "quantity_review" } },
+            "required": ["type"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "rectangle"
+              },
+              "x_mm": {
+                "type": "number",
+                "minimum": -100000000,
+                "maximum": 100000000
+              },
+              "y_mm": {
+                "type": "number",
+                "minimum": -100000000,
+                "maximum": 100000000
+              },
+              "width_mm": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 100000000
+              },
+              "height_mm": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 100000000
+              }
+            },
+            "required": [
+              "type",
+              "x_mm",
+              "y_mm",
+              "width_mm",
+              "height_mm"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "circle"
+              },
+              "x_mm": {
+                "type": "number",
+                "minimum": -100000000,
+                "maximum": 100000000
+              },
+              "y_mm": {
+                "type": "number",
+                "minimum": -100000000,
+                "maximum": 100000000
+              },
+              "radius_mm": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 100000000
+              }
+            },
+            "required": [
+              "type",
+              "x_mm",
+              "y_mm",
+              "radius_mm"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "line"
+              },
+              "x1_mm": {
+                "type": "number",
+                "minimum": -100000000,
+                "maximum": 100000000
+              },
+              "y1_mm": {
+                "type": "number",
+                "minimum": -100000000,
+                "maximum": 100000000
+              },
+              "x2_mm": {
+                "type": "number",
+                "minimum": -100000000,
+                "maximum": 100000000
+              },
+              "y2_mm": {
+                "type": "number",
+                "minimum": -100000000,
+                "maximum": 100000000
+              }
+            },
+            "required": [
+              "type",
+              "x1_mm",
+              "y1_mm",
+              "x2_mm",
+              "y2_mm"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "move"
+              },
+              "target": {
+                "type": "string",
+                "enum": [
+                  "selection",
+                  "last"
+                ]
+              },
+              "dx_mm": {
+                "type": "number",
+                "minimum": -100000000,
+                "maximum": 100000000
+              },
+              "dy_mm": {
+                "type": "number",
+                "minimum": -100000000,
+                "maximum": 100000000
+              }
+            },
+            "required": [
+              "type",
+              "target",
+              "dx_mm",
+              "dy_mm"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "measure"
+              },
+              "target": {
+                "type": "string",
+                "enum": [
+                  "selection",
+                  "last"
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "target"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "undo"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "reply",
+    "operations"
+  ],
+  "additionalProperties": false
+}

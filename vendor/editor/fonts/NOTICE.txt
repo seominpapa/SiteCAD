@@ -1,0 +1,4 @@
+Noto Sans: Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic)
+Noto Sans CJK KR: Copyright 2014-2021 Adobe (http://www.adobe.com/)
+The upstream web/fonts/korean.ttf collection is preserved unchanged. Both fonts are licensed under the SIL Open Font License, Version 1.1. See OFL.txt.
+AppleGothic is read from the user macOS system at runtime and is not bundled.
