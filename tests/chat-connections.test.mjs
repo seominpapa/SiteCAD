@@ -21,14 +21,14 @@ class Element {
 const all = node => [node, ...node.children.flatMap(all)];
 const content = node => all(node).map(item => item.textContent).join(' ');
 const flush = () => new Promise(resolve => setImmediate(resolve));
-function setup(t, { browser = true, configured = false } = {}) {
+function setup(t, { browser = true, configured = false, kcsc = { configured: false, installed: false, connected: false } } = {}) {
   const previous = { document: globalThis.document, fetch: globalThis.fetch };
   const root = new Element(), requests = [], pending = [], notices = [];
   let busy = false, changed = 0;
   globalThis.document = { body: root, createElement: tag => new Element(tag), getElementById: () => root };
   globalThis.fetch = async (url, options = {}) => {
     requests.push({ url, ...options });
-    return { ok: true, json: async () => ({ ok: true, data: url.endsWith('/references') ? { vworld: { configured } } : url.endsWith('/test') ? { ok: true } : {} }) };
+    return { ok: true, json: async () => ({ ok: true, data: url.endsWith('/references') ? { vworld: { configured } } : url.endsWith('/kcsc') ? kcsc : url.endsWith('/test') ? { ok: true } : {} }) };
   };
   t.after(() => Object.assign(globalThis, previous));
   const ui = createChatConnections({ isBusy: () => busy, onPending: value => pending.push(value), onChange: () => { changed++; }, notify: value => notices.push(value) });
@@ -48,6 +48,96 @@ test('connection commands keep ordinary CAD, URLs, standards research and explic
   assert.deepEqual(parseConnectionCommand('설계 기준 연결해줘'), { kind: 'standards' });
   assert.deepEqual(parseConnectionCommand('/mcp remove example'), { kind: 'manage', action: 'remove', name: 'example' });
   assert.equal(parseConnectionCommand('/mcp remove ../../secret'), null);
+});
+
+test('KCSC registration commands open the private key route without intercepting standards research', () => {
+  for (const command of ['/api kcsc', '/mcp kcsc', 'KCSC API 등록해줘', 'KCSC API 키를 등록해주세요', '국가건설기준센터 MCP 연결해줘', 'KCSC MCP 설치해줘', '국가건설기준센터 MCP 설치해주세요', 'https://github.com/lhs1152-lgtm/kcsc-design-mcp', 'https://github.com/lhs1152-lgtm/kcsc-design-mcp 이 MCP를 설치해줘', 'https://github.com/lhs1152-lgtm/kcsc-design-mcp.git 설치해줘']) {
+    assert.deepEqual(parseConnectionCommand(command), { kind: 'kcsc' });
+  }
+  for (const command of ['KCSC에서 콘크리트 기준을 검색해줘', '국가건설기준센터 KDS를 참고해 도면을 그려줘', 'https://github.com/untrusted/kcsc-design-mcp 설치해줘', 'https://github.com/lhs1152-lgtm/kcsc-design-mcp-evil 설치해줘']) assert.equal(parseConnectionCommand(command), null);
+});
+
+test('KCSC private registration requires install and encrypted-key consent and clears the key before saving', async t => {
+  const { ui, root, field, submit, requests, changed } = setup(t);
+  ui.handleCommand('/api kcsc'); await flush();
+  assert.equal(all(root).find(item => item.tagName === 'dialog').open, true);
+  assert.equal(field('apiKey').type, 'password'); assert.equal(field('apiKey').autocomplete, 'off');
+  assert.match(content(root), /채팅 기록.*AI/); assert.match(content(root), /암호화/);
+  assert.match(content(root), /kcsc-design-mcp==0\.3\.1.*Python/);
+  assert.match(content(root), /조회 도구.*승인/);
+  const link = all(root).find(item => item.tagName === 'a');
+  assert.equal(link.href, 'https://kcsc.re.kr/support/api'); assert.match(link.rel, /noopener/);
+  assert.match(content(root), /로그인.*인증키 발급신청/);
+  assert.equal(field('test').disabled, true); assert.equal(field('remove').disabled, true);
+  field('apiKey').value = TEST_API_KEY; await submit();
+  assert.equal(requests.filter(item => item.method === 'POST').length, 0);
+  field('trusted').checked = true; field('trusted').listeners.change();
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, ...options }); assert.equal(field('apiKey').value, ''); assert.equal(field('trusted').checked, false);
+    return { ok: true, json: async () => ({ ok: true, data: { configured: true, installed: true, connected: true, tools: ['search'], count: 1, lastCheck: { ok: true } } }) };
+  };
+  await submit();
+  assert.deepEqual(JSON.parse(requests.at(-1).body), { apiKey: TEST_API_KEY, trusted: true });
+  assert.equal(requests.at(-1).url, '/api/desktop/kcsc/save');
+  assert.equal(changed(), 1); assert.match(content(root), /키 등록됨.*연결 확인됨/);
+  assert.equal(field('save').textContent, '키 변경·재연결');
+  assert.doesNotMatch(content(root), new RegExp(TEST_API_KEY));
+  assert.ok(requests.every(item => !item.url.includes('/api/chat')));
+  field('apiKey').value = TEST_API_KEY; field('trusted').checked = true; field('apiKey').listeners.input();
+  assert.equal(field('trusted').checked, false);
+  ui.clear(); assert.equal(fieldValue(root, 'apiKey'), undefined);
+});
+
+test('KCSC test and removal use saved credentials without sending the entered replacement key', async t => {
+  const { ui, root, field, click, requests } = setup(t, { kcsc: { configured: true, installed: true, connected: false } });
+  ui.handleCommand('/mcp kcsc'); await flush();
+  assert.match(content(root), /키 등록됨.*연결 미확인/);
+  field('apiKey').value = TEST_API_KEY;
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, ...options });
+    return { ok: true, json: async () => ({ ok: true, data: url.endsWith('/remove') ? { configured: false, installed: true, connected: false } : { configured: true, installed: true, connected: false, lastCheck: { ok: false } } }) };
+  };
+  await click('test');
+  assert.deepEqual(JSON.parse(requests.at(-1).body), {});
+  assert.match(content(root), /키.*권한.*확인/); assert.match(content(root), /연결 확인 실패/);
+  await click('remove');
+  assert.equal(field('apiKey').value, ''); assert.equal(requests.at(-1).url, '/api/desktop/kcsc/remove');
+  assert.deepEqual(JSON.parse(requests.at(-1).body), {});
+  assert.match(content(root), /키 미등록/); assert.equal(field('test').disabled, true);
+  assert.doesNotMatch(content(root), new RegExp(TEST_API_KEY));
+});
+
+test('KCSC loading, busy, validation and failures protect keys and keep failures actionable', async t => {
+  const { ui, root, field, submit, click, requests, busy } = setup(t);
+  let release;
+  globalThis.fetch = async () => new Promise(resolve => { release = resolve; });
+  ui.handleCommand('/api kcsc');
+  field('apiKey').value = TEST_API_KEY; field('trusted').checked = true;
+  assert.equal(field('apiKey').disabled, true); await submit(); await click('test'); assert.equal(requests.length, 0);
+  ui.handleCommand('/mcp');
+  release({ ok: true, json: async () => ({ ok: true, data: { configured: true, connected: true } }) });
+  await flush(); assert.equal(field('config').value, '');
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ ok: true, data: { configured: false } }) });
+  ui.handleCommand('/api kcsc'); await flush();
+  field('trusted').checked = true; field('apiKey').value = 'bad\nkey'; await submit();
+  assert.match(content(root), /키.*형식/);
+  field('apiKey').value = TEST_API_KEY; busy(true); await submit();
+  assert.equal(field('apiKey').value, TEST_API_KEY);
+  busy(false);
+  globalThis.fetch = async () => ({ ok: false, json: async () => ({ ok: false, error: `${TEST_API_KEY} /private/path` }) });
+  await submit(); assert.equal(field('apiKey').value, '');
+  assert.match(content(root), /실패.*키.*권한/);
+  assert.doesNotMatch(content(root), /a-private-key|private\/path/);
+});
+
+test('a failed KCSC recheck invalidates the earlier connected status', async t => {
+  const { ui, root, click } = setup(t, { kcsc: { configured: true, installed: true, connected: true } });
+  ui.handleCommand('/api kcsc'); await flush();
+  assert.match(content(root), /연결 확인됨/);
+  globalThis.fetch = async () => { throw Error('private upstream error'); };
+  await click('test');
+  assert.match(content(root), /연결 확인 실패/);
+  assert.doesNotMatch(content(root), /연결 확인됨|private upstream/);
 });
 
 test('private MCP registration stays in chat, requires current trust and clears config before POST', async t => {

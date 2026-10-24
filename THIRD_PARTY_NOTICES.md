@@ -30,3 +30,9 @@ The optional macOS Electron build is different: scripts/build-desktop.mjs bundle
 ## npm dependencies
 
 package-lock.json pins PDF.js, proj4, shapefile, keyring and their dependencies. Local-web first setup installs them from npm and retains each package's license files; those packages are not copied into the local-web source/installer ZIP. The optional Electron desktop build includes production node_modules with their package license files. User-added MCP programs and instruction plugins require their own applicable terms. Electron is omitted by the local-web installer.
+
+## Optional KCSC MCP runtime
+
+The KCSC connection installs kcsc-design-mcp 0.3.1 (MIT, Copyright 2026 (주)하이드로코리아; https://github.com/lhs1152-lgtm/kcsc-design-mcp), uv 0.8.22 (MIT OR Apache-2.0; https://github.com/astral-sh/uv), and a managed Python 3.12.11 runtime into the user's SiteCAD data directory after explicit consent. These executables and Python packages are downloaded during connection setup and are not bundled in the installer ZIP. Downloaded wheels and the Python distribution retain their upstream license notices; lib/kcsc-requirements.lock pins the Python packages and their SHA-256 hashes.
+
+SiteCAD enables only the seven KCSC reference lookup tools. The upstream repository's separate CC BY-SA design-flow collection is not downloaded or bundled, and its six design tools are not enabled. KCSC reference content remains subject to the provider's terms; a reference lookup or citation audit is not a design-compliance certification. Every user supplies their own KCSC API key; it is never included in release assets.

@@ -189,7 +189,7 @@ test('plugin install approval, separate inventory, slash invocation and approved
   setBehavior(() => ({ reply: '현재 도면 조회를 실행했습니다.' }));
   await controller.chat({ message: '/plugin-cad-tools-review 현재 도면', context, history: [] });
   assert.equal(calls.at(-1).session.skill.name, 'plugin-cad-tools-review');
-  assert.match(calls.at(-1).session.skill.path, /codex-home\/skills\/plugin-cad-tools-review\/SKILL.md$/);
+  assert.match(calls.at(-1).session.skill.path, /codex-home[\\/]skills[\\/]plugin-cad-tools-review[\\/]SKILL.md$/);
   setBehavior(async () => {
     await approve(controller.callCad('manage_plugins', { action: 'remove', name: 'cad-tools' }), 'plugin-remove');
     return { reply: '검증 플러그인을 제거했습니다.' };

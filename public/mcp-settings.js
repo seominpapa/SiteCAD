@@ -96,6 +96,7 @@ export function createMcpSettings({ isBusy, notify }) {
   let servers = [];
   let references = {};
   let plugins = [];
+  let kcsc = {};
 
   async function request(path, body) {
     const response = await fetch(`/api/desktop/${path}`, body === undefined ? { cache: 'no-store' } : {
@@ -152,6 +153,14 @@ export function createMcpSettings({ isBusy, notify }) {
       list.append(empty);
     }
     for (const server of servers) {
+      if (server.name === 'kcsc') {
+        const configured = kcsc.configured === true;
+        const connected = configured && server.enabled !== false && kcsc.connected === true;
+        const status = !configured ? '키 미등록' : server.enabled === false ? '키 등록됨 · 사용 안 함' : connected ? '키 등록됨 · 연결 확인됨' : kcsc.lastCheck?.ok === false ? '키 등록됨 · 연결 확인 실패' : '키 등록됨 · 연결 미확인';
+        const count = Number.isSafeInteger(kcsc.count) && kcsc.count >= 0 ? kcsc.count : Array.isArray(server.tools) ? server.tools.length : 0;
+        list.append(connectionCard('KCSC · 국가건설기준센터', status, `MCP · 기준 조회 도구 ${count}개${!configured ? ' · 채팅에 /api kcsc 를 입력해 본인의 키를 등록하세요.' : ''}`, connected));
+        continue;
+      }
       const enabled = server.enabled !== false;
       const connected = enabled && server.connected === true;
       const status = !enabled ? '사용 안 함' : connected ? '연결됨'
@@ -173,10 +182,11 @@ export function createMcpSettings({ isBusy, notify }) {
 
   async function refresh() {
     if (!supported) return;
-    const [mcp, referenceState, pluginState] = await Promise.all([request('mcp'), request('references'), request('plugins')]);
+    const [mcp, referenceState, pluginState, kcscState] = await Promise.all([request('mcp'), request('references'), request('plugins'), request('kcsc')]);
     servers = Array.isArray(mcp?.servers) ? mcp.servers : [];
     references = referenceState || {};
     plugins = Array.isArray(pluginState?.plugins) ? pluginState.plugins : [];
+    kcsc = kcscState || {};
     renderConnections();
   }
 
@@ -238,6 +248,7 @@ export function createMcpSettings({ isBusy, notify }) {
       if (Array.isArray(status.externalMcp?.servers)) servers = status.externalMcp.servers;
       if (status.references) references = status.references;
       if (Array.isArray(status.plugins)) plugins = status.plugins;
+      if (status.kcsc) kcsc = status.kcsc;
       renderConnections();
       renderApprovals(status.approvals || []);
       controls();

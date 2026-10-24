@@ -2,6 +2,9 @@ export function parseConnectionCommand(message) {
   const value = message.trim();
   const manage = value.match(/^\/mcp\s+(test|remove|enable|disable)\s+([a-zA-Z][a-zA-Z0-9_-]{0,63})$/i);
   if (manage) return { kind: 'manage', action: manage[1].toLowerCase(), name: manage[2] };
+  if (/^\/(?:api|mcp)\s+kcsc$/i.test(value)
+    || /^(?:KCSC|국가건설기준센터)\s*(?:API|MCP)(?:\s*키)?\s*(?:를\s*)?(?:추가|등록|연결|설치)(?:해\s*줘|해주세요|하기)?[.!]?$/i.test(value)
+    || /^https:\/\/github\.com\/lhs1152-lgtm\/kcsc-design-mcp(?:\.git)?\/?(?:\s+(?:이\s*)?(?:MCP(?:를)?\s*)?(?:설치|등록|연결)(?:해\s*줘|해주세요|하기)?)?[.!]?$/i.test(value)) return { kind: 'kcsc' };
   const mcp = value.match(/^\/mcp(?:\s+add(?:\s+([\s\S]*))?)?$/i);
   if (mcp) return { kind: 'mcp', config: mcp[1] ?? '' };
   if (/^\/api(?:\s+vworld)?$/i.test(value) || /^(?:(?:VWorld|브이월드)\s*)?API\s*(?:를\s*)?(?:추가|등록|연결)(?:해\s*줘|해주세요|하기)?[.!]?$/i.test(value)) return { kind: 'vworld' };
@@ -149,6 +152,68 @@ export function createChatConnections({ isBusy, onPending = () => {}, onChange =
       .catch(() => { if (card === view) status.textContent = '등록 상태 조회 실패. 다시 열어확인해 주세요.'; })
       .finally(() => { if (card === view) { view.loading = false; sync(); } });
   }
+  function kcscCard() {
+    const view = open('KCSC 기준 조회 MCP 등록', '국가건설기준센터 API 키를 아래에 입력하세요. 입력값은 채팅 기록과 AI에 전달되지 않습니다. 저장된 키는 다시 표시하지 않습니다.', true);
+    view.loading = true;
+    const form = element('form'), status = element('p', '등록 상태 확인 중');
+    const link = element('a', '국가건설기준센터 로그인 → 인증키 발급신청');
+    link.href = 'https://kcsc.re.kr/support/api'; link.target = '_blank'; link.rel = 'noopener noreferrer';
+    form.append(status, link, element('p', 'kcsc-design-mcp==0.3.1을 SiteCAD 전용으로 설치합니다. 처음 등록할 때 Python 실행 환경을 내려받아 수분이 걸릴 수 있습니다. 기준 조회 도구만 연결하며 실행 시 기존 도구 승인 정책을 적용합니다.'));
+    const key = field(form, 'apiKey', 'KCSC API 키', 'password'); key.maxLength = 1024;
+    const trust = field(form, 'trusted', '이 MCP와 Python 실행 환경의 설치·실행 및 키의 로컬 암호화 저장에 동의합니다. 키는 기준 조회를 위해 국가건설기준센터에 전송됩니다.', 'checkbox');
+    let configured = false, installed = false;
+    const save = button(form, 'save', '설치·키 등록·연결', () => {}); save.type = 'submit';
+    const render = state => {
+      configured = state?.configured === true; installed = state?.installed === true;
+      const connected = configured && state?.connected === true;
+      status.textContent = !configured ? '키 미등록' : connected ? '키 등록됨 · 연결 확인됨' : state.lastCheck?.ok === false ? '키 등록됨 · 연결 확인 실패' : '키 등록됨 · 연결 미확인';
+      save.textContent = configured ? '키 변경·재연결' : '설치·키 등록·연결'; sync();
+    };
+    const perform = async (path, body) => {
+      try { return await request(path, body); }
+      catch {
+        render({ configured, installed, connected: false, lastCheck: { ok: false } });
+        await changed(); throw Error('KCSC 연결 요청 실패');
+      }
+    };
+    const test = button(form, 'test', '연결 확인', () => {
+      if (view.loading || !configured || pending || isBusy()) return;
+      return action(view, async () => {
+        const state = await perform('kcsc/test', {}); render(state); await changed();
+        view.message.textContent = state?.connected === true ? 'KCSC MCP 실제 연결을 확인했습니다.' : '연결 확인 실패. 키와 API 사용 권한을 확인한 뒤 키를 다시 등록해 주세요.';
+      }, '연결 확인 실패. 키와 API 사용 권한을 확인한 뒤 다시 시도해 주세요.');
+    });
+    const remove = button(form, 'remove', '키·연결 삭제', () => {
+      if (view.loading || (!configured && !installed)) return;
+      return action(view, async () => {
+        key.value = ''; trust.checked = false;
+        const state = await perform('kcsc/remove', {}); render(state); await changed();
+        view.message.textContent = 'KCSC 키와 MCP 연결을 삭제했습니다.';
+      }, '삭제 실패. 연결 상태를 새로 확인한 뒤 다시 시도해 주세요.');
+    });
+    view.sync = () => {
+      save.disabled = view.loading || pending || isBusy() || !trust.checked || !key.value.trim();
+      test.disabled = view.loading || pending || isBusy() || !configured;
+      remove.disabled = view.loading || pending || isBusy() || (!configured && !installed);
+    };
+    key.addEventListener('input', () => { trust.checked = false; sync(); }); trust.addEventListener('change', sync);
+    form.addEventListener('submit', async event => {
+      event.preventDefault(); if (view.loading || pending || isBusy()) return;
+      if (!trust.checked) { view.message.textContent = '설치·실행 및 키 저장 범위를 확인한 뒤 동의해 주세요.'; return; }
+      const apiKey = key.value.trim();
+      if (!/^[\x21-\x7e]{8,1024}$/.test(apiKey)) { view.message.textContent = 'API 키의 형식과 길이를 확인해 주세요.'; return; }
+      key.value = ''; trust.checked = false;
+      await action(view, async () => {
+        view.message.textContent = '실행 환경 준비·MCP 설치·연결 확인 중입니다. 처음에는 수분이 걸릴 수 있습니다.';
+        const state = await perform('kcsc/save', { apiKey, trusted: true }); render(state); await changed();
+        view.message.textContent = state?.connected === true ? 'KCSC 키를 등록하고 MCP 실제 연결을 확인했습니다. 원래 요청을 다시 전송해 주세요.' : '키를 저장했지만 연결은 확인하지 못했습니다. 키와 API 사용 권한을 확인한 뒤 연결 확인을 실행해 주세요.';
+      }, '등록·연결 실패. 네트워크와 키의 API 사용 권한을 확인한 뒤 다시 시도해 주세요.');
+    });
+    finishForm(view, form); key.focus();
+    void request('kcsc').then(state => { if (card === view) render(state); })
+      .catch(() => { if (card === view) status.textContent = '등록 상태 조회 실패. 다시 열어 확인해 주세요.'; })
+      .finally(() => { if (card === view) { view.loading = false; sync(); } });
+  }
   function manageCard({ action: operation, name }) {
     const labels = { test: '연결 확인', remove: '등록 해제', enable: '활성화', disable: '사용 중지' };
     const view = open(`${name} · ${labels[operation]}`, '아래 버튼으로 이 작업을 확인하세요. 등록 상태와 실제 연결 상태는 다를 수 있습니다.');
@@ -201,10 +266,11 @@ export function createChatConnections({ isBusy, onPending = () => {}, onChange =
       if (!supported || pending || isBusy()) { notify('연결 등록은 로컬 SiteCAD에서 현재 작업이 끝난 뒤 사용할 수 있습니다.'); return true; }
       if (command.kind === 'mcp') mcpCard(command.config);
       else if (command.kind === 'vworld') vworldCard();
+      else if (command.kind === 'kcsc') kcscCard();
       else if (command.kind === 'manage') manageCard(command);
       else if (command.kind === 'terrain') terrainCard();
       else {
-        const view = open('설계 기준 참고', 'KDS·KCS는 별도 MCP나 API 등록이 필요하지 않습니다. 일반 채팅에서 필요한 기준의 원문·개정일을 검색해 달라고 요청하세요. 접근 가능한 실제 원문을 확인한 범위만 사용합니다.');
+        const view = open('설계 기준 참고', 'KDS·KCS를 웹검색으로 참고할 때는 별도 MCP나 API 등록이 필요하지 않습니다. 일반 채팅에서 필요한 기준의 원문·개정일을 검색해 달라고 요청하세요. 공식 API로 조회하려면 /api kcsc 에서 본인의 KCSC 키를 등록할 수 있습니다. 접근 가능한 실제 원문을 확인한 범위만 사용합니다.');
         finishForm(view, element('div'));
       }
       return true;

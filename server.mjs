@@ -137,6 +137,7 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
     if (path === '/api/desktop/chats' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.chatList() });
     if (/^\/api\/desktop\/chats\/[a-f0-9-]{36}$/.test(path) && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.chatRead(path.split('/').at(-1)) });
     if (path === '/api/desktop/references' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.referencesStatus() });
+    if (path === '/api/desktop/kcsc' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.kcscStatus() });
     if (path === '/api/desktop/terrain' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.terrainStatus() });
     if (req.method !== 'POST' || req.headers.origin !== `http://${req.headers.host}`) throw error('이 로컬 앱에서만 요청할 수 있습니다.', 403);
     if (req.headers['content-type']?.split(';')[0].trim() !== 'application/json') throw error('JSON 요청만 지원합니다.', 415);
@@ -161,6 +162,9 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
     else if (path === '/api/desktop/references/save') data = await desktop.referencesSave(body);
     else if (path === '/api/desktop/references/remove') data = await desktop.referencesRemove();
     else if (path === '/api/desktop/references/test') data = await desktop.referencesTest();
+    else if (path === '/api/desktop/kcsc/save') data = await desktop.kcscSave(body);
+    else if (path === '/api/desktop/kcsc/test') data = await desktop.kcscTest(body);
+    else if (path === '/api/desktop/kcsc/remove') data = await desktop.kcscRemove(body);
     else if (path === '/api/desktop/terrain/import') {
       if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length) throw error('파일 선택 창에서 지형 원본을 선택해 주세요.');
       data = await desktop.terrainImport();

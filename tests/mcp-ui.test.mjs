@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { appendProvenance, createMcpSettings, safeSourceUrl } from '../public/mcp-settings.js';
 
+const TEST_API_KEY = 'secret-key';
+
 class Element {
   constructor(tag = 'div') {
     Object.assign(this, { tagName: tag, children: [], listeners: {}, dataset: {}, value: '', textContent: '', hidden: false, checked: false, disabled: false, open: false });
@@ -19,7 +21,7 @@ class Element {
   querySelectorAll() { return []; }
 }
 
-async function fixture(t, referenceState = { configured: false }, servers = []) {
+async function fixture(t, referenceState = { configured: false }, servers = [], kcsc = {}) {
   const previousDocument = globalThis.document;
   const previousFetch = globalThis.fetch;
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
@@ -28,7 +30,7 @@ async function fixture(t, referenceState = { configured: false }, servers = []) 
   globalThis.document = { getElementById: id => { assert.ok(ids[id], id); return ids[id]; }, createElement: tag => new Element(tag) };
   globalThis.fetch = async (url, options = {}) => {
     requests.push({ url, ...options });
-    return { ok: true, json: async () => ({ ok: true, data: url.endsWith('/references') ? { vworld: referenceState } : { servers } }) };
+    return { ok: true, json: async () => ({ ok: true, data: url.endsWith('/references') ? { vworld: referenceState } : url.endsWith('/kcsc') ? kcsc : { servers } }) };
   };
   t.after(() => { globalThis.document = previousDocument; globalThis.fetch = previousFetch; });
   return { ids, requests, html };
@@ -64,7 +66,7 @@ test('empty connections show no presets or unconfigured APIs and guide registrat
   assert.equal(ids['external-mcp-status'].textContent, '등록된 연결 없음');
   assert.equal(ids['mcp-dialog'].open, false);
   assert.equal(settings.handleCommand, undefined);
-  assert.deepEqual(requests.map(item => item.url).sort(), ['/api/desktop/mcp', '/api/desktop/plugins', '/api/desktop/references']);
+  assert.deepEqual(requests.map(item => item.url).sort(), ['/api/desktop/kcsc', '/api/desktop/mcp', '/api/desktop/plugins', '/api/desktop/references']);
   assert.ok(requests.every(item => !item.method || item.method === 'GET'));
 });
 
@@ -87,6 +89,24 @@ test('registered MCPs including REA are read-only and expose status without comm
   assert.doesNotMatch(content(ids['mcp-server-list']), /private|credential|TOKEN|secret backend/);
   assert.equal(descendants(ids['mcp-server-list']).filter(item => ['button', 'input', 'textarea'].includes(item.tagName)).length, 0);
   assert.equal(ids['external-mcp-status'].textContent, 'MCP 5 · API 0 · 플러그인 0');
+});
+
+test('KCSC is one registered MCP row with private-key status and chat registration guidance', async t => {
+  const { ids, html } = await fixture(t, { configured: false }, [{ name: 'kcsc', enabled: true, connected: true, transport: 'stdio', tools: ['search'] }], { configured: false, connected: false });
+  const settings = createMcpSettings({ isBusy: () => false });
+  settings.update({ desktop: true }); await settings.refresh();
+  assert.equal(ids['mcp-server-list'].children.length, 1);
+  assert.match(content(ids['mcp-server-list']), /KCSC.*키 미등록.*MCP.*\/api kcsc/);
+  assert.equal(ids['external-mcp-status'].textContent, 'MCP 1 · API 0 · 플러그인 0');
+  settings.update({ desktop: true, kcsc: { configured: true, connected: true, count: 7, lastCheck: { ok: true } } });
+  assert.match(content(ids['mcp-server-list']), /키 등록됨.*연결 확인됨/);
+  assert.doesNotMatch(content(ids['mcp-server-list']), /키 미등록/);
+  settings.update({ desktop: true, kcsc: { configured: true, connected: false, lastCheck: { ok: false }, apiKey: TEST_API_KEY, path: '/private/user' } });
+  assert.match(content(ids['mcp-server-list']), /연결 확인 실패/);
+  assert.doesNotMatch(content(ids['mcp-server-list']), /secret-key|private\/user|연결 확인됨/);
+  settings.update({ desktop: true, externalMcp: { servers: [] } });
+  assert.doesNotMatch(content(ids['mcp-server-list']), /KCSC/);
+  assert.match(html, /data-prompt="\/api kcsc"/);
 });
 
 test('only a configured VWorld API is listed and unverified credentials are not called connected', async t => {
@@ -141,8 +161,8 @@ test('opening and refreshing reads current connections without registration or t
   assert.equal(ids['mcp-dialog'].open, true);
   assert.match(content(ids['mcp-server-list']), /fresh/);
   await ids['mcp-refresh'].listeners.click();
-  assert.equal(requests.length, 6);
-  assert.ok(requests.every(item => ['/api/desktop/mcp', '/api/desktop/references', '/api/desktop/plugins'].includes(item.url) && !item.body));
+  assert.equal(requests.length, 8);
+  assert.ok(requests.every(item => ['/api/desktop/mcp', '/api/desktop/references', '/api/desktop/plugins', '/api/desktop/kcsc'].includes(item.url) && !item.body));
 });
 
 test('failed refresh remains visible and retains the previous complete inventory', async t => {
