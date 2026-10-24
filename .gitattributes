@@ -1,1 +1,3 @@
+# Preserve manifest-verified editor bytes and source fixtures on every platform.
+* -text
 *.cmd text eol=crlf

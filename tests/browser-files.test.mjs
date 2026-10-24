@@ -33,6 +33,8 @@ test('manual browser save persists the audited bytes and downloads that exact fi
   const response = await s.request('/api/local/drawings/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: '한글 도면.dwg', result, expectedContext: context }) });
   assert.equal(response.status, 200);
   const { data } = await response.json();
+  assert.equal(data.name, '한글 도면.dwg');
+  assert.equal(data.downloadUrl, `/api/local/drawings/${encodeURIComponent(data.name)}`);
   assert.equal(data.sha256, createHash('sha256').update(bytes).digest('hex'));
   const download = await s.request(data.downloadUrl);
   assert.equal(download.status, 200);
