@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { annotationSize, prepareText, prepareDimension } from '../public/annotations.js';
+import { annotationSize, prepareText, prepareDimension, isCadFontResult } from '../public/annotations.js';
 const geometry = (span = 6000, offset = 0) => ({ handle: 'A', type: 'Line', layer: 'AI_DRAFT', properties: { common: { owner_handle: 32 } }, bounds: { min: [offset, offset, 0], max: [offset + span, offset + span / 2, 0] } });
 const style = (name = 'Standard', handle = '20', font = 'AppleGothic.ttf') => ({ name, handle, properties: { handle: parseInt(handle, 16), name, font_file: font, big_font_file: '', width_factor: 1, height: 0 } });
 const dimension = { handle: 'D', type: 'Dimension', bounds: { min: [0, 0, 0], max: [6000, 0, 0] }, properties: { Linear: { base: { style_name: 'ISO-25', common: { owner_handle: 32 } } } } };
@@ -34,6 +34,14 @@ function engine({ entities = [geometry(), dimension], textStyles = [style()], di
 }
 const mockFont = t => t.mock.method(globalThis, 'fetch', async () => new Response(new Uint8Array([0, 1, 0, 0])));
 
+test('font render invalidation accepts only the requested known font family and a single face', () => {
+  const request = { file_name: 'malgun.ttf' };
+  const result = { file_name: 'malgun.ttf', family: 'Malgun Gothic', faces: 1 };
+  assert.equal(isCadFontResult(request, result), true);
+  for (const invalid of [{ ...result, faces: 2 }, { ...result, file_name: 'AppleGothic.ttf' }, { ...result, family: 'Custom' }, null]) assert.equal(isCadFontResult(request, invalid), false);
+  assert.equal(isCadFontResult({ file_name: 'Custom.ttf' }, { ...result, file_name: 'Custom.ttf' }), false);
+});
+
 test('annotation size uses geometry span, physical units and nice scales independently of world origin', () => {
   assert.deepEqual(annotationSize([geometry()], 4), { paperScale: 50, modelScale: 50, textHeight: 125 });
   assert.deepEqual(annotationSize([geometry(6)], 6), { paperScale: 50, modelScale: 0.05, textHeight: 0.125 });
@@ -51,6 +59,25 @@ test('text defaults to a dedicated Korean style and preserves explicit fields an
   assert.deepEqual(e.records().text_styles[0], before.text_styles[0]);
   await prepareText(e.cad, request, 4, e.io);
   assert.equal(e.calls.filter(c => c.op === 'font_register').length, 1);
+});
+test('Windows font metadata selects Malgun Gothic for text and dimensions without changing imported styles', async t => {
+  t.mock.method(globalThis, 'fetch', async () => new Response(new Uint8Array([0, 1, 0, 0]), { headers: { 'X-SiteCAD-CAD-Font': 'malgun.ttf' } }));
+  const e = engine({ textStyles: [style('Standard', '20', 'malgun.ttf')] });
+  const text = await prepareText(e.cad, { op: 'entities_create', entities: [{ type: 'Text', value: '한글' }] }, 4, e.io);
+  const dim = await prepareDimension(e.cad, ['D'], 4, e.io);
+  assert.equal(text.annotation.font, 'malgun.ttf'); assert.equal(dim.font, 'malgun.ttf');
+  assert.equal(e.calls.find(call => call.op === 'font_register').file_name, 'malgun.ttf');
+  assert.equal(e.calls.filter(call => call.op === 'font_register').length, 1);
+  assert.equal(e.records().text_styles.find(record => record.name === 'SiteCAD_KO').properties.font_file, 'malgun.ttf');
+  assert.equal(dim.textHeight, 125);
+});
+test('unapproved font metadata and a different existing SiteCAD font stop before writes', async t => {
+  for (const font of ['../../secret.ttf', 'Custom.ttf', 'malgun.ttf']) {
+    t.mock.method(globalThis, 'fetch', async () => new Response(new Uint8Array([0, 1, 0, 0]), { headers: { 'X-SiteCAD-CAD-Font': font } }));
+    const e = engine({ textStyles: [style('SiteCAD_KO', '40', 'AppleGothic.ttf')] });
+    await assert.rejects(prepareText(e.cad, { op: 'entities_create', entities: [{ type: 'Text', value: '한글' }] }, 4, e.io), /글꼴|스타일/);
+    assert.equal(e.calls.some(call => ['font_register', 'run', 'set_properties'].includes(call.op)), false);
+  }
 });
 test('unknown style collisions, font failures and guard changes stop annotation writes', async t => {
   mockFont(t); const request = { op: 'entities_create', entities: [{ type: 'Text', value: '한글' }] };

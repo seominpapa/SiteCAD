@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, writeFile, symlink, rm } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request as httpRequest } from 'node:http';
-import { createApp } from '../server.mjs';
+import { createApp, cadFont } from '../server.mjs';
 
 const payload = { message: '사각형', context: { documentId: 2, revision: 0, units: 4, selection: [], entities: [] }, history: [] };
 async function setup(options = {}) {
@@ -56,26 +56,36 @@ test('rejects cross-origin, unexpected host, malformed and oversized chat reques
     assert.equal((await t.request('/api/chat', { method: 'POST', body: 'x'.repeat(140000) })).status, 413);
   } finally { await t.close(); }
 });
-test('serves only the installed Korean CAD font through GET and HEAD', { skip: process.platform !== 'darwin' }, async () => {
-  const t = await setup();
+test('Korean CAD font paths select the actual operating system font', () => {
+  assert.deepEqual(cadFont('darwin'), { name: 'AppleGothic.ttf', directory: '/System/Library/Fonts/Supplemental' });
+  assert.deepEqual(cadFont('win32', 'D:\\Windows'), { name: 'malgun.ttf', directory: 'D:\\Windows\\Fonts' });
+});
+test('serves only the installed Korean CAD font through GET and HEAD', { skip: !['darwin', 'win32'].includes(process.platform) }, async () => {
+  const app = createApp();
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${app.address().port}`;
+  const request = (path, init) => fetch(base + path, init);
   try {
-    const expected = await readFile('/System/Library/Fonts/Supplemental/AppleGothic.ttf');
+    const font = cadFont();
+    const expected = await readFile(join(font.directory, font.name));
     for (const path of ['/api/cad-font', '/api/cad-font?path=/etc/hosts&file=../../server.mjs']) {
-      const response = await t.request(path);
+      const response = await request(path);
       assert.equal(response.status, 200);
       assert.equal(response.headers.get('content-type'), 'font/ttf');
       assert.equal(response.headers.get('cache-control'), 'no-store');
+      assert.equal(response.headers.get('X-SiteCAD-CAD-Font'), font.name);
       assert.equal(Number(response.headers.get('content-length')), expected.length);
       assert.deepEqual(Buffer.from(await response.arrayBuffer()), expected);
     }
-    const head = await t.request('/api/cad-font', { method: 'HEAD' });
+    const head = await request('/api/cad-font', { method: 'HEAD' });
     assert.equal(head.status, 200);
     assert.equal(head.headers.get('content-type'), 'font/ttf');
+    assert.equal(head.headers.get('X-SiteCAD-CAD-Font'), font.name);
     assert.equal(Number(head.headers.get('content-length')), expected.length);
     assert.equal((await head.arrayBuffer()).byteLength, 0);
-    assert.equal((await t.request('/api/cad-font', { method: 'POST', body: '{}' })).status, 405);
-    for (const path of ['/api/cad-font/AppleGothic.ttf', '/api/cad-font/%2e%2e%2fetc%2fhosts', '/api/cad-font.ttf']) assert.equal((await t.request(path)).status, 404);
-  } finally { await t.close(); }
+    assert.equal((await request('/api/cad-font', { method: 'POST', body: '{}' })).status, 405);
+    for (const path of ['/api/cad-font/AppleGothic.ttf', '/api/cad-font/%2e%2e%2fetc%2fhosts', '/api/cad-font.ttf']) assert.equal((await request(path)).status, 404);
+  } finally { await new Promise(resolve => app.close(resolve)); }
 });
 test('OAuth failures and planner failures do not expose private error text', async () => {
   for (const options of [{ authStatus: async () => ({ connected: false, method: 'chatgpt' }) }, { plan: async () => { throw Error('private-secret-value'); } }, { plan: async () => ({ reply: 'x', operations: [{ type: 'exec' }] }) }]) {

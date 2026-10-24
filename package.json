@@ -1,6 +1,6 @@
 {
   "name": "sitecad-local",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,6 +10,7 @@
     "desktop": "electron desktop/main.mjs",
     "local-web": "node local-web.mjs",
     "local-web:build": "node scripts/build-local-web.mjs",
+    "local-web:build:windows": "node scripts/build-local-web.mjs --windows",
     "desktop:build": "node scripts/build-desktop.mjs"
   },
   "devDependencies": {

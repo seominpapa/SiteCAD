@@ -14,11 +14,11 @@ SiteCAD application source is provided under GNU GPL version 3. See LICENSE. Thi
 
 ## Noto font collection
 
-vendor/editor/fonts/korean.ttf is the unchanged upstream Noto Sans / Noto Sans CJK KR collection. Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic); Copyright 2014-2021 Adobe (http://www.adobe.com/). Licensed under SIL Open Font License 1.1. See vendor/editor/fonts/NOTICE.txt and OFL.txt. The filename is inherited from upstream; the bytes are a font collection. AppleGothic is read from the user macOS installation at runtime and is not redistributed.
+vendor/editor/fonts/korean.ttf is the unchanged upstream Noto Sans / Noto Sans CJK KR collection. Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic); Copyright 2014-2021 Adobe (http://www.adobe.com/). Licensed under SIL Open Font License 1.1. See vendor/editor/fonts/NOTICE.txt and OFL.txt. The filename is inherited from upstream; the bytes are a font collection. AppleGothic is read from the user macOS installation, or Malgun Gothic (malgun.ttf) from the user Windows installation, at runtime. Neither system font is redistributed.
 
 ## Codex and Node.js
 
-Codex 0.163.0 is downloaded from the official openai/codex GitHub release during first setup, verified by a pinned SHA-256. Apache-2.0 license and NOTICE are preserved in desktop/licenses/. Node.js 24.22.1 is downloaded from nodejs.org with a pinned SHA-256; its installation archive retains its upstream license. SiteCAD does not ship either executable in this source/installer ZIP.
+Codex 0.163.0 is downloaded from the official openai/codex GitHub release during first setup, verified by a pinned SHA-256. Apache-2.0 license and NOTICE are preserved in desktop/licenses/. Node.js 24.22.1 is downloaded from nodejs.org with a pinned SHA-256; its installation archive retains its upstream license. SiteCAD does not ship either executable in this source/installer ZIP. The official Windows Codex package keeps its helper executables and voice runtime license files in their upstream layout when downloaded.
 
 ## npm dependencies
 

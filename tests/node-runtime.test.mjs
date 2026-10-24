@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { createNodeSecretStores } from '../lib/node-secret-store.mjs';
 import { startLocalWeb } from '../local-web.mjs';
+import { defaultDataDir, privateDirectory } from '../lib/local-platform.mjs';
 
 async function directory(t) {
   const path = await mkdtemp(join(tmpdir(), 'sitecad-node-'));
@@ -29,7 +30,7 @@ test('Node credentials share one keychain access and authenticated ciphertext su
   assert.equal(entry.reads, 1); assert.equal(entry.writes, 1);
   const bytes = await readFile(join(dataDir, 'credentials.enc'));
   assert.equal(bytes.includes('private-refresh-token'), false);
-  assert.equal((await stat(join(dataDir, 'credentials.enc'))).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal((await stat(join(dataDir, 'credentials.enc'))).mode & 0o777, 0o600);
   const restarted = createNodeSecretStores({ dataDir, entry });
   assert.deepEqual(await restarted.auth.read(), { refresh_token: 'private-refresh-token' });
   await restarted.auth.remove();
@@ -56,17 +57,17 @@ test('missing or denied keychain never recreates an existing key and denied acce
   const dataDir = await directory(t); const entry = keyring();
   await createNodeSecretStores({ dataDir, entry }).auth.write({ token: 'original' });
   const absent = keyring();
-  await assert.rejects(createNodeSecretStores({ dataDir, entry: absent }).auth.read(), /키체인/);
+  await assert.rejects(createNodeSecretStores({ dataDir, entry: absent }).auth.read(), /키체인|자격 증명/);
   assert.equal(absent.writes, 0);
   await createNodeSecretStores({ dataDir, entry }).mcp.write({ token: 'mcp' });
   await rm(join(dataDir, 'credentials.enc'));
-  await assert.rejects(createNodeSecretStores({ dataDir, entry: absent }).auth.write({ login: true }), /키체인/);
+  await assert.rejects(createNodeSecretStores({ dataDir, entry: absent }).auth.write({ login: true }), /키체인|자격 증명/);
   assert.equal(absent.writes, 0);
   await writeFile(join(dataDir, 'credentials.enc'), await readFile(join(dataDir, 'mcp-secrets.enc')));
   let reads = 0;
   const denied = createNodeSecretStores({ dataDir, entry: { getPassword() { reads++; throw Error('secret system detail'); } } });
-  await assert.rejects(denied.auth.read(), /키체인/);
-  await assert.rejects(denied.mcp.write({ token: true }), /키체인/);
+  await assert.rejects(denied.auth.read(), /키체인|자격 증명/);
+  await assert.rejects(denied.mcp.write({ token: true }), /키체인|자격 증명/);
   assert.equal(reads, 1);
 });
 test('Node web launcher starts the whole controller, authenticates the browser, reuses a running instance and closes', async t => {
@@ -115,7 +116,7 @@ test('simultaneous launches keep one controller and quit closes even a failed co
   await assert.rejects(fetch(owner.baseUrl));
   assert.equal(typeof actions.quit, 'function'); assert.equal(typeof actions.openDrawings, 'function');
 });
-test('concurrent recovery after a killed launcher retains one live listener without unlinking stale paths', async t => {
+test('concurrent recovery after a killed launcher retains one live listener without unlinking stale paths', { skip: process.platform === 'win32' }, async t => {
   const dataDir = await directory(t);
   const child = spawn(process.execPath, ['--input-type=module', '-e', `
     import { startLocalWeb } from ${JSON.stringify(new URL('../local-web.mjs', import.meta.url).href)};
@@ -151,4 +152,22 @@ test('concurrent recovery after a killed launcher retains one live listener with
   // Never unlink a shared stale path: another recovering process can already have bound its replacement.
   assert.equal((await lstat(stalePath)).ino, stale.ino);
   await owner.close();
+});
+
+test('Windows credentials use authenticated encryption and fail closed with a platform-specific error', async t => {
+  const dataDir = await directory(t); const entry = keyring();
+  const secret = randomUUID();
+  const stores = createNodeSecretStores({dataDir, entry, platform:'win32'});
+  await stores.auth.write({secret});
+  assert.deepEqual(await createNodeSecretStores({dataDir,entry,platform:'win32'}).auth.read(), {secret});
+  assert.equal((await readFile(join(dataDir,'credentials.enc'))).includes(secret), false);
+  await assert.rejects(createNodeSecretStores({dataDir,entry:keyring(),platform:'win32'}).auth.read(), /자격 증명/);
+});
+
+test('private launcher directory remains owned and Windows uses the per-user data directory', async t => {
+  const path = join(await directory(t), '한글 private');
+  await privateDirectory(path);
+  assert.equal((await lstat(path)).isDirectory(), true);
+  assert.match(defaultDataDir('win32'), /SiteCAD Web$/);
+  assert.match(defaultDataDir('darwin'), /Library[/\\]Application Support[/\\]SiteCAD Web$/);
 });

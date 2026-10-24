@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
-import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, extname, isAbsolute, join, relative, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateChat, validatePlan } from './lib/plan.mjs';
 import { oauthStatus, planWithCodex } from './lib/planner.mjs';
@@ -10,6 +10,11 @@ const root = dirname(fileURLToPath(import.meta.url));
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.jpg': 'image/jpeg', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.dwg': 'application/acad', '.bin': 'application/octet-stream' };
 const loginMessage = 'OpenAI OAuth 연결이 필요합니다. 터미널에서 codex login을 실행하고 ChatGPT 계정으로 로그인해 주세요.';
 const error = (message, status = 400) => Object.assign(Error(message), { status });
+
+export function cadFont(platform = process.platform, systemRoot = process.env.SystemRoot || 'C:\\Windows') {
+  return platform === 'win32' ? { name: 'malgun.ttf', directory: win32.join(systemRoot, 'Fonts') } :
+    { name: 'AppleGothic.ttf', directory: '/System/Library/Fonts/Supplemental' };
+}
 
 function respond(res, status, value) {
   if (res.destroyed || res.writableEnded) return;
@@ -176,7 +181,11 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
         const editorInstalled = await stat(join(editorRoot, 'index.html')).then(info => info.isFile()).catch(() => false);
         return respond(res, 200, { ok: true, data: { oauth, editorInstalled, ...(status ?? {}), ...(browserAccess ? { browser: true } : {}) } });
       }
-      if (path === '/api/cad-font') return await staticFile(res, '/System/Library/Fonts/Supplemental/AppleGothic.ttf', '/System/Library/Fonts/Supplemental', req.method);
+      if (path === '/api/cad-font') {
+        const font = cadFont();
+        res.setHeader('X-SiteCAD-CAD-Font', font.name);
+        return await staticFile(res, join(font.directory, font.name), font.directory, req.method);
+      }
       if (path.startsWith('/api/')) throw error('경로를 찾을 수 없습니다.', 404);
       if (path === '/fixtures/retaining-wall.dwg') return await staticFile(res, fixturePath, dirname(fixturePath), req.method);
       if (path.startsWith('/app/')) return await staticFile(res, join(editorRoot, decodeURIComponent(path.slice(5)) || 'index.html'), editorRoot, req.method);

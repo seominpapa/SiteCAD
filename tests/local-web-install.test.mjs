@@ -9,6 +9,14 @@ import { buildLocalWeb, sourceEntries } from '../scripts/build-local-web.mjs';
 
 const execute = promisify(execFile);
 const project = new URL('../', import.meta.url);
+const psLiteral = value => "'" + value.replaceAll("'", "''") + "'";
+const powershell = code => execute('powershell.exe', ['-NoProfile', '-EncodedCommand', Buffer.from("$ErrorActionPreference='Stop'; " + code, 'utf16le').toString('base64')]);
+const archiveEntries = async archive => process.platform === 'win32'
+  ? (await powershell(`Add-Type -AssemblyName System.IO.Compression.FileSystem; $zip=[IO.Compression.ZipFile]::OpenRead(${psLiteral(archive)}); try { $zip.Entries.FullName } finally { $zip.Dispose() }`)).stdout.replaceAll('\\', '/')
+  : (await execute('/usr/bin/unzip', ['-Z1', archive])).stdout;
+const extractArchive = async (archive, destination) => process.platform === 'win32'
+  ? powershell(`Expand-Archive -LiteralPath ${psLiteral(archive)} -DestinationPath ${psLiteral(destination)}`)
+  : execute('/usr/bin/unzip', ['-q', archive, '-d', destination]);
 
 test('release dependency lock excludes vulnerable Zod versions from REA and MCP', async () => {
   const lock = JSON.parse(await readFile(new URL('package-lock.json', project), 'utf8'));
@@ -17,7 +25,7 @@ test('release dependency lock excludes vulnerable Zod versions from REA and MCP'
   for (const [, value] of schemas) assert.equal(value.version, '4.6.6');
 });
 
-test('macOS bootstrap pins verified private Node and retains the full local runtime', async () => {
+test('macOS bootstrap pins verified private Node and retains the full local runtime', { skip: process.platform === 'win32' }, async () => {
   const bootstrap = await readFile(new URL('scripts/bootstrap-local-web.sh', project), 'utf8');
   await execute('/bin/bash', ['-n', new URL('scripts/bootstrap-local-web.sh', project).pathname]);
   assert.match(bootstrap, /NODE_VERSION="24\.22\.1"/);
@@ -60,7 +68,7 @@ test('release ZIP contains standalone drawing and allowlisted source, never priv
     await writeFile(join(sourceRoot, name, 'secret.txt'), 'secret');
   }
   const archive = await buildLocalWeb({ sourceRoot, fixturePath, outputDirectory: join(base, 'release output') });
-  const { stdout } = await execute('/usr/bin/unzip', ['-Z1', archive]);
+  const stdout = await archiveEntries(archive);
   assert.match(stdout, /SiteCAD\/Start SiteCAD\.command/);
   assert.match(stdout, /SiteCAD\/fixtures\/retaining-wall\.dwg/);
   assert.match(stdout, /SiteCAD\/local-web\.mjs/);
@@ -68,16 +76,17 @@ test('release ZIP contains standalone drawing and allowlisted source, never priv
   assert.doesNotMatch(stdout, /secret|credentials|\.env|node_modules|test-results|desktop\/runtime\//);
   const extracted = join(base, 'extracted');
   await mkdir(extracted);
-  await execute('/usr/bin/unzip', ['-q', archive, '-d', extracted]);
+  await extractArchive(archive, extracted);
   assert.equal(await readFile(join(extracted, 'SiteCAD/fixtures/retaining-wall.dwg'), 'utf8'), 'AC1032 test drawing');
-  assert.ok((await stat(join(extracted, 'SiteCAD/Start SiteCAD.command'))).mode & 0o111);
+  if (process.platform !== 'win32') assert.ok((await stat(join(extracted, 'SiteCAD/Start SiteCAD.command'))).mode & 0o111);
   assert.deepEqual(await readdir(join(extracted, 'SiteCAD/fixtures')), ['retaining-wall.dwg']);
 });
 
 test('release build rejects linked private files inside otherwise public source', async t => {
   const { base, sourceRoot, fixturePath } = await fixture(t);
-  await writeFile(join(base, 'private'), 'secret');
-  await symlink(join(base, 'private'), join(sourceRoot, 'public/linked-secret'));
+  await mkdir(join(base, 'private'));
+  await writeFile(join(base, 'private/secret.txt'), 'secret');
+  await symlink(join(base, 'private'), join(sourceRoot, 'public/linked-secret'), process.platform === 'win32' ? 'junction' : 'dir');
   await assert.rejects(buildLocalWeb({ sourceRoot, fixturePath, outputDirectory: join(base, 'dist') }), /symbolic link/);
 });
 
@@ -129,7 +138,11 @@ test('release build rejects invalid version paths and linked drawing fixtures', 
   await assert.rejects(buildLocalWeb({ sourceRoot, fixturePath, outputDirectory }), /Invalid SiteCAD release version/);
   await writeFile(join(sourceRoot, 'package.json'), JSON.stringify({ version: '0.11.0' }));
   const linked = join(base, 'linked.dwg');
-  await symlink(fixturePath, linked);
+  if (process.platform === 'win32') {
+    const linkedDirectory = join(base, 'linked drawing');
+    await mkdir(linkedDirectory);
+    await symlink(linkedDirectory, linked, 'junction');
+  } else await symlink(fixturePath, linked);
   await assert.rejects(buildLocalWeb({ sourceRoot, fixturePath: linked, outputDirectory }), /symbolic link/);
 });
 
@@ -138,8 +151,9 @@ test('release can rebuild using its bundled fixture without the parent repositor
   await mkdir(join(sourceRoot, 'fixtures'));
   await writeFile(join(sourceRoot, 'fixtures/retaining-wall.dwg'), 'bundled drawing');
   const archive = await buildLocalWeb({ sourceRoot, outputDirectory: join(base, 'dist') });
-  const { stdout } = await execute('/usr/bin/unzip', ['-p', archive, 'SiteCAD/fixtures/retaining-wall.dwg']);
-  assert.equal(stdout, 'bundled drawing');
+  const extracted = join(base, 'rebuilt');
+  await extractArchive(archive, extracted);
+  assert.equal(await readFile(join(extracted, 'SiteCAD/fixtures/retaining-wall.dwg'), 'utf8'), 'bundled drawing');
 });
 
 test('npm success without an installed dependency lock does not mark installation ready', { skip: process.platform !== 'darwin' }, async t => {
@@ -180,4 +194,19 @@ test('two stale-lock recoverers cannot remove the new owner lock or install simu
   assert.equal(await readFile(join(root, 'npm-attempt.txt'), 'utf8'), 'installed\n');
   assert.equal(await readFile(join(runtime, 'setup.lock/pid'), 'utf8'), '2147483647');
   await assert.rejects(stat(join(runtime, 'setup-1.lock')), { code: 'ENOENT' });
+});
+
+test('Windows release ZIP contains both launchers, verified bootstrap and no private project state', async t => {
+  const { base, sourceRoot, fixturePath } = await fixture(t);
+  await writeFile(join(sourceRoot, '.env'), 'secret');
+  await mkdir(join(sourceRoot, '.runtime'));
+  await writeFile(join(sourceRoot, '.runtime/private'), 'secret');
+  const archive = await buildLocalWeb({ sourceRoot, fixturePath, outputDirectory: join(base, 'dist'), platform: 'win32' });
+  assert.match(archive, /SiteCAD-0\.11\.0-local-web-Windows\.zip$/);
+  const entries = await archiveEntries(archive);
+  assert.match(entries, /SiteCAD\/Start SiteCAD\.cmd/);
+  assert.match(entries, /SiteCAD\/Start SiteCAD\.command/);
+  assert.match(entries, /SiteCAD\/scripts\/bootstrap-local-web\.ps1/);
+  assert.doesNotMatch(entries, /secret|\.env|\.runtime/);
+  await assert.rejects(buildLocalWeb({ sourceRoot, fixturePath, platform: '../private' }), /Unsupported SiteCAD release platform/);
 });

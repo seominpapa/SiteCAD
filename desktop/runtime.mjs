@@ -1,7 +1,7 @@
 import { copyFile, mkdir, readFile, rename, rm, chmod, writeFile } from 'node:fs/promises';
 import { isAbsolute, dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { CODEX_VERSION, fileSha256 } from '../scripts/install-codex.mjs';
+import { fileSha256, verifyCodexInstallation } from '../scripts/install-codex.mjs';
 
 export function desktopPaths(dataDir) {
   if (!isAbsolute(dataDir)) throw Error('SiteCAD data path must be absolute');
@@ -46,18 +46,24 @@ export function createSecureStore({ file, safeStorage }) {
   };
 }
 
-export async function installBundledCodex({ sourceDir, destination, arch = process.arch }) {
+export async function installBundledCodex({ sourceDir, destination, arch = process.arch, platform = process.platform }) {
+  await verifyCodexInstallation(sourceDir, { arch, platform });
   const manifest = JSON.parse(await readFile(join(sourceDir, 'manifest.json'), 'utf8'));
-  if (manifest.version !== CODEX_VERSION || manifest.arch !== arch || !/^[a-f0-9]{64}$/.test(manifest.sha256)) throw Error('Bundled Codex version or architecture is invalid');
-  if (await fileSha256(join(sourceDir, 'codex')) !== manifest.sha256) throw Error('Bundled Codex integrity check failed');
-  const current = await fileSha256(destination).catch(() => null);
-  if (current === manifest.sha256) return destination;
-  await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
-  const temporary = `${destination}.${randomUUID()}.tmp`;
-  try {
-    await copyFile(join(sourceDir, 'codex'), temporary);
-    await chmod(temporary, 0o700);
-    await rename(temporary, destination);
-    return destination;
-  } finally { await rm(temporary, { force: true }); }
+  const root = dirname(destination);
+  const files = manifest.files || { codex: manifest.sha256 };
+  // Install the entrypoint last so a failed helper copy leaves the existing runtime executable intact.
+  const entrypoint = manifest.entrypoint || 'codex';
+  const names = [...Object.keys(files).filter(name => name !== entrypoint), entrypoint];
+  for (const name of names) {
+    const target = platform === 'win32' ? join(root, name) : destination;
+    if (await fileSha256(target).catch(() => null) === files[name]) continue;
+    await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+    const temporary = `${target}.${randomUUID()}.tmp`;
+    try {
+      await copyFile(join(sourceDir, name), temporary);
+      await chmod(temporary, 0o700);
+      await rename(temporary, target);
+    } finally { await rm(temporary, { force: true }); }
+  }
+  return platform === 'win32' ? join(root, entrypoint) : destination;
 }

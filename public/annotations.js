@@ -1,10 +1,10 @@
 import { mmPerUnit } from './units.js';
 
-const FONT = 'AppleGothic.ttf';
+const CAD_FONTS = Object.freeze({ 'AppleGothic.ttf': ['AppleGothic'], 'malgun.ttf': ['Malgun Gothic', '맑은 고딕'] });
 const TEXT_STYLE = 'SiteCAD_KO';
 const DIM_STYLE = 'SiteCAD_DIM';
 const DIM_VALUES = { dimtxt: 2.5, dimasz: 2.5, dimgap: 0.625, dimexo: 0.625, dimexe: 1.25, dimdli: 3.75, dimlfac:1, dimsah: false, annotative: false };
-const registered = new WeakSet();
+const registered = new WeakMap();
 const isText = entity => ['Text', 'MText'].includes(entity.type);
 const isGeometry = entity => !['Text', 'MText', 'Dimension'].includes(entity.type) &&
   !['SITECAD_GEOREF', 'SITE_GEOREFERENCE'].includes(entity.layer?.toUpperCase());
@@ -65,8 +65,11 @@ async function drawing(cad, io) {
     return common?.owner_handle === handle;
   });
 }
-const validTextStyle = record => properties(record)?.font_file?.toLowerCase() === FONT.toLowerCase() &&
+const validTextStyle = (record, font) => properties(record)?.font_file?.toLowerCase() === font?.toLowerCase() &&
   properties(record).width_factor === 1 && properties(record).height === 0 && properties(record).big_font_file === '';
+
+export const isCadFontResult = (request, result) => result?.file_name === request.file_name &&
+  Object.hasOwn(CAD_FONTS, request.file_name) && CAD_FONTS[request.file_name].includes(result.family) && result.faces === 1;
 
 async function sizeFor(cad, entities, units, io) {
   const record = named(await styles(cad, 'dim_styles', io), DIM_STYLE);
@@ -78,33 +81,39 @@ async function sizeFor(cad, entities, units, io) {
 
 async function ensureFont(cad, io, owned = []) {
   const existing = named(await styles(cad, 'text_styles', io), TEXT_STYLE);
-  if (existing && !validTextStyle(existing)) throw collision();
-  if (!registered.has(cad)) {
+  const existingFont = Object.keys(CAD_FONTS).find(font => validTextStyle(existing, font));
+  if (existing && !existingFont) throw collision();
+  let font = registered.get(cad);
+  if (!font) {
     const response = await fetch('/api/cad-font');
     await io.check();
     if (!response.ok || Number(response.headers.get('content-length')) > 20 * 1024 * 1024) throw Error('한글 CAD 글꼴을 불러올 수 없습니다.');
+    font = response.headers.get('X-SiteCAD-CAD-Font') || 'AppleGothic.ttf';
+    if (!Object.hasOwn(CAD_FONTS, font)) throw Error('한글 CAD 글꼴 이름을 확인해 주세요.');
+    if (existing && !validTextStyle(existing, font)) throw collision();
     const bytes = new Uint8Array(await response.arrayBuffer());
     await io.check();
     if (!bytes.length || bytes.length > 20 * 1024 * 1024) throw Error('한글 CAD 글꼴 파일 크기를 확인해 주세요.');
     let raw = '';
     for (let offset = 0; offset < bytes.length; offset += 32768) raw += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
-    await write(io, { op: 'font_register', file_name: FONT, data_base64: btoa(raw) });
-    registered.add(cad);
+    await write(io, { op: 'font_register', file_name: font, data_base64: btoa(raw) });
+    registered.set(cad, font);
   }
+  if (existing && !validTextStyle(existing, font)) throw collision();
   if (!existing) {
     await write(io, { op: 'run', cmd: `STYLE NEW ${TEXT_STYLE}` });
-    await write(io, { op: 'run', cmd: `STYLE FONT ${TEXT_STYLE} ${FONT}` });
+    await write(io, { op: 'run', cmd: `STYLE FONT ${TEXT_STYLE} ${font}` });
   }
   if (cad.createdDocumentId != null && (await read(cad, { op: 'state' }, io)).document_id === cad.createdDocumentId) {
     const entities = await allDrawing(cad, io);
     if (entities.every(entity => owned.includes(entity.handle) || ['Line','Arc','Circle','Ellipse','LwPolyline','Polyline','Spline','Point','Solid','Hatch'].includes(entity.type))) {
       const standard = named(await styles(cad, 'text_styles', io), 'Standard');
-      if (standard && properties(standard).font_file !== FONT) await write(io, { op: 'run', cmd: `STYLE FONT Standard ${FONT}` });
+      if (standard && properties(standard).font_file !== font) await write(io, { op: 'run', cmd: `STYLE FONT Standard ${font}` });
     }
   }
   const records = await styles(cad, 'text_styles', io);
-  if (!validTextStyle(named(records, TEXT_STYLE))) throw collision();
-  return records;
+  if (!validTextStyle(named(records, TEXT_STYLE), font)) throw collision();
+  return { records, font };
 }
 
 export async function prepareText(cad, request, units, io) {
@@ -112,10 +121,10 @@ export async function prepareText(cad, request, units, io) {
   const automatic = request.entities.some(entity => isText(entity) && entity.height == null);
   const size = automatic ? await sizeFor(cad, await drawing(cad, io), units, io) : null;
   const defaultFont = request.entities.some(entity => isText(entity) && entity.style == null);
-  if (defaultFont) await ensureFont(cad, io);
+  const font = defaultFont ? (await ensureFont(cad, io)).font : null;
   return { request: { ...request, entities: request.entities.map(entity => isText(entity) ?
     { ...entity, style: entity.style ?? TEXT_STYLE, height: entity.height ?? size.textHeight } : entity) },
-  annotation: size || defaultFont ? { ...size, ...(defaultFont ? { font: FONT } : {}) } : null };
+  annotation: size || defaultFont ? { ...size, ...(defaultFont ? { font } : {}) } : null };
 }
 
 export async function prepareDimension(cad, handles, units, io) {
@@ -132,8 +141,8 @@ export async function prepareDimension(cad, handles, units, io) {
   const entities = await drawing(cad, io);
   const geometry = entities.filter(isGeometry);
   const size = await sizeFor(cad, geometry.length ? entities : owned.map(entity => ({ ...entity, type: 'Line' })), units, io);
-  const textStyles = await ensureFont(cad, io, owned.map(entity => entity.handle));
-  const usable = textStyles.find(record => validTextStyle(record) && parseInt(record.handle, 16) > 0) || named(textStyles, 'Standard');
+  const { records: textStyles, font } = await ensureFont(cad, io, owned.map(entity => entity.handle));
+  const usable = textStyles.find(record => validTextStyle(record, font) && parseInt(record.handle, 16) > 0) || named(textStyles, 'Standard');
   const textHandle = parseInt(usable?.handle, 16);
   if (!Number.isSafeInteger(textHandle) || textHandle <= 0) throw Error('치수 문자 스타일 핸들을 확인할 수 없습니다.');
   const name = DIM_STYLE;

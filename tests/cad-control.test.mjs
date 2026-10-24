@@ -422,20 +422,24 @@ test('compatibility setup rejects absent header records, changed state and overr
 });
 
 test('font registration accepts its render invalidation but rejects a concurrent document edit', async t => {
-  t.mock.method(globalThis,'fetch',async()=>new Response(new Uint8Array([0,1,0,0])));
-  for (const edit of [false,true]) {
+  for (const [font,family,edit,valid] of [
+    ['AppleGothic.ttf','AppleGothic',false,true], ['AppleGothic.ttf','AppleGothic',true,false],
+    ['malgun.ttf','Malgun Gothic',false,true], ['malgun.ttf','맑은 고딕',false,true],
+    ['malgun.ttf','Malgun Gothic',true,false], ['malgun.ttf','Unapproved Font',false,false]
+  ]) {
+    t.mock.method(globalThis,'fetch',async()=>new Response(new Uint8Array([0,1,0,0]),{headers:{'X-SiteCAD-CAD-Font':font}}));
     const value=engine();const originalRead=value.cad.request;const originalWrite=value.cad.iframe.contentWindow.ocsControl.request;
     value.cad.request=async request=>request.op==='records' && request.collection==='text_styles'
-      ? {ok:true,records:[{name:'SiteCAD_KO',handle:'40',properties:{font_file:'AppleGothic.ttf',height:0,width_factor:1,big_font_file:''}}]}
+      ? {ok:true,records:[{name:'SiteCAD_KO',handle:'40',properties:{font_file:font,height:0,width_factor:1,big_font_file:''}}]}
       : originalRead(request);
     value.cad.iframe.contentWindow.ocsControl.request=async request=>{
       if(request.op!=='font_register')return originalWrite(request);
       const before=await value.cad.snapshot();
       value.setState({geometry_revision:before.geometry_revision+2,event_cursor:1,...(edit?{revision:before.revision+1}:{})});
-      return {ok:true,state:before,result:{file_name:'AppleGothic.ttf',family:'AppleGothic',faces:1}};
+      return {ok:true,state:before,result:{file_name:font,family,faces:1}};
     };
     const operation=()=>controlDrawing(value.cad,{request:{op:'entities_create',entities:[{type:'Text',value:'한글',position:[0,0],height:125}]},expectedContext:value.base});
-    if(edit){await assert.rejects(operation(),/변경/);assert.equal(value.calls.some(c=>c.op==='entities_create'),false);}
-    else {assert.equal((await operation()).annotation.font,'AppleGothic.ttf');const sent=value.calls.find(c=>c.op==='entities_create');assert.equal(sent.geometry_revision,7);assert.equal(sent.entities[0].style,'SiteCAD_KO');}
+    if(!valid){await assert.rejects(operation(),/변경/);assert.equal(value.calls.some(c=>c.op==='entities_create'),false);}
+    else {assert.equal((await operation()).annotation.font,font);const sent=value.calls.find(c=>c.op==='entities_create');assert.equal(sent.geometry_revision,7);assert.equal(sent.entities[0].style,'SiteCAD_KO');}
   }
 });

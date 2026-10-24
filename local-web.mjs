@@ -1,21 +1,18 @@
-import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { chmod, link, lstat, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createConnection, createServer as createIpcServer } from 'node:net';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
+import { defaultDataDir, openLocal, privateDirectory } from './lib/local-platform.mjs';
 import { createApp } from './server.mjs';
 import { createDesktopController } from './lib/desktop-controller.mjs';
 import { createBrowserAccess } from './lib/browser-access.mjs';
 import { createNodeSecretStores } from './lib/node-secret-store.mjs';
 import { desktopPaths, installBundledCodex, isAllowedAuthUrl } from './desktop/runtime.mjs';
 
-const execute = promisify(execFile);
 const appRoot = dirname(fileURLToPath(import.meta.url));
-const defaultDataDir = () => join(homedir(), 'Library', 'Application Support', 'SiteCAD Web');
-const openMac = async value => { await execute('/usr/bin/open', [value], { timeout: 15000, maxBuffer: 4096 }); };
+const shutdownSignals = process.platform === 'win32' ? ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] : ['SIGINT', 'SIGTERM'];
 
 function alive(pid) {
   try { process.kill(pid, 0); return true; }
@@ -24,21 +21,27 @@ function alive(pid) {
 
 async function claimSocket(ipc, directory, prefix) {
   const proposal = join(directory, `.${prefix}.${randomUUID()}.owner`);
-  await writeFile(proposal, JSON.stringify({ pid: process.pid, retired: false }), { flag: 'wx', mode: 0o600 });
+  const pipeId = randomUUID();
+  await writeFile(proposal, JSON.stringify({ pid: process.pid, retired: false, pipeId }), { flag: 'wx', mode: 0o600 });
   const deadline = Date.now() + 15000;
   try {
     // shortcut: retain up to 4096 generations per temporary directory lifetime; add coordinated compaction if reached.
     for (let generation = 0; generation < 4096; generation++) {
       const stem = join(directory, `${prefix}${generation ? `-${generation}` : ''}`);
-      const marker = `${stem}.owner`; const socketPath = `${stem}.sock`;
+      const marker = `${stem}.owner`;
+      let socketPath = process.platform === 'win32' ? `\\\\.\\pipe\\sitecad-${pipeId}-${generation}` : `${stem}.sock`;
       let owned = false;
       try { await link(proposal, marker); owned = true; }
       catch (cause) { if (cause.code !== 'EEXIST') throw cause; }
       if (!owned) {
         const info = await lstat(marker);
-        if (!info.isFile() || info.isSymbolicLink() || info.uid !== process.getuid() || info.size > 200) throw Error('SiteCAD 실행기 잠금 정보를 확인해 주세요.');
+        if (!info.isFile() || info.isSymbolicLink() || (process.platform !== 'win32' && info.uid !== process.getuid()) || info.size > 200) throw Error('SiteCAD 실행기 잠금 정보를 확인해 주세요.');
         const owner = JSON.parse(await readFile(marker, 'utf8'));
         if (!Number.isSafeInteger(owner.pid) || owner.pid <= 0 || typeof owner.retired !== 'boolean') throw Error('SiteCAD 실행기 잠금 정보를 확인해 주세요.');
+        if (process.platform === 'win32') {
+          if (!/^[a-f0-9-]{36}$/.test(owner.pipeId)) throw Error('SiteCAD 실행기 연결 정보를 확인해 주세요.');
+          socketPath = `\\\\.\\pipe\\sitecad-${owner.pipeId}-${generation}`;
+        }
         if (owner.retired || !alive(owner.pid)) {
           const legacy = await activate(socketPath);
           if (legacy) return { running: legacy };
@@ -53,7 +56,7 @@ async function claimSocket(ipc, directory, prefix) {
       const retire = async () => {
         const temporary = `${marker}.${randomUUID()}.tmp`;
         try {
-          await writeFile(temporary, JSON.stringify({ pid: process.pid, retired: true }), { flag: 'wx', mode: 0o600 });
+          await writeFile(temporary, JSON.stringify({ pid: process.pid, retired: true, pipeId }), { flag: 'wx', mode: 0o600 });
           await rename(temporary, marker);
         } finally { await rm(temporary, { force: true }); }
       };
@@ -66,12 +69,13 @@ async function claimSocket(ipc, directory, prefix) {
           const onListen = () => { ipc.off('error', onError); resolveListen(); };
           ipc.once('error', onError); ipc.once('listening', onListen); ipc.listen(socketPath);
         });
-        await chmod(socketPath, 0o600);
+        if (process.platform !== 'win32') await chmod(socketPath, 0o600);
         return { socketPath, retire };
       } catch (cause) {
         await retire();
         if (ipc.listening) await new Promise(resolveClose => ipc.close(resolveClose));
         if (cause.code !== 'EADDRINUSE') throw cause;
+        if (process.platform === 'win32') continue;
         const info = await lstat(socketPath);
         if (!info.isSocket() || info.uid !== process.getuid()) throw Error('SiteCAD 실행기 연결 파일을 확인해 주세요.');
       }
@@ -94,20 +98,15 @@ async function activate(socketPath) {
   });
 }
 
-export async function startLocalWeb({ dataDir = defaultDataDir(), codexPath, entry, openBrowser = openMac,
+export async function startLocalWeb({ dataDir = defaultDataDir(), codexPath, entry, openBrowser = openLocal,
   controllerFactory = createDesktopController, serverFactory = createApp, installSignalHandlers = true } = {}) {
   if (process.versions.electron) throw Error('SiteCAD 로컬 웹앱은 Node.js 실행기로 시작해 주세요.');
   if (!isAbsolute(dataDir)) throw Error('SiteCAD data path must be absolute');
   dataDir = resolve(dataDir);
-  await mkdir(dataDir, { recursive: true, mode: 0o700 });
-  const info = await lstat(dataDir);
-  if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid()) throw Error('SiteCAD 개인 데이터 폴더 권한을 확인해 주세요.');
-  await chmod(dataDir, 0o700);
-  const socketDir = join(process.platform === 'darwin' ? '/private/tmp' : tmpdir(), `sitecad-web-${process.getuid()}`);
-  await mkdir(socketDir, { recursive: true, mode: 0o700 });
-  const socketInfo = await lstat(socketDir);
-  if (!socketInfo.isDirectory() || socketInfo.isSymbolicLink() || socketInfo.uid !== process.getuid()) throw Error('SiteCAD 실행기 폴더 권한을 확인해 주세요.');
-  await chmod(socketDir, 0o700);
+  await privateDirectory(dataDir);
+  const socketDir = process.platform === 'win32' ? join(dataDir, 'launcher')
+    : join(process.platform === 'darwin' ? '/private/tmp' : tmpdir(), `sitecad-web-${process.getuid()}`);
+  await privateDirectory(socketDir);
   let controller; let server; let baseUrl; let closePromise; let readyResolve; let readyReject;
   const ready = new Promise((resolveReady, rejectReady) => { readyResolve = resolveReady; readyReject = rejectReady; });
   ready.catch(() => {});
@@ -134,7 +133,7 @@ export async function startLocalWeb({ dataDir = defaultDataDir(), codexPath, ent
   const signalHandler = () => { void close().catch(() => { process.exitCode = 1; }); };
   function close() {
     closePromise ??= (async () => {
-      if (installSignalHandlers) for (const name of ['SIGINT', 'SIGTERM']) process.off(name, signalHandler);
+      if (installSignalHandlers) for (const name of shutdownSignals) process.off(name, signalHandler);
       let closeError;
       try { await controller?.close(); } catch (cause) { closeError = cause; }
       finally {
@@ -153,7 +152,7 @@ export async function startLocalWeb({ dataDir = defaultDataDir(), codexPath, ent
   try {
     const paths = desktopPaths(dataDir);
     for (const directory of [paths.codexHome, paths.workspace, paths.runtime]) await mkdir(directory, { recursive: true, mode: 0o700 });
-    codexPath ??= await installBundledCodex({ sourceDir: join(appRoot, 'runtime'), destination: join(paths.runtime, 'codex') });
+    codexPath ??= await installBundledCodex({ sourceDir: join(appRoot, 'runtime'), destination: join(paths.runtime, process.platform === 'win32' ? 'codex.exe' : 'codex') });
     const stores = createNodeSecretStores({ dataDir, entry });
     controller = await controllerFactory({ dataDir, codexPath, nodePath: process.execPath, nodeEnv: {},
       secureStore: stores.auth, mcpSecretStore: stores.mcp, referenceSecretStore: stores.references,
@@ -163,7 +162,7 @@ export async function startLocalWeb({ dataDir = defaultDataDir(), codexPath, ent
     const fixturePath = await stat(fixture).then(value => value.isFile()).catch(() => false) ? fixture
       : join(appRoot, '../rhino-experiments/retaining-wall-20261020/retaining-wall-drawing-2d.dwg');
     server = serverFactory({ desktop: controller, browserAccess, fixturePath, browserActions: {
-      openDrawings: async () => { const path = join(dataDir, 'Drawings'); await mkdir(path, { recursive: true, mode: 0o700 }); await openMac(path); },
+      openDrawings: async () => { const path = join(dataDir, 'Drawings'); await mkdir(path, { recursive: true, mode: 0o700 }); await openLocal(path); },
       quit: async () => { setTimeout(() => { void close().catch(() => { process.exitCode = 1; }); }, 100); },
     } });
     await new Promise((resolveListen, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolveListen); });
@@ -172,7 +171,7 @@ export async function startLocalWeb({ dataDir = defaultDataDir(), codexPath, ent
     const temporary = `${record}.${process.pid}.tmp`;
     await writeFile(temporary, JSON.stringify({ version: 1, pid: process.pid, port: server.address().port }), { mode: 0o600 });
     await rename(temporary, record);
-    if (installSignalHandlers) for (const name of ['SIGINT', 'SIGTERM']) process.on(name, signalHandler);
+    if (installSignalHandlers) for (const name of shutdownSignals) process.on(name, signalHandler);
     readyResolve();
     await openBrowser(browserAccess.launchUrl(baseUrl));
     return { dataDir, baseUrl, reused: false, close };

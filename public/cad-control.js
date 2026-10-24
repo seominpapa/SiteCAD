@@ -2,7 +2,7 @@ import { validateControlRequest, validateQueryRequest, validateDiscoverRequest, 
 import { commandName, commandAccess, validateAliases } from './command-policy.js';
 import { GEO_LAYER } from './geo-reference.js';
 import { mmPerUnit } from './units.js';
-import { prepareText, prepareDimension } from './annotations.js';
+import { prepareText, prepareDimension, isCadFontResult } from './annotations.js';
 
 const selection = value => JSON.stringify([...(value || [])].sort());
 const cancelled = signal => { if (signal?.aborted) throw Error('작업을 취소했습니다.'); };
@@ -225,7 +225,7 @@ export async function controlDrawing(cad, { request:input, expectedContext }, {s
       const after = await cad.snapshot();
       // Font registration invalidates the next rendered frame without changing document contents.
       const fontRender = operation.op === 'font_register' && after.revision === state.revision &&
-        reply?.result?.file_name === 'AppleGothic.ttf' && reply.result.family === 'AppleGothic' && reply.result.faces === 1;
+        isCadFontResult(operation, reply?.result);
       const reported = fontRender ? {...reply.state,geometry_revision:after.geometry_revision} : reply?.state;
       if (!reply?.ok || !reply.state || !sameCommand(reported, after) || after.document_id !== state.document_id ||
         after.layout !== state.layout || selection(after.selection) !== selection(state.selection) ||

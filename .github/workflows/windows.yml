@@ -1,0 +1,28 @@
+name: Windows local installer
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.22.1'
+      - name: Install production dependencies
+        shell: powershell
+        run: npm.cmd ci --omit=dev --no-audit --no-fund
+      - name: Native Windows installer, credentials, Codex and MCP probes
+        shell: powershell
+        run: node --test tests/windows-install.test.mjs tests/windows-runtime.test.mjs tests/node-runtime.test.mjs tests/mcp-launcher.test.mjs tests/runtime.test.mjs tests/desktop.test.mjs tests/annotations.test.mjs tests/cad-control.test.mjs
+      - name: Windows Korean system font endpoint
+        shell: powershell
+        run: node --test --test-name-pattern="Korean CAD font" tests/server.test.mjs
+      - name: Clean ZIP and actual double-click launcher installation
+        shell: powershell
+        run: node --test tests/windows-bootstrap-real.test.mjs
