@@ -10,6 +10,7 @@ import { createTerrainData } from '../lib/terrain-data.mjs';
 import { createMcpHandler } from '../lib/sitecad-mcp.mjs';
 import { researchTools } from '../lib/research-mcp.mjs';
 
+const TEST_API_KEY = 'valid-test-key';
 const address = '경기도 광주시 검증로 1';
 const point = { x: 127.246, y: 37.409 };
 const sourceUrl = 'https://www.vworld.kr/dev/v4dv_geocoderguide2_s001.do';
@@ -61,6 +62,7 @@ async function fixture(options, check) {
       codexPath: '/app/codex', nodePath: '/app/node', secureStore: {}, bridgeTimeoutMs: 1000,
       authFactory: async () => ({ status: () => ({ loggedIn: true }), getAccessToken: async () => 'test-token', close: async () => {} }),
       runtimeFactory: async () => runtime,
+      referenceSecretStore: { read: async () => ({ apiKey: TEST_API_KEY }) },
       referenceApiFactory: () => ({
         geocode: async input => { geocodes.push(input); return options.geocode ? options.geocode(input) : structuredClone(geocoded); },
         parcels: async input => {

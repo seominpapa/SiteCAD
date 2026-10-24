@@ -12,8 +12,8 @@ function setup() {
   return { references, saved: () => value, calls: () => calls };
 }
 
-test('curated references list separates built-in tools, optional REA, keyed API and local terrain originals', async () => {
-  assert.deepEqual(referenceCatalog.map(item => item.id), ['sitecad', 'web', 'standards', 'rea', 'vworld', 'terrain']);
+test('curated references list keeps built-in tools and keyed API without development REA', async () => {
+  assert.deepEqual(referenceCatalog.map(item => item.id), ['sitecad', 'web', 'standards', 'vworld', 'terrain']);
   const terrain = referenceCatalog.find(item => item.id === 'terrain');
   assert.equal(terrain.kind, 'local_source');
   assert.equal(terrain.status, 'source_required');

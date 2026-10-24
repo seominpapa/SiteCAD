@@ -31,6 +31,18 @@ test('private chats persist separately, preserve native thread identity and summ
   assert.match(await readFile(join(dataDir, 'chat-sessions', `${first.id}.json`), 'utf8'), /옹벽 단면/);
 });
 
+test('accepted steering messages persist between the original request and final reply', async t => {
+  const { store } = await fixture(t);
+  const chat = await store.create();
+  await store.recordTurn(chat.id, { message: '옹벽 그려줘', steering: ['높이는 3m', '폭은 2m'], reply: '반영했습니다.' });
+  assert.deepEqual((await store.read(chat.id)).messages.map(item => [item.role, item.text]), [
+    ['user', '옹벽 그려줘'], ['user', '높이는 3m'], ['user', '폭은 2m'], ['assistant', '반영했습니다.'],
+  ]);
+  for (const steering of [null, [''], ['x'.repeat(20001)], Array(21).fill('추가 지시')]) {
+    await assert.rejects(store.recordTurn(chat.id, { message: '원래 요청', steering, reply: '완료' }));
+  }
+});
+
 test('chat operations reject foreign IDs, invalid content, corrupt records and unsafe native identities', async t => {
   const { dataDir, store } = await fixture(t);
   const chat = await store.create();

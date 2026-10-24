@@ -1,6 +1,6 @@
 {
   "name": "sitecad-local",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -31,7 +31,6 @@
     "@napi-rs/keyring": "2.1.2",
     "pdfjs-dist": "6.4.299",
     "proj4": "2.21.0",
-    "rea-agents": "6.7.0",
     "shapefile": "0.6.6"
   }
 }

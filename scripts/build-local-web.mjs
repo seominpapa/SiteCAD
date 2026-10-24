@@ -10,10 +10,10 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const execute = promisify(execFile);
 // Explicit files prevent credentials, local MCP config, downloaded executables and project drawings entering releases.
 export const sourceEntries = Object.freeze([
-  'package.json', 'package-lock.json', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'Start SiteCAD.command', 'Start SiteCAD.cmd',
+  'package.json', 'package-lock.json', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'SOURCE_BUILD.md', 'Start SiteCAD.command', 'Start SiteCAD.cmd',
   'server.mjs', 'local-web.mjs', 'lib', 'public', 'skills', 'plan.schema.json', 'codex-models.json',
   'desktop/runtime.mjs', 'desktop/licenses', 'vendor/editor',
-  'scripts/bootstrap-local-web.sh', 'scripts/bootstrap-local-web.ps1', 'scripts/install-codex.mjs', 'scripts/install-editor.mjs', 'scripts/build-local-web.mjs',
+  'scripts/bootstrap-local-web.sh', 'scripts/bootstrap-local-web.ps1', 'scripts/install-codex.mjs', 'scripts/install-editor.mjs', 'scripts/update-model-catalog.mjs', 'scripts/build-local-web.mjs',
 ]);
 
 export async function buildLocalWeb({ sourceRoot = root, platform = 'darwin', outputDirectory = join(sourceRoot, 'dist'),

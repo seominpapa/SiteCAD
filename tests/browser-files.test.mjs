@@ -21,8 +21,10 @@ async function setup(t) {
   const base = `http://127.0.0.1:${server.address().port}`;
   const launch = await fetch(access.launchUrl(base), { redirect: 'manual' });
   const cookie = launch.headers.get('set-cookie').split(';')[0];
+  const claim = await fetch(base+'/api/browser/claim',{method:'POST',headers:{Cookie:cookie,Origin:base,'Content-Type':'application/json'},body:JSON.stringify({tabId:'browser-files-owner'})});
+  const {data:{ownerToken}} = await claim.json();
   t.after(async () => { await controller.close(); await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }); await rm(dataDir, { recursive: true, force: true }); });
-  const request = (path, init = {}) => fetch(base + path, { ...init, headers: { Cookie: cookie, Origin: base, ...init.headers } });
+  const request = (path, init = {}) => fetch(base + path, { ...init, headers: { Cookie: cookie, Origin: base, 'X-SiteCAD-Owner':ownerToken, ...init.headers } });
   return { controller, dataDir, request, base };
 }
 

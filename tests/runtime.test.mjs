@@ -15,6 +15,151 @@ function fakeChild(onRequest) {
   child.stdin = new Writable({ write(chunk, encoding, callback) { const request = JSON.parse(chunk.toString()); callback(); queueMicrotask(() => onRequest(request, message => child.stdout.write(`${JSON.stringify(message)}\n`))); } });
   return child;
 }
+async function modelRuntime({ list, events = [], holdTurn = false, intercept } = {}) {
+  const directory = await mkdtemp(join(tmpdir(), 'sitecad-models-'));
+  const calls = []; const emitted = []; let starts = 0;
+  const runtime = createCodexRuntime({ codexPath: '/app/codex', nodePath: process.execPath, mcpPath: '/app/mcp.mjs', codexHome: join(directory, 'codex'), workspace: join(directory, 'workspace'), bridgeUrl: 'http://127.0.0.1:1234', bridgeToken: 'x'.repeat(32), getAccessToken: async () => 'token', onEvent: event => emitted.push(event),
+    spawnImpl: () => { starts++; return fakeChild((request, send) => {
+      if (!request.method || !Object.hasOwn(request, 'id')) return;
+      calls.push(request);
+      if (intercept?.(request, send)) return;
+      let result = {};
+      if (request.method === 'model/list') result = list ? list(request.params, starts) : { data: [{ id: 'default', isDefault: true }, { id: 'other' }] };
+      if (request.method === 'thread/start') result = { thread: { id: request.params.ephemeral ? 'probe' : 'persistent' } };
+      if (request.method === 'thread/resume') result = { thread: { id: request.params.threadId } };
+      if (request.method === 'mcpServerStatus/list') result = { data: [{ name: 'sitecad', tools: Object.fromEntries(mcpTools.map(tool => [tool.name, {}])) }] };
+      if (request.method === 'turn/start') result = { turn: { id: 'turn' } };
+      if (request.method === 'turn/steer') result = { turnId: request.params.expectedTurnId };
+      send({ id: request.id, result });
+      if (request.method === 'turn/start') {
+        for (const event of events) send({ method: event.method, params: { threadId: request.params.threadId, ...event.params } });
+        if (!holdTurn) send({ method: 'turn/completed', params: { threadId: request.params.threadId, turn: { id: 'turn', status: 'completed', items: [{ type: 'agentMessage', text: '완료' }] } } });
+      }
+    }); } });
+  return { runtime, calls, emitted, cleanup: async () => { await runtime.stop(); await rm(directory, { recursive: true, force: true }); } };
+}
+const modelInput = { message: '모델 검증', context: { documentId: 1, revision: 0, units: 4, selection: [], entities: [] }, history: [] };
+test('steering targets the existing native turn without starting another or changing its guards', async () => {
+  const fixture = await modelRuntime({ holdTurn: true });
+  try {
+    await assert.rejects(fixture.runtime.steer('높이는 3m로 바꿔줘'), /진행/);
+    const turn = fixture.runtime.chat(modelInput);
+    const cancelled = assert.rejects(turn, /중지|취소/);
+    while (!fixture.calls.some(call => call.method === 'turn/start')) await new Promise(resolve => setImmediate(resolve));
+    await fixture.runtime.steer('높이는 3m로 바꿔줘');
+    const call = fixture.calls.find(call => call.method === 'turn/steer');
+    assert.equal(call.params.threadId, 'probe');
+    assert.equal(call.params.expectedTurnId, 'turn');
+    assert.match(call.params.input[0].text, /높이는 3m로 바꿔줘/);
+    assert.deepEqual(Object.keys(call.params).sort(), ['expectedTurnId', 'input', 'threadId']);
+    assert.equal(fixture.calls.filter(call => call.method === 'turn/start').length, 1);
+    for (const message of ['', 'x'.repeat(2001), 'secret\0', '/mcp add private', null]) await assert.rejects(fixture.runtime.steer(message));
+    await fixture.runtime.cancel(); await cancelled;
+    await assert.rejects(fixture.runtime.steer('계속해줘'), /진행/);
+  } finally { await fixture.cleanup(); }
+});
+
+test('a delayed start response from a completed turn cannot retarget steering of the next turn', async () => {
+  const starts = [];
+  const fixture = await modelRuntime({ intercept: (request, send) => {
+    if (request.method !== 'turn/start') return false;
+    starts.push({ request, send }); return true;
+  } });
+  let nextDone;
+  try {
+    const first = fixture.runtime.chat(modelInput);
+    while (starts.length < 1) await new Promise(resolve => setImmediate(resolve));
+    const previous = starts[0];
+    previous.send({ method: 'turn/completed', params: { threadId: previous.request.params.threadId,
+      turn: { id: 'previous-turn', status: 'completed', items: [{ type: 'agentMessage', text: '완료' }] } } });
+    await first;
+    const next = fixture.runtime.chat(modelInput);
+    nextDone = assert.rejects(next, /중지|취소/);
+    while (starts.length < 2) await new Promise(resolve => setImmediate(resolve));
+    const current = starts[1];
+    current.send({ id: current.request.id, result: { turn: { id: 'current-turn' } } });
+    previous.send({ id: previous.request.id, result: { turn: { id: 'previous-turn' } } });
+    await new Promise(resolve => setImmediate(resolve));
+    await fixture.runtime.steer('현재 작업에 추가 지시');
+    assert.equal(fixture.calls.find(call => call.method === 'turn/steer').params.expectedTurnId, 'current-turn');
+    await fixture.runtime.cancel(); await nextDone;
+  } finally { await fixture.cleanup(); await nextDone; }
+});
+test('model catalog paginates, hides unavailable entries, sanitizes fields and caches copies', async () => {
+  const fixture = await modelRuntime({ list: params => params.cursor ? { data: [{ id: 'alias', model: 'other', displayName: 'Other', description: 'Second', isDefault: false, private: 'secret' }] } : { data: [...Array.from({ length: 99 }, (_, index) => ({ id: `hidden-${index}`, hidden: true })), { id: 'default', displayName: 'Default', description: 'First', isDefault: true }], nextCursor: 'page2' } });
+  try {
+    assert.deepEqual(await fixture.runtime.listModels(), [{ id: 'default', displayName: 'Default', description: 'First', isDefault: true }, { id: 'other', displayName: 'Other', description: 'Second', isDefault: false }]);
+    assert.equal(fixture.calls.some(call => call.method === 'mcpServer/tool/call'), false);
+    assert.equal(fixture.runtime.status().mcp.contextVerified, false);
+    const changed = await fixture.runtime.listModels(); changed[0].id = 'forged'; changed.push({ id: 'extra' });
+    assert.equal((await fixture.runtime.listModels())[0].id, 'default');
+    assert.deepEqual(fixture.calls.filter(call => call.method === 'model/list').map(call => call.params), [{ limit: 100, includeHidden: false }, { limit: 100, includeHidden: false, cursor: 'page2' }]);
+    await fixture.runtime.chat(modelInput);
+    assert.equal(fixture.calls.filter(call => call.method === 'mcpServer/tool/call').length, 1);
+    assert.equal(fixture.runtime.status().mcp.contextVerified, true);
+  } finally { await fixture.cleanup(); }
+});
+test('chat model overrides reach new, resumed and already loaded threads without fallback', async () => {
+  const fixture = await modelRuntime(); const sessionId = randomUUID();
+  try {
+    await fixture.runtime.chat(modelInput, { model: 'other', sessionId });
+    await fixture.runtime.chat(modelInput, { model: 'default', sessionId, nativeThreadId: 'persistent' });
+    await fixture.runtime.chat(modelInput, { model: 'other', sessionId, nativeThreadId: 'old-thread' });
+    await fixture.runtime.chat(modelInput);
+    assert.deepEqual(fixture.calls.filter(call => call.method === 'turn/start').map(call => call.params.model), ['other', 'default', 'other', 'default']);
+    assert.equal(fixture.calls.find(call => call.method === 'thread/start' && !call.params.ephemeral).params.model, 'other');
+    assert.equal(fixture.calls.find(call => call.method === 'thread/resume').params.model, 'other');
+    const turns = fixture.calls.filter(call => call.method === 'turn/start').length;
+    for (const model of ['missing', '', null, {}, ' default']) await assert.rejects(fixture.runtime.chat(modelInput, { model }), /모델/);
+    assert.equal(fixture.calls.filter(call => call.method === 'turn/start').length, turns);
+  } finally { await fixture.cleanup(); }
+});
+test('visible model lists beyond 100 entries continue through the returned cursor', async () => {
+  const fixture = await modelRuntime({ list: params => params.cursor ? { data: [{ id: 'model-100' }] } : { data: Array.from({ length: 100 }, (_, index) => ({ id: `model-${index}`, isDefault: index === 0 })), nextCursor: 'remaining' } });
+  try {
+    assert.equal((await fixture.runtime.listModels()).length, 101);
+    await fixture.runtime.chat(modelInput, { model: 'model-100' });
+    assert.equal(fixture.calls.find(call => call.method === 'turn/start').params.model, 'model-100');
+  } finally { await fixture.cleanup(); }
+});
+test('model catalogs reset after restart and reject malformed or unbounded server catalogs', async t => {
+  const fixture = await modelRuntime({ list: (params, starts) => ({ data: [{ id: starts === 1 ? 'old' : 'new', isDefault: true }] }) });
+  try {
+    assert.equal((await fixture.runtime.listModels())[0].id, 'old'); await fixture.runtime.stop();
+    assert.equal(fixture.runtime.status().model, null);
+    assert.equal((await fixture.runtime.listModels())[0].id, 'new');
+    await assert.rejects(fixture.runtime.chat(modelInput, { model: 'old' }), /모델/);
+  } finally { await fixture.cleanup(); }
+  for (const [name, list] of Object.entries({ missing: () => ({}), invalid: () => ({ data: [{ id: 'bad\nmodel' }] }), duplicate: () => ({ data: [{ id: 'same' }, { model: 'same' }] }), hidden: () => ({ data: [{ id: 'hidden', hidden: true }] }), endless: params => ({ data: [{ id: `page-${params.cursor ?? 'start'}` }], nextCursor: `${params.cursor ?? ''}next` }), repeated: () => ({ data: [{ id: randomUUID() }], nextCursor: 'same' }) })) {
+    await t.test(name, async () => { const invalid = await modelRuntime({ list }); try { await assert.rejects(invalid.runtime.listModels(), /모델/); assert.ok(invalid.calls.filter(call => call.method === 'model/list').length <= 5); } finally { await invalid.cleanup(); } });
+  }
+});
+test('tool streaming preserves identity, reports logical errors and excludes reasoning deltas', async () => {
+  const item = { id: 'cad-call', type: 'mcpToolCall', server: 'sitecad', tool: 'cad_context', arguments: { secret: 'private' } };
+  const fixture = await modelRuntime({ events: [
+    { method: 'item/started', params: { item } },
+    { method: 'item/completed', params: { item: { ...item, status: 'completed', result: { isError: true } } } },
+    { method: 'item/completed', params: { item: { ...item, id: 'cad-error', status: 'completed', error: {} } } },
+    { method: 'item/started', params: { item: { id: 'web-call', type: 'webSearch' } } },
+    { method: 'item/completed', params: { item: { id: 'web-call', type: 'webSearch' } } },
+    { method: 'item/reasoning/textDelta', params: { delta: 'internal reasoning' } },
+    { method: 'item/agentMessage/delta', params: { delta: '사용자 답변' } },
+  ] });
+  try {
+    const result = await fixture.runtime.chat(modelInput);
+    assert.equal(result.reply, '사용자 답변'); assert.equal(result.toolFailed, true);
+    assert.deepEqual(fixture.emitted.filter(event => event.type === 'tool'), [
+      { type: 'tool', id: 'cad-call', server: 'sitecad', name: 'cad_context', status: 'running' },
+      { type: 'tool', id: 'cad-call', server: 'sitecad', name: 'cad_context', status: 'failed' },
+      { type: 'tool', id: 'cad-error', server: 'sitecad', name: 'cad_context', status: 'failed' },
+      { type: 'tool', id: 'web-call', server: 'codex', name: 'web_search', status: 'running' },
+      { type: 'tool', id: 'web-call', server: 'codex', name: 'web_search', status: 'completed' },
+    ]);
+    assert.deepEqual(fixture.emitted.filter(event => event.type === 'delta'), [{ type: 'delta', text: '사용자 답변' }]);
+    assert.doesNotMatch(JSON.stringify(fixture.emitted), /private|internal reasoning/);
+    assert.deepEqual(result.details.slice(0, 2).map(detail => detail.status), ['failed', 'failed']);
+  } finally { await fixture.cleanup(); }
+});
 test('RPC correlates responses, rejects unexpected server requests and bounds malformed output', async () => {
   const writes = [];
   const child = fakeChild((request, send) => { writes.push(request); if (request.method === 'ping') send({ id: request.id, result: { ok: true } }); });
@@ -164,9 +309,9 @@ test('standard Responses search probe accepts only an explicit absolute local ca
 });
 test('the packaged model catalog preserves standard Responses support for verified hosted search', async () => {
   const catalog = JSON.parse(await readFile(new URL('../codex-models.json', import.meta.url), 'utf8'));
-  assert.equal(catalog.models.length, 1);
-  assert.ok(JSON.stringify(catalog).length < 20000);
-  assert.ok(catalog.models.every(item => !item.model_messages && !item.comp_hash));
+  assert.equal(catalog.models.length, 11);
+  assert.equal(catalog.models.filter(item => item.visibility === 'list').length, 8);
+  assert.ok(catalog.models.every(item => item.use_responses_lite === false));
   const model = catalog.models.find(item => item.slug === 'gpt-6.1-sol');
   assert.equal(model?.use_responses_lite, false, 'Responses Lite omits hosted web search in Codex 0.163');
   assert.ok(['text', 'text_and_image'].includes(model.web_search_tool_type));

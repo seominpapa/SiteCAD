@@ -11,7 +11,7 @@
   </head>
   <body>
     <header class="app-header">
-      <div class="brand"><span class="brand-mark" aria-hidden="true">SC</span><div><h1>SiteCAD</h1><p>로컬 도면 작업실</p></div></div>
+      <div class="brand"><span class="brand-mark" aria-hidden="true">SC</span><div><h1>SiteCAD</h1><p>로컬 도면 작업실 · <a href="/licenses.html" target="_blank" rel="noopener">라이선스·소스</a></p></div></div>
       <div class="connection"><span id="oauth-status" class="status-badge" role="status">OpenAI 연결 확인 중</span><span id="mcp-status" class="status-badge" hidden>내부 MCP 대기</span><button id="login-chatgpt" class="header-button" type="button" hidden>ChatGPT로 계속</button><button id="logout-chatgpt" class="header-button" type="button" hidden>로그아웃</button><button id="cancel-task" class="header-button" type="button" hidden>작업 취소</button><button id="refresh-connection" class="header-button" type="button">연결 확인</button></div>
       <div id="local-actions" class="connection" hidden><button id="open-saved-folder" class="header-button" type="button">저장 폴더</button><button id="quit-local" class="header-button" type="button">실행기 종료</button></div>
     </header>
@@ -32,18 +32,22 @@
       </section>
 
       <aside id="sitecad-chat-panel" class="chat-panel" aria-labelledby="chat-title">
-        <div class="chat-heading"><div><p class="eyebrow">DRAWING ASSISTANT</p><h2 id="chat-title">도면에 요청하기</h2></div><div class="chat-heading-actions"><button id="chat-collapse" type="button" aria-controls="sitecad-chat-panel" aria-expanded="true">채팅 접기</button><button id="manage-mcp" type="button" hidden>MCP 관리</button><span id="external-mcp-status" class="external-mcp-status" hidden>외부 MCP 없음</span></div></div>
+        <div class="chat-heading"><div><p class="eyebrow">DRAWING ASSISTANT</p><h2 id="chat-title">도면에 요청하기</h2></div><div class="chat-heading-actions"><button id="chat-collapse" type="button" aria-controls="sitecad-chat-panel" aria-expanded="true">채팅 접기</button><button id="manage-mcp" type="button" hidden>외부 연결</button><span id="external-mcp-status" class="external-mcp-status" hidden>등록된 연결 없음</span></div></div>
         <div id="chat-session-controls" class="chat-session-controls" hidden><label class="sr-only" for="chat-select">채팅 선택</label><select id="chat-select" aria-label="채팅 선택" disabled><option>채팅을 준비하고 있습니다</option></select><button id="chat-new" type="button" disabled>새 채팅</button><p id="chat-history-status" role="status"></p></div>
         <div id="auth-help" class="auth-help" hidden><strong>OpenAI 로그인이 필요합니다.</strong><p>이 프로젝트의 터미널에서 <code>codex login</code>을 실행한 뒤 연결 확인을 눌러 주세요. ChatGPT 계정의 OAuth 로그인을 사용합니다.</p></div>
         <div id="messages" class="messages" role="log" aria-label="도면 작업 대화" aria-live="polite" aria-relevant="additions">
           <article class="message assistant welcome"><p class="message-author">SiteCAD</p><p>원하는 도면이나 현장 주소를 입력해 주세요.</p><p class="secondary-text">객체를 선택해 수정하거나, 물량검토를 요청해 레이어별 객체 개수·길이·면적을 표로 확인하세요.</p></article>
         </div>
+        <section id="chat-live" class="chat-live" aria-label="실시간 답변과 도구 실행" aria-live="polite" hidden>
+          <p id="chat-live-status" class="chat-live-status" role="status"></p>
+          <div id="chat-live-tools" class="chat-live-tools"></div>
+          <p id="chat-live-text" class="chat-live-text"></p>
+        </section>
         <div id="tool-approvals" class="tool-approvals" aria-live="polite" aria-label="외부 도구 실행 승인" hidden></div>
         <div id="chat-progress" class="chat-progress" role="status" hidden><span class="spinner" aria-hidden="true"></span><span id="chat-progress-text">요청을 해석하고 있습니다.</span></div>
         <div class="composer-area">
-          <div class="example-prompts" aria-label="요청 예시">
-            <button type="button" class="prompt-chip" data-prompt="레이어별 물량검토 후 DWG로 저장하는 작업을 quantity-save 스킬로 만들어줘" disabled>자주 쓰는 작업을 스킬로</button>
-            <button type="button" class="prompt-chip" data-prompt="MCP GitHub URL을 붙여 넣으면 설치할 수 있는지 알려줘" disabled>MCP 설치 안내</button>
+
+          <div class="example-prompts" aria-label="도면 요청 예시">
             <button type="button" class="prompt-chip" data-prompt="가로 6m, 세로 4m 사각형을 그려줘" disabled>6 × 4m 사각형 그리기</button>
             <button type="button" class="prompt-chip" data-prompt="선택한 객체를 오른쪽으로 500mm 옮겨줘" disabled>선택 객체 500mm 이동</button>
             <button type="button" class="prompt-chip" data-prompt="선택한 객체의 길이와 면적을 알려줘" disabled>길이·면적 확인</button>
@@ -51,60 +55,43 @@
             <button type="button" class="prompt-chip" data-prompt="경기도 광주시 행정타운로 50" disabled>주소로 필지·지형 그리기</button>
             <button type="button" class="prompt-chip" data-prompt="공개 설계기준을 찾아 배수로 개념 단면도를 그려줘. 누락 치수는 가정하고 출처를 표시해줘." disabled>설계기준 참고 개념도</button>
           </div>
-          <div class="skill-menu-controls"><button id="skill-toggle" type="button" aria-expanded="false" aria-controls="skill-menu" hidden>/ 스킬</button></div><section id="skill-menu" class="skill-menu" aria-label="설치된 스킬" hidden><p id="skill-status" role="status"></p><div id="skill-list"></div></section>
-          <form id="chat-form"><label for="message-input" class="sr-only">도면 생성 또는 수정 요청</label><textarea id="message-input" rows="3" maxlength="2000" placeholder="도면 요청 · /스킬 · MCP GitHub URL" aria-controls="skill-menu" disabled></textarea><div class="composer-footer"><span>Enter 전송 · Shift+Enter 줄바꿈</span><button id="send-message" class="primary" type="submit" disabled>전송</button></div></form>
-          <p class="composer-note">새 도면과 단위 없는 치수는 mm 기준입니다. m를 명시하면 도면 단위로 환산합니다. 경기도 광주시 주소만 입력하면 주변 필지·공개 등고선을 넣어 DWG로 저장합니다. 다른 지역의 자동 지형 제공처는 준비 중입니다.</p>
+          <div class="skill-menu-controls"><button id="skill-toggle" type="button" aria-expanded="false" aria-controls="skill-menu" hidden>슬래시: 스킬</button><button id="model-choice" type="button" aria-haspopup="dialog" aria-controls="model-dialog" hidden disabled>모델: 자동 선택</button></div><section id="skill-menu" class="skill-menu" aria-label="설치된 스킬" hidden><p id="skill-status" role="status"></p><div id="skill-list"></div></section>
+          <form id="chat-form"><label for="message-input" class="sr-only">도면 생성 또는 수정 요청</label><textarea id="message-input" rows="3" maxlength="2000" placeholder="도면 요청 · /스킬 · MCP·API·플러그인 등록" aria-controls="skill-menu" disabled></textarea><div class="composer-footer"><span id="composer-hint">Enter 전송 · Shift+Enter 줄바꿈</span><div class="composer-actions"><button id="stop-task" type="button" hidden>정지</button><button id="send-message" class="primary" type="submit" disabled>전송</button></div></div></form>
+          <details class="registration-help">
+            <summary>스킬·연결 등록 방법</summary>
+            <div class="registration-guide">
+              <p><strong>스킬</strong> 채팅에 “이 작업을 스킬로 만들어줘”라고 요청하세요. 저장된 작업은 슬래시 목록에서 선택해 다시 실행합니다.</p>
+              <p><strong>MCP</strong> GitHub URL과 함께 “이 MCP를 설치해줘”라고 요청하거나 <code>/mcp</code>로 설정 입력 카드를 여세요. 실행 대상과 권한을 검토한 뒤 승인합니다.</p>
+              <p><strong>API</strong> “API 등록해줘”라고 입력하면 지원 API인 VWorld의 전용 입력창이 열립니다. API 키는 채팅에 붙여 넣지 말고 입력창에 입력하세요.</p>
+              <p><strong>플러그인</strong> GitHub URL과 함께 “이 플러그인을 설치해줘”라고 요청하세요. 지원하는 지침형 플러그인을 검토·승인하면 포함된 스킬을 슬래시 목록에서 실행할 수 있습니다.</p>
+              <div class="registration-guide-actions">
+                <button type="button" class="prompt-chip" data-prompt="이 채팅에서 진행한 도면 작업을 재사용 가능한 스킬로 만들어줘" disabled>스킬 만들기</button>
+                <button type="button" class="prompt-chip" data-prompt="/mcp" disabled>MCP 등록</button>
+                <button type="button" class="prompt-chip" data-prompt="API 등록해줘" disabled>API 등록</button>
+                <button type="button" class="prompt-chip" data-prompt="플러그인 GitHub URL로 설치하는 방법과 지원 범위를 알려줘" disabled>플러그인 설치 안내</button>
+              </div>
+            </div>
+          </details>
         </div>
       </aside>
     </main>
+    <dialog id="model-dialog" class="model-dialog" aria-labelledby="model-dialog-title" aria-describedby="model-catalog-note">
+      <form method="dialog" class="mcp-dialog-heading"><div><p class="eyebrow">CHAT MODEL</p><h2 id="model-dialog-title">모델 선택</h2></div><button type="submit" aria-label="모델 선택 닫기">닫기</button></form>
+      <div class="model-dialog-content">
+        <p id="model-catalog-note" class="mcp-intro">Codex에서 조회한 실제 모델 카탈로그입니다. 계정의 모델 실행 권한은 요청 시 별도로 확인합니다.</p>
+        <label for="model-select">다음 요청에 사용할 모델</label>
+        <select id="model-select" aria-describedby="model-description" disabled><option value="">모델 카탈로그를 불러와 주세요</option></select>
+        <p id="model-description" class="model-description"></p>
+        <p id="model-notice" class="model-notice" role="status"></p>
+        <div class="model-dialog-actions"><button id="models-refresh" type="button" disabled>목록 새로 고침</button><button id="model-apply" class="primary" type="button" disabled>이 모델 사용</button></div>
+      </div>
+    </dialog>
     <dialog id="mcp-dialog" aria-labelledby="mcp-dialog-title">
-      <form method="dialog" class="mcp-dialog-heading"><div><p class="eyebrow">EXTERNAL TOOLS</p><h2 id="mcp-dialog-title">외부 MCP 관리</h2></div><button type="submit" aria-label="MCP 관리 닫기">닫기</button></form>
+      <form method="dialog" class="mcp-dialog-heading"><div><p class="eyebrow">CONNECTIONS</p><h2 id="mcp-dialog-title">외부 연결</h2></div><button type="submit" aria-label="외부 연결 닫기">닫기</button></form>
       <div class="mcp-dialog-content">
-        <p class="mcp-intro">이 SiteCAD에 연결할 도구를 등록합니다. AI가 요청한 외부 도구 실행은 채팅에서 한 번씩 승인합니다.</p>
+        <p class="mcp-intro">채팅에서 등록한 MCP·API·플러그인입니다. 추가·설정은 채팅에서 요청하세요.</p>
         <p id="mcp-notice" class="mcp-notice" role="status" hidden></p>
-        <section class="reference-connections" aria-labelledby="reference-title">
-          <h3 id="reference-title">설계 자료 연결</h3>
-          <ul class="reference-catalog">
-            <li><div><strong>내부 CAD</strong><p>도면 생성·수정·물량검토</p></div><span class="reference-ready">사용 가능 · 추가 등록 불필요</span></li>
-            <li><div><strong>웹 검색·문서 읽기</strong><p>공개 HTML·텍스트·PDF 참고 자료</p></div><span class="reference-ready">사용 가능 · 추가 등록 불필요</span></li>
-            <li><div><strong>국내 KDS·KCS</strong><p>국가건설기준센터 우선 · 공개 원문 조회</p></div><button id="reference-standards-open" type="button">조회 범위</button></li>
-            <li><div><strong>REA</strong><p>설치된 REA의 기존 MCP 사전 설정</p></div><button id="reference-rea-open" type="button">등록 검토</button></li>
-            <li><div><strong>VWorld API</strong><p>주소·필지 조회와 좌표 변환·도면 삽입 · 개인 API 키 필요</p></div><button id="reference-vworld-open" type="button">키 연결</button></li>
-            <li><div><strong>지형도·표고 삽입</strong><p>광주시 주소 자동 조회 · 다른 지역은 원본 등록</p></div><button id="reference-terrain-open" type="button">지형 원본 등록</button></li>
-          </ul>
-          <div id="reference-standards" class="reference-scope" tabindex="-1"><strong>KDS·KCS 조회 범위</strong><p>국가건설기준센터의 공개 원문을 우선 검색합니다. 검색 결과와 실제 읽은 원문을 구분하고, 도면의 치수가 원문 근거인지 가정인지 표시합니다.</p></div>
-          <section id="reference-vworld" class="vworld-settings" aria-labelledby="vworld-title">
-            <div class="mcp-section-heading"><h3 id="vworld-title">VWorld API</h3><span id="vworld-status" class="reference-key-status" role="status">키 연결 상태 확인 전</span></div>
-            <p class="mcp-field-hint">조회한 필지 경계를 실제 크기로 도면에 삽입하고 위치 기준을 보존합니다. 경기도 광주시는 주소만으로 공개 등고선을 자동 조회합니다. 다른 지역은 아래에서 원본을 등록하세요. 공인 측량 경계로 사용할 수 없습니다.</p>
-            <form id="vworld-form" autocomplete="off">
-              <label for="vworld-api-key">VWorld API 키</label><input id="vworld-api-key" type="password" autocomplete="off" spellcheck="false" maxlength="256" placeholder="API 키를 입력하세요" />
-              <label for="vworld-domain">등록 도메인 <span>선택</span></label><input id="vworld-domain" type="text" autocomplete="off" spellcheck="false" maxlength="2048" placeholder="발급 시 등록한 도메인 · 미입력 가능" />
-              <label class="mcp-trust-label"><input id="vworld-save-consent" type="checkbox" /><span>이 SiteCAD에 키를 저장하는 데 동의합니다. 키는 VWorld 공식 API 서버에만 전송되며 채팅·AI 모델에는 전달되지 않습니다.</span></label>
-              <button id="vworld-save" class="primary" type="submit" disabled>키 저장</button>
-            </form>
-            <div class="vworld-verification"><label class="mcp-trust-label"><input id="vworld-test-consent" type="checkbox" /><span>저장한 키와 “서울특별시 중구 세종대로 110” 주소를 VWorld 공식 API에 한 번 전송해 연결을 확인하는 데 동의합니다.</span></label><div class="mcp-server-actions"><button id="vworld-test" type="button" disabled>실제 연결 확인</button><button id="vworld-remove" type="button" disabled>키 연결 해제</button></div></div>
-            <p id="vworld-notice" class="mcp-notice" role="status" hidden></p>
-          </section>
-          <section id="reference-terrain" class="reference-scope" aria-labelledby="terrain-title" tabindex="-1">
-            <div class="mcp-section-heading"><h3 id="terrain-title">지형 원본 등록</h3><button id="terrain-import" type="button">원본 파일 선택</button></div>
-            <input id="terrain-files" type="file" accept=".shp,.dbf,.prj,.geojson,.json" multiple hidden aria-label="지형 원본 파일" />
-            <p class="mcp-field-hint">브라우저에서는 GeoJSON 1개 또는 같은 이름의 SHP·DBF·PRJ 3개를 함께 선택하세요. 업로드 합계는 128MiB 이하이며 GeoJSON은 32MiB 이하입니다.</p>
-            <p class="mcp-field-hint">다운로드한 SHP(같은 폴더의 DBF·PRJ 필수) 또는 GeoJSON을 선택합니다. VWorld API 키와 원본 다운로드 권한은 별개이며, 포털 다운로드에는 로그인이 필요할 수 있습니다. 전국 지형 자료가 자동으로 포함되지는 않습니다.</p>
-            <p class="mcp-field-hint">경기도 광주시 주소만 채팅에 입력하면 반경 100m의 필지와 공개 등고선을 자동 조회·등록하고 같은 위치·실척으로 삽입해 DWG로 저장합니다. 표고는 m로 해석하며 수직 기준면은 미확인입니다. 같은 영역의 검증된 원본은 재사용합니다. 다른 지역은 공개 GeoJSON 주소를 채팅에 붙여 넣고 “다운로드해 지형 원본으로 등록하고 도면에 넣어 저장해줘”라고 요청할 수 있습니다. 실제 좌표·표고를 검증한 자료만 등록하며 ZIP·인증 포털은 이 경로에서 지원하지 않습니다.</p>
-            <p><a href="https://www.vworld.kr/dtmk/dtmk_ntads_s002.do?svcCde=MK&amp;dsId=30185" target="_blank" rel="noopener noreferrer">VWorld 등고선 원본 안내</a></p>
-            <p class="mcp-field-hint">등록 후 채팅에서 주소 주변 1km² 이하 영역을 조회·삽입·DWG 저장하도록 요청하세요. 필지와 동일한 EPSG:5179 위치 기준·모형 실척 1:1을 적용하고, 원본 표고를 Z 높이로 보존합니다. 표고 기준이 불명확하면 변환하지 않으며 자료 밖의 보간·외삽 지형을 만들지 않습니다.</p>
-            <div id="terrain-datasets" aria-live="polite"></div>
-            <p id="terrain-notice" class="mcp-notice" role="status" hidden></p>
-          </section>
-        </section>
-        <section aria-labelledby="mcp-servers-title"><div class="mcp-section-heading"><h3 id="mcp-servers-title">등록된 서버</h3><button id="mcp-refresh" type="button">새로 고침</button></div><div id="mcp-server-list" class="mcp-server-list"></div></section>
-        <section class="mcp-add-section" aria-labelledby="mcp-add-title"><div class="mcp-section-heading"><h3 id="mcp-add-title">서버 등록</h3><button id="mcp-rea-preset" type="button">REA 추가</button></div>
-          <form id="mcp-config-form"><label for="mcp-config">MCP 설정 JSON</label><textarea id="mcp-config" rows="7" spellcheck="false" maxlength="60000" placeholder='{"mcpServers":{"my-server":{"command":"/absolute/path/to/server","args":[]}}}'></textarea><p class="mcp-field-hint">표준 mcpServers 형식 또는 단일 서버 설정을 붙여 넣으세요. 로컬 stdio의 command는 실행 파일의 절대 경로여야 합니다. HTTP 인증은 headers의 Authorization: Bearer 형식만 지원합니다.</p>
-            <div id="mcp-preset-preview" class="mcp-preset-preview" hidden><strong>사전 설정이 실행할 명령</strong><pre id="mcp-preset-command"></pre></div>
-            <div class="mcp-trust-scope"><strong>등록 전에 실행 대상과 전송 범위를 확인해 주세요.</strong><p>로컬 명령은 SiteCAD의 사용자 권한으로 실행됩니다. 연결한 도구에는 요청과 도면 관련 입력이 전달될 수 있고, URL 서버는 이를 외부로 전송할 수 있습니다.</p><label class="mcp-trust-label"><input id="mcp-trusted" type="checkbox" required /><span>명령·주소를 확인했으며, 이 설정을 현재 SiteCAD에서 사용하도록 신뢰합니다.</span></label></div>
-            <button id="mcp-save" class="primary" type="submit" disabled>검토한 서버 등록</button>
-          </form>
-        </section>
+        <section aria-labelledby="mcp-servers-title"><div class="mcp-section-heading"><h3 id="mcp-servers-title">등록된 연결</h3><button id="mcp-refresh" type="button">새로 고침</button></div><div id="mcp-server-list" class="mcp-server-list" aria-live="polite"></div></section>
       </div>
     </dialog>
   </body>

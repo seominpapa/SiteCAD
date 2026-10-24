@@ -30,10 +30,10 @@ export function createSkillMenu({ isBusy, onChange = () => {} }) {
       });
       $('skill-list').append(button);
     }
-    $('skill-status').textContent = error ? '스킬 목록을 불러오지 못했습니다. 스킬 버튼으로 다시 시도해 주세요.'
+    $('skill-status').textContent = error ? '슬래시 목록을 불러오지 못했습니다. 슬래시 버튼으로 다시 시도해 주세요.'
       : loading ? '스킬 목록을 확인하고 있습니다.'
       : !skills.length ? '채팅에 “자주 쓰는 작업을 스킬로 만들어줘”라고 요청해 보세요. 스킬 만들기를 사용할 수 있습니다.'
-      : !matches.length ? '일치하는 스킬이 없습니다. 설치된 스킬 이름을 확인해 주세요.'
+      : !matches.length ? '일치하는 스킬이 없습니다. 설치된 명령 이름을 확인해 주세요.'
       : '스킬을 선택하고 요청 내용을 덧붙인 뒤 전송하세요.';
   }
 
@@ -63,7 +63,8 @@ export function createSkillMenu({ isBusy, onChange = () => {} }) {
     sync();
   });
   $('message-input').addEventListener('input', () => {
-    open = /^\/[^\s]*$/u.test($('message-input').value);
+    const value = $('message-input').value;
+    open = /^\/[^\s]*$/u.test(value) && !/^\/(?:mcp|api)$/i.test(value);
     sync();
   });
   $('message-input').addEventListener('keydown', event => { if (event.key === 'Escape') { open = false; sync(); } });

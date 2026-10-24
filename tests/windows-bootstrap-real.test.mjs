@@ -61,9 +61,17 @@ test('fresh Windows release double-click installs its private runtimes and opens
     assert.ok(runtime && startupComplete, `Private runtime installation and browser opening did not finish within 12 minutes\n${diagnostics()}`);
     assert.ok(Number.isSafeInteger(runtime.pid) && runtime.pid > 0);
     assert.ok(Number.isSafeInteger(runtime.port) && runtime.port > 0 && runtime.port < 65536);
-    const response = await fetch(`http://127.0.0.1:${runtime.port}/`, { signal: AbortSignal.timeout(10000) });
-    assert.equal(response.status, 403, 'Local HTTP service must reject a request without its browser capability');
-    await response.body?.cancel();
+    const baseUrl = `http://127.0.0.1:${runtime.port}`;
+    const response = await fetch(`${baseUrl}/`, { signal: AbortSignal.timeout(10000) });
+    assert.equal(response.status, 200, 'Anonymous visitors may open only the safe browser connection page');
+    const landing = await response.text();
+    assert.match(landing, /이 브라우저로 연결/);
+    assert.doesNotMatch(landing, /<iframe|browser-start\.js|app\.js/);
+    for (const path of ['/app/', '/api/health', '/api/desktop/status']) {
+      const denied = await fetch(`${baseUrl}${path}`, { signal: AbortSignal.timeout(10000) });
+      assert.equal(denied.status, 403, `Private path ${path} must require the browser capability`);
+      await denied.body?.cancel();
+    }
     assert.equal((await execute(privateNode, ['--version'])).stdout.trim(), 'v24.22.1');
     assert.equal((await execute(privateNode, ['-p', 'process.arch'])).stdout.trim(), nativeArch);
     assert.match(await readFile(join(root, '.runtime/local-web/dependencies.ready'), 'utf8'), new RegExp(`-${nativeArch}-24\\.22\\.1-win32-node-only$`));
@@ -84,7 +92,7 @@ const mcp = await stores.mcp.read();
 assert.ok(mcp === null || (mcp.records && Object.keys(mcp.records).length === 0), 'Fresh installation must not inherit MCP secrets');
 assert.ok(await stores.references.read() === null, 'Fresh installation must not inherit VWorld credentials');
 `, dataDir], { cwd: root, timeout: 30000 });
-    assert.ok((await readdir(join(root, 'node_modules'))).includes('rea-agents'));
+    assert.equal((await readdir(join(root, 'node_modules'))).includes('rea-agents'), false, 'Fresh production install must not include development REA');
   } finally {
     if (child && child.pid && child.exitCode === null && child.signalCode === null) {
       stopProcessTree(child, 'SIGKILL');

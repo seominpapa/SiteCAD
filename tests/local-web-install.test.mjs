@@ -18,11 +18,13 @@ const extractArchive = async (archive, destination) => process.platform === 'win
   ? powershell(`Expand-Archive -LiteralPath ${psLiteral(archive)} -DestinationPath ${psLiteral(destination)}`)
   : execute('/usr/bin/unzip', ['-q', archive, '-d', destination]);
 
-test('release dependency lock excludes vulnerable Zod versions from REA and MCP', async () => {
+test('production manifest and lock exclude bundled REA and retain pinned schema versions if needed', async () => {
+  const manifest = JSON.parse(await readFile(new URL('package.json', project), 'utf8'));
   const lock = JSON.parse(await readFile(new URL('package-lock.json', project), 'utf8'));
-  const schemas = Object.entries(lock.packages).filter(([name]) => name.endsWith('node_modules/zod'));
-  assert.ok(schemas.length > 0);
-  for (const [, value] of schemas) assert.equal(value.version, '4.6.6');
+  assert.equal(manifest.dependencies['rea-agents'], undefined);
+  assert.equal(lock.packages[''].dependencies['rea-agents'], undefined);
+  assert.ok(Object.keys(lock.packages).every(name => !name.includes('node_modules/rea-agents')));
+  for (const [name, value] of Object.entries(lock.packages)) if (name.endsWith('node_modules/zod')) assert.equal(value.version, '4.6.6');
 });
 
 test('macOS bootstrap pins verified private Node and retains the full local runtime', { skip: process.platform === 'win32' }, async () => {

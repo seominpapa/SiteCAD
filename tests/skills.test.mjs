@@ -120,3 +120,19 @@ test('concurrent edits compare the exact previous skill and cannot silently over
   assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
   assert.equal(results.filter(result => result.status === 'rejected').length, 1);
 });
+
+test('owned skill removal requires an exact hash and preserves changed, built-in and companion files', async t => {
+  const { store, codexHome } = await setup(t);
+  await store.seed();
+  const saved = await store.save(draft);
+  await assert.rejects(store.remove(draft.name, '0'.repeat(64)), /변경/);
+  await assert.rejects(store.remove('../escape', saved.hash), /스킬/);
+  await assert.rejects(store.remove(draft.name, 'bad'), /스킬/);
+  await assert.rejects(store.remove('skill-creator', saved.hash), /기본/);
+  await writeFile(join(codexHome, 'skills', draft.name, 'keep.txt'), 'user file');
+  await assert.rejects(store.remove(draft.name, saved.hash), /파일|변경/);
+  assert.equal((await store.read(draft.name)).body, draft.body);
+  await rm(join(codexHome, 'skills', draft.name, 'keep.txt'));
+  await store.remove(draft.name, saved.hash);
+  assert.equal((await store.list()).some(item => item.name === draft.name), false);
+});

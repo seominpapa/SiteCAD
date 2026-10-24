@@ -64,7 +64,6 @@ async function start() {
       const selection = await (mainWindow ? dialog.showOpenDialog(mainWindow, options) : dialog.showOpenDialog(options));
       return selection.canceled ? null : selection.filePaths[0];
     },
-    reaSource: join(appRoot, 'node_modules/rea-agents'),
     modelCatalogPath: join(appRoot, 'codex-models.json'),
     openExternal: async url => {
       if (!isAllowedAuthUrl(url)) throw Error('허용되지 않은 로그인 주소입니다.');

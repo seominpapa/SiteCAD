@@ -10,7 +10,7 @@ function fixture(decision = 'approve') {
     installed.push(value); return {config:{name:value.name,transport:'stdio',command:'/app/node',args:['/private/tool.mjs']},installation:{id:'install',status:'installed_pending_connection'}};
   }, remove: async id => removed.push(id) };
   const registry = { list: async () => [{name:'existing'}] };
-  const api = createSitecadExtensions({skills,installer,registry,reaSource:'/app/rea',onApproval:async value => {approvals.push(value); return decision;},isCurrent:()=>true,getSignal:()=>new AbortController().signal,getConversation:async()=>[{role:'user',text:'이 대화를 스킬로'}]});
+  const api = createSitecadExtensions({skills,installer,registry,onApproval:async value => {approvals.push(value); return decision;},isCurrent:()=>true,getSignal:()=>new AbortController().signal,getConversation:async()=>[{role:'user',text:'이 대화를 스킬로'}]});
   return {api,approvals,installed,removed};
 }
 test('managed MCP install waits for consent, stages registration, and cleanup removes unused files',async()=>{
@@ -38,10 +38,33 @@ test('skill overwrite binds approval to actual hash and conversation access is r
   assert.equal((await t.api.call('manage_skills',{action:'conversation'})).messages[0].role,'user');
   assert.deepEqual((await t.api.call('manage_skills',{action:'list'})).skills,[{name:'skill-creator'}]);
 });
-test('new approved REA and HTTPS servers stage without exposing arbitrary process settings',async()=>{
+test('approved HTTPS servers stage while bundled presets are unavailable',async()=>{
   const t=fixture();
-  await t.api.call('manage_mcp',{action:'add',name:'rea',preset:'rea'});
+  await assert.rejects(t.api.call('manage_mcp',{action:'add',name:'rea',preset:'rea'}),/입력|HTTPS/);
   await t.api.call('manage_mcp',{action:'add',name:'remote',url:'https://example.org/mcp'});
-  assert.deepEqual(t.api.pending().map(item=>item.config.name),['rea','remote']);
+  assert.deepEqual(t.api.pending().map(item=>item.config.name),['remote']);
   await assert.rejects(t.api.call('manage_mcp',{action:'add',name:'bad',url:'http://example.org/mcp'}),/HTTPS/);
+});
+
+test('explicit user installation may use the name rea through the generic approved installer',async()=>{
+  const t=fixture();
+  await t.api.call('manage_mcp',{action:'install',planId:'plan',name:'rea'});
+  assert.equal(t.api.pending()[0].config.name,'rea');
+  assert.equal(t.approvals[0].kind,'mcp-install');
+});
+
+test('plugins use a separate approved installer and never stage an external MCP', async () => {
+  const approvals = [], installed = [];
+  const plugins = { list: async () => [], read: async name => ({ name }), inspect: async url => ({ planId: 'plugin-plan', repository: url }),
+    async install(value, { approve }) { if (!await approve({ name: 'example', skills: [{ body: 'source instruction' }] })) throw Error('승인 거절'); installed.push(value); return { name: 'example', status: 'installed', commands: ['/plugin-example-check'] }; } };
+  let current = true;
+  const api = createSitecadExtensions({ plugins, onApproval: async value => { approvals.push(value); return current ? 'approve' : 'deny'; }, isCurrent: () => true, getSignal: () => undefined });
+  assert.deepEqual(await api.call('manage_plugins', { action: 'list' }), { plugins: [] });
+  assert.equal((await api.call('manage_plugins', { action: 'inspect', url: 'https://github.com/example/plugins' })).planId, 'plugin-plan');
+  assert.equal((await api.call('manage_plugins', { action: 'read', name: 'example' })).name, 'example');
+  assert.equal((await api.call('manage_plugins', { action: 'install', planId: 'plugin-plan' })).status, 'installed');
+  assert.equal(approvals[0].kind, 'plugin-install'); assert.deepEqual(installed, [{ planId: 'plugin-plan' }]); assert.deepEqual(api.pending(), []);
+  await assert.rejects(api.call('manage_plugins', { action: 'install', planId: 'plugin-plan', command: 'shell' }), /입력/);
+  await assert.rejects(api.call('manage_plugins', { action: 'unknown' }), /입력/);
+  current = false; await assert.rejects(api.call('manage_plugins', { action: 'install', planId: 'plugin-plan' }), /승인/);
 });

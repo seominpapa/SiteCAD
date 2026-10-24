@@ -23,6 +23,9 @@ jobs:
       - name: Windows Korean system font endpoint
         shell: powershell
         run: node --test --test-name-pattern="Korean CAD font" tests/server.test.mjs
+      - name: Browser ownership, chat steering and external connections
+        shell: powershell
+        run: node --test tests/browser-access.test.mjs tests/browser-files.test.mjs tests/chat-connections.test.mjs tests/chat-runtime-ui.test.mjs tests/chat-interrupt-ui.test.mjs tests/server-steer.test.mjs tests/sitecad-plugins.test.mjs tests/model-catalog.test.mjs tests/license-provenance.test.mjs
   installer:
     runs-on: windows-2022
     timeout-minutes: 20

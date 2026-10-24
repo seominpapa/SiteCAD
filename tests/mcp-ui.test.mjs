@@ -1,8 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { appendProvenance, createMcpSettings, parseMcpCommand, safeSourceUrl } from '../public/mcp-settings.js';
+import { appendProvenance, createMcpSettings, safeSourceUrl } from '../public/mcp-settings.js';
 
 class Element {
   constructor(tag = 'div') {
@@ -20,314 +19,163 @@ class Element {
   querySelectorAll() { return []; }
 }
 
-const flush = () => new Promise(resolve => setImmediate(resolve));
-async function fixture(t, referenceState = { configured: false }) {
+async function fixture(t, referenceState = { configured: false }, servers = []) {
   const previousDocument = globalThis.document;
   const previousFetch = globalThis.fetch;
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
   const ids = Object.fromEntries([...html.matchAll(/id="([^"]+)"/g)].map(match => [match[1], new Element()]));
   const requests = [];
-  ids['mcp-dialog'].querySelectorAll = () => [ids['terrain-import'], ids['mcp-refresh'], ids['mcp-rea-preset'], ids['mcp-config'], ids['mcp-trusted'], ids['vworld-api-key'], ids['vworld-domain'], ids['vworld-save-consent'], ids['vworld-test-consent'], ids['vworld-test'], ids['vworld-remove'], ...ids['mcp-server-list'].children.flatMap(card => card.children.at(-1)?.children || [])];
   globalThis.document = { getElementById: id => { assert.ok(ids[id], id); return ids[id]; }, createElement: tag => new Element(tag) };
   globalThis.fetch = async (url, options = {}) => {
     requests.push({ url, ...options });
-    if (url.endsWith('/terrain')) return { ok: true, json: async () => ({ ok: true, data: { datasets: [] } }) };
-    if (url.endsWith('/references/save')) { const data = JSON.parse(options.body); referenceState = { configured: true, ...(data.domain ? { domain: data.domain } : {}) }; }
-    if (url.endsWith('/references/remove')) referenceState = { configured: false };
-    if (url.endsWith('/references/test')) return { ok: true, json: async () => ({ ok: true, data: { ok: true, checkedAt: '2026-10-22', message: '연결 확인' } }) };
-    if (url.includes('/references')) return { ok: true, json: async () => ({ ok: true, data: { vworld: referenceState } }) };
-    if (url.endsWith('/mcp/test')) return { ok: true, json: async () => ({ ok: true, data: { name: 'example', status: 'connected', tools: ['lookup'], tested: true } }) };
-    return { ok: true, json: async () => ({ ok: true, data: {
-      servers: [{ name: 'test-server', command: '/usr/local/bin/test', args: [], transport: 'stdio', enabled: true }],
-      presets: { rea: { name: 'rea', preset: 'rea' } },
-      presetDetails: { rea: { command: '/usr/local/bin/node', args: ['/project/rea/scripts/rea.mjs', 'mcp'] } },
-    } }) };
+    return { ok: true, json: async () => ({ ok: true, data: url.endsWith('/references') ? { vworld: referenceState } : { servers } }) };
   };
   t.after(() => { globalThis.document = previousDocument; globalThis.fetch = previousFetch; });
-  return { ids, requests };
+  return { ids, requests, html };
 }
+
+const descendants = node => [node, ...node.children.flatMap(descendants)];
+const content = node => descendants(node).map(item => item.textContent).join(' ');
 
 test('source links only allow absolute HTTPS addresses without credentials', () => {
   assert.equal(safeSourceUrl('https://example.org/reference'), 'https://example.org/reference');
   for (const url of ['javascript:alert(1)', 'data:text/html,attack', 'http://example.org', '/local', 'https://user:secret@example.org']) assert.equal(safeSourceUrl(url), null);
 });
 
-test('chat completion can refresh registered MCP status without opening settings', async t => {
+test('connection dialog has an accessible registered-only list with refresh and close', async t => {
+  const { html } = await fixture(t);
+  const dialog = html.match(/<dialog id="mcp-dialog"[\s\S]*?<\/dialog>/)[0];
+  assert.match(html, /id="manage-mcp"[^>]*>외부 연결<\/button>/);
+  assert.match(dialog, /aria-labelledby="mcp-dialog-title"/);
+  assert.match(dialog, /id="mcp-dialog-title">외부 연결<\/h2>/);
+  assert.match(dialog, /aria-label="외부 연결 닫기"/);
+  assert.match(dialog, /id="mcp-server-list"[^>]*aria-live="polite"/);
+  assert.equal((dialog.match(/<button/g) || []).length, 2);
+  assert.doesNotMatch(dialog, /<input|<textarea|reference-catalog|mcp-config|REA|KDS|지형 원본/);
+});
+
+test('empty connections show no presets or unconfigured APIs and guide registration through chat', async t => {
+  const { ids, requests } = await fixture(t);
+  const settings = createMcpSettings({ isBusy: () => false, notify: assert.fail });
+  settings.update({ desktop: true });
+  await settings.refresh();
+  assert.match(content(ids['mcp-server-list']), /등록된 연결이 없습니다.*채팅/);
+  assert.doesNotMatch(content(ids['mcp-server-list']), /REA|VWorld|OpenCAD|KDS/);
+  assert.equal(ids['external-mcp-status'].textContent, '등록된 연결 없음');
+  assert.equal(ids['mcp-dialog'].open, false);
+  assert.equal(settings.handleCommand, undefined);
+  assert.deepEqual(requests.map(item => item.url).sort(), ['/api/desktop/mcp', '/api/desktop/plugins', '/api/desktop/references']);
+  assert.ok(requests.every(item => !item.method || item.method === 'GET'));
+});
+
+test('registered MCPs including REA are read-only and expose status without commands or secrets', async t => {
+  const servers = [
+    { name: 'rea', enabled: true, connected: true, transport: 'stdio', tools: ['inspect'], command: '/private/secret', args: ['credential'], envKeys: ['TOKEN'] },
+    { name: '<img onerror=attack()>', enabled: false, connected: true },
+    { name: 'oauth', enabled: true, status: 'authenticationRequired' },
+    { name: 'failed', enabled: true, status: 'failed', error: 'secret backend path' },
+    { name: 'waiting', enabled: true },
+  ];
+  const { ids } = await fixture(t, { configured: false }, servers);
+  const settings = createMcpSettings({ isBusy: () => false });
+  settings.update({ desktop: true }); await settings.refresh();
+  const cards = ids['mcp-server-list'].children;
+  assert.equal(cards.length, 5);
+  for (const [index, status] of ['연결됨', '사용 안 함', '인증 필요', '연결 실패', '연결 확인 필요'].entries()) assert.equal(cards[index].children[0].children[1].textContent, status);
+  assert.match(content(cards[0]), /rea.*MCP.*stdio.*도구 1개/);
+  assert.match(content(cards[1]), /<img onerror=attack\(\)>/);
+  assert.doesNotMatch(content(ids['mcp-server-list']), /private|credential|TOKEN|secret backend/);
+  assert.equal(descendants(ids['mcp-server-list']).filter(item => ['button', 'input', 'textarea'].includes(item.tagName)).length, 0);
+  assert.equal(ids['external-mcp-status'].textContent, 'MCP 5 · API 0 · 플러그인 0');
+});
+
+test('only a configured VWorld API is listed and unverified credentials are not called connected', async t => {
+  const { ids } = await fixture(t, { configured: true, domain: 'private.example', apiKey: 'secret-key' });
+  const settings = createMcpSettings({ isBusy: () => false });
+  settings.update({ desktop: true }); await settings.refresh();
+  assert.match(content(ids['mcp-server-list']), /VWorld.*등록됨 · 연결 미확인.*API/);
+  assert.doesNotMatch(content(ids['mcp-server-list']), /private.example|secret-key|연결됨/);
+  assert.equal(ids['external-mcp-status'].textContent, 'MCP 0 · API 1 · 플러그인 0');
+  settings.update({ desktop: true });
+  assert.match(content(ids['mcp-server-list']), /VWorld/);
+  settings.update({ desktop: true, references: { vworld: { configured: true, lastCheck: { ok: true } } } });
+  assert.match(content(ids['mcp-server-list']), /연결 확인됨/);
+  settings.update({ desktop: true, references: { vworld: { configured: true, lastCheck: { ok: false } } } });
+  assert.match(content(ids['mcp-server-list']), /연결 확인 실패/);
+  settings.update({ desktop: true, references: { vworld: { configured: false } } });
+  assert.doesNotMatch(content(ids['mcp-server-list']), /VWorld/);
+});
+
+test('a preconfigured API connector without its key shows registration guidance in the inventory', async t => {
   const { ids } = await fixture(t);
   const settings = createMcpSettings({ isBusy: () => false });
+  settings.update({ desktop: true, references: { catalog: [{ id: 'vworld', kind: 'api' }], vworld: { configured: false } } });
+  assert.match(content(ids['mcp-server-list']), /VWorld.*키 미등록.*\/api vworld/);
+  assert.equal(ids['external-mcp-status'].textContent, 'MCP 0 · API 1 · 플러그인 0');
+  settings.update({ desktop: true, references: { vworld: { configured: true } } });
+  assert.match(content(ids['mcp-server-list']), /키 등록됨/);
+  assert.doesNotMatch(content(ids['mcp-server-list']), /키 미등록/);
+});
+
+test('installed plugins appear separately without source code, private paths or install actions', async t => {
+  const { ids, html } = await fixture(t);
+  const settings = createMcpSettings({ isBusy: () => false });
+  settings.update({ desktop: true, plugins: [
+    { name: 'quantity-workflows', version: '1.0.0', skills: ['plugin-quantity-check'], status: 'installed', path: '/private/path', body: 'untrusted source' },
+    { name: 'changed', skills: [], status: 'modified' },
+    { name: 'missing', status: 'unavailable' },
+  ] });
+  assert.match(content(ids['mcp-server-list']), /quantity-workflows.*설치됨.*플러그인.*1.0.0.*스킬 1개/);
+  assert.match(content(ids['mcp-server-list']), /수정됨.*확인 필요/);
+  assert.doesNotMatch(content(ids['mcp-server-list']), /private\/path|untrusted source|연결됨/);
+  assert.equal(ids['external-mcp-status'].textContent, 'MCP 0 · API 0 · 플러그인 3');
+  assert.match(html, /data-prompt="API 등록해줘"[^>]*>API 등록/);
+  assert.match(html, /플러그인 설치 안내/);
+});
+
+test('opening and refreshing reads current connections without registration or test requests', async t => {
+  const { ids, requests } = await fixture(t, { configured: false }, [{ name: 'fresh', enabled: true, connected: true }]);
+  const settings = createMcpSettings({ isBusy: () => false });
   settings.update({ desktop: true });
-  globalThis.fetch = async () => ({ ok: true, json: async () => ({ ok: true, data: {
-    servers: [{ name: 'rea', enabled: true, connected: true, status: 'connected', tools: ['binary_session'] }],
-  } }) });
-  await settings.refresh();
-  assert.equal(ids['external-mcp-status'].textContent, '외부 MCP 1 연결 · 1 활성');
-  assert.equal(ids['mcp-dialog'].open, false);
-});
-
-test('MCP commands request review locally and never turn ordinary chat into config', () => {
-  assert.deepEqual(parseMcpCommand('/mcp add {"mcpServers":{}}'), { config: '{"mcpServers":{}}' });
-  assert.deepEqual(parseMcpCommand('REA MCP 추가해줘'), { preset: 'rea' });
-  assert.deepEqual(parseMcpCommand('REA MCP를 연결해주세요'), { preset: 'rea' });
-  assert.deepEqual(parseMcpCommand('/mcp'), { config: '' });
-  assert.equal(parseMcpCommand('REA로 웹에서 설계기준을 찾아줘'), null);
-});
-
-test('curated reference connection commands only open review sections', () => {
-  assert.deepEqual(parseMcpCommand('VWorld API 연결해줘'), { reference: 'vworld' });
-  assert.deepEqual(parseMcpCommand('브이월드 연결해줘'), { reference: 'vworld' });
-  assert.deepEqual(parseMcpCommand('설계기준 연결해줘'), { reference: 'standards' });
-  assert.deepEqual(parseMcpCommand('지형 원본 등록해줘'), { reference: 'terrain' });
-  assert.equal(parseMcpCommand('등고선을 조회해서 도면에 넣어줘'), null);
-  assert.equal(parseMcpCommand('https://data.example.org/contours.geojson 지형 원본 등록하고 도면에 넣어줘'), null);
-  assert.equal(parseMcpCommand('VWorld에서 이 주소 좌표를 찾아줘'), null);
-});
-
-test('terrain registration opens a native file picker without passing paths or credentials through chat', async t => {
-  const { ids, requests } = await fixture(t);
-  const baseFetch = globalThis.fetch;
-  let imported = false;
-  globalThis.fetch = async (url, options) => {
-    if (url.endsWith('/terrain/import')) {
-      requests.push({ url, ...options }); imported = true;
-      return { ok: true, json: async () => ({ ok: true, data: { cancelled: false } }) };
-    }
-    if (url.endsWith('/terrain')) return { ok: true, json: async () => ({ ok: true, data: { datasets: imported ? [{ id: 'terrain-1', title: '<img src=x onerror=alert(1)>', originalCRS: 'EPSG:5186', verticalDatum: 'unknown' }] : [] } }) };
-    return baseFetch(url, options);
-  };
-  let busy = false;
-  const settings = createMcpSettings({ isBusy: () => busy, notify: assert.fail });
-  settings.update({ desktop: true }); settings.handleCommand('지형 원본 등록해줘'); await flush();
-  assert.match(ids['terrain-datasets'].children[0].textContent, /등록된 지형 원본이 없습니다/);
-  assert.equal(requests.some(request => request.url.endsWith('/terrain/import')), false);
-  busy = true; settings.sync();
-  assert.equal(ids['terrain-import'].disabled, true);
-  await ids['terrain-import'].listeners.click();
-  assert.equal(imported, false);
-  busy = false; settings.sync();
-  await ids['terrain-import'].listeners.click();
-  assert.deepEqual(JSON.parse(requests.find(request => request.url.endsWith('/terrain/import')).body), {});
-  const label = ids['terrain-datasets'].children[0].textContent;
-  assert.match(label, /<img src=x onerror=alert\(1\)>.*EPSG:5186/);
-  assert.match(label, /표고 기준 미확인/);
-  assert.match(ids['terrain-notice'].textContent, /등록/);
-});
-
-test('terrain picker cancellation and errors do not claim a successful import', async t => {
-  const { ids } = await fixture(t);
-  const settings = createMcpSettings({ isBusy: () => false, notify: assert.fail });
-  settings.update({ desktop: true }); settings.handleCommand('지형 원본 등록해줘'); await flush();
-  globalThis.fetch = async () => ({ ok: true, json: async () => ({ ok: true, data: { cancelled: true } }) });
-  await ids['terrain-import'].listeners.click();
-  assert.match(ids['terrain-notice'].textContent, /취소/);
-  globalThis.fetch = async () => { throw Error('/private/secret/full/path'); };
-  await ids['terrain-import'].listeners.click();
-  assert.match(ids['terrain-notice'].textContent, /등록하지 못/);
-  assert.doesNotMatch(ids['terrain-notice'].textContent, /private|secret/);
-});
-
-test('VWorld key save requires explicit consent and clears the password without claiming connection', async t => {
-  const { ids, requests } = await fixture(t);
-  const settings = createMcpSettings({ isBusy: () => false, notify: assert.fail });
-  settings.update({ desktop: true });
-  settings.handleCommand('VWorld API 연결해줘');
-  await flush();
+  await ids['manage-mcp'].listeners.click();
   assert.equal(ids['mcp-dialog'].open, true);
-  assert.equal(ids['reference-vworld'].hidden, false);
-  assert.equal(requests.some(request => request.method === 'POST'), false);
-  const apiKey = randomUUID();
-  ids['vworld-api-key'].value = apiKey;
-  ids['vworld-form'].listeners.submit({ preventDefault() {} });
-  await flush();
-  assert.equal(requests.some(request => request.url.endsWith('/references/save')), false);
-  ids['vworld-save-consent'].checked = true;
-  ids['vworld-form'].listeners.submit({ preventDefault() {} });
-  await flush();
-  assert.deepEqual(JSON.parse(requests.find(request => request.url.endsWith('/references/save')).body), { apiKey });
-  assert.equal(ids['vworld-api-key'].value, '');
-  assert.match(ids['vworld-notice'].textContent, /저장/);
-  assert.doesNotMatch(ids['vworld-notice'].textContent, /연결됨|연결 성공/);
-  const allText = Object.values(ids).map(element => element.textContent).join(' ');
-  assert.equal(allText.includes(apiKey), false);
-});
-
-test('VWorld real API test requires separate one-call consent and stays locked during chat', async t => {
-  const { ids, requests } = await fixture(t, { configured: true });
-  let busy = false;
-  const settings = createMcpSettings({ isBusy: () => busy, notify: assert.fail });
-  settings.update({ desktop: true });
-  settings.handleCommand('VWorld API 연결해줘');
-  await flush();
-  await ids['vworld-test'].listeners.click();
-  assert.equal(requests.some(request => request.url.endsWith('/references/test')), false);
-  ids['vworld-test-consent'].checked = true;
-  busy = true; settings.sync();
-  assert.equal(ids['vworld-test'].disabled, true);
-  await ids['vworld-test'].listeners.click();
-  assert.equal(requests.some(request => request.url.endsWith('/references/test')), false);
-  busy = false; settings.sync();
-  await ids['vworld-test'].listeners.click();
-  assert.equal(requests.filter(request => request.url.endsWith('/references/test')).length, 1);
-  assert.equal(ids['vworld-test-consent'].checked, false);
-  assert.match(ids['vworld-status'].textContent, /연결 확인됨/);
-  assert.match(ids['vworld-notice'].textContent, /실제 연결을 확인/);
-});
-
-test('VWorld failed checks never claim connection and key removal clears local UI state', async t => {
-  const { ids, requests } = await fixture(t, { configured: true, domain: 'https://example.org', lastCheck: { ok: false, checkedAt: '2026-10-22' } });
-  const baseFetch = globalThis.fetch;
-  globalThis.fetch = async (url, options) => url.endsWith('/references/test')
-    ? { ok: true, json: async () => ({ ok: true, data: { ok: false, checkedAt: '2026-10-22', message: '키 권한 확인 필요' } }) }
-    : baseFetch(url, options);
-  const settings = createMcpSettings({ isBusy: () => false, notify: assert.fail });
-  settings.update({ desktop: true }); settings.handleCommand('VWorld API 연결해줘'); await flush();
-  assert.equal(ids['vworld-domain'].value, 'https://example.org');
-  assert.match(ids['vworld-status'].textContent, /연결 확인 실패/);
-  ids['vworld-test-consent'].checked = true;
-  await ids['vworld-test'].listeners.click();
-  assert.match(ids['vworld-notice'].textContent, /실패/);
-  assert.doesNotMatch(ids['vworld-status'].textContent, /연결 확인됨/);
-  await ids['vworld-remove'].listeners.click();
-  assert.ok(requests.some(request => request.url.endsWith('/references/remove')));
-  assert.equal(ids['vworld-status'].textContent, '키 미등록');
-  assert.equal(ids['vworld-domain'].value, '');
-  assert.equal(ids['vworld-test'].disabled, true);
-});
-
-test('VWorld password and consent clear on input changes, save errors and dialog close', async t => {
-  const { ids } = await fixture(t);
-  const settings = createMcpSettings({ isBusy: () => false, notify: assert.fail });
-  settings.update({ desktop: true }); settings.handleCommand('VWorld API 연결해줘'); await flush();
-  ids['vworld-api-key'].value = 'example-private-key'; ids['vworld-save-consent'].checked = true;
-  ids['vworld-api-key'].listeners.input();
-  assert.equal(ids['vworld-save-consent'].checked, false);
-  ids['vworld-save-consent'].checked = true;
-  globalThis.fetch = async () => ({ ok: false, json: async () => ({ ok: false, error: 'example-private-key must not appear' }) });
-  ids['vworld-form'].listeners.submit({ preventDefault() {} }); await flush();
-  assert.equal(ids['vworld-api-key'].value, '');
-  assert.doesNotMatch(ids['vworld-notice'].textContent, /example-private-key/);
-  assert.match(ids['vworld-notice'].textContent, /저장하지 못/);
-  ids['vworld-api-key'].value = 'another-private-key';
-  ids['mcp-dialog'].listeners.close();
-  assert.equal(ids['vworld-api-key'].value, '');
-});
-
-test('pasted MCP settings require review and an explicit trust check before save', async t => {
-  const { ids, requests } = await fixture(t);
-  const settings = createMcpSettings({ isBusy: () => false, notify: assert.fail });
-  settings.update({ desktop: true });
-  const config = '{"mcpServers":{"test":{"command":"example","args":[]}}}';
-  assert.equal(settings.handleCommand(`/mcp add ${config}`), true);
-  await flush();
-  assert.equal(ids['mcp-dialog'].open, true);
-  assert.equal(ids['mcp-config'].value, config);
-  assert.equal(ids['mcp-trusted'].checked, false);
-  assert.equal(requests.some(request => request.method === 'POST'), false);
-  ids['mcp-config-form'].listeners.submit({ preventDefault() {} });
-  await flush();
-  assert.equal(requests.some(request => request.url.endsWith('/mcp/save')), false);
-  ids['mcp-trusted'].checked = true;
-  ids['mcp-config-form'].listeners.submit({ preventDefault() {} });
-  await flush();
-  const saved = requests.find(request => request.url.endsWith('/mcp/save'));
-  assert.deepEqual(JSON.parse(saved.body), { config: JSON.parse(config), trusted: true });
-  assert.equal(ids['mcp-trusted'].checked, false);
-});
-
-test('REA preset opens untrusted review and editing config resets trust', async t => {
-  const { ids, requests } = await fixture(t);
-  const settings = createMcpSettings({ isBusy: () => false, notify: assert.fail });
-  settings.update({ desktop: true });
-  settings.handleCommand('REA MCP 추가해줘');
-  await flush();
-  assert.deepEqual(JSON.parse(ids['mcp-config'].value), { name: 'rea', preset: 'rea' });
-  assert.equal(ids['mcp-preset-preview'].hidden, false);
-  assert.match(ids['mcp-preset-command'].textContent, /\/usr\/local\/bin\/node/);
-  assert.match(ids['mcp-preset-command'].textContent, /\/project\/rea\/scripts\/rea.mjs/);
-  assert.equal(requests.some(request => request.method === 'POST'), false);
-  ids['mcp-trusted'].checked = true;
-  ids['mcp-config'].listeners.input();
-  assert.equal(ids['mcp-trusted'].checked, false);
-  assert.equal(ids['mcp-save'].disabled, true);
-});
-
-test('server connection, enable state and removal use explicit management actions', async t => {
-  const { ids, requests } = await fixture(t);
-  const settings = createMcpSettings({ isBusy: () => false, notify: assert.fail });
-  settings.update({ desktop: true, externalMcp: { servers: [{ name: 'example', enabled: true, connected: true, transport: 'http', url: 'https://example.org/mcp', tools: ['lookup'] }] } });
-  assert.match(ids['external-mcp-status'].textContent, /1 연결/);
-  const actions = ids['mcp-server-list'].children[0].children.at(-1).children;
-  await actions[0].listeners.click();
-  assert.match(ids['mcp-notice'].textContent, /연결됨 · 도구 1개/);
-  await actions[1].listeners.click();
-  await actions[2].listeners.click();
-  const posts = requests.filter(request => request.method === 'POST');
-  assert.ok(posts[0].url.endsWith('/mcp/test'));
-  assert.deepEqual(JSON.parse(posts[1].body), { name: 'example', enabled: false });
-  assert.ok(posts[2].url.endsWith('/mcp/remove'));
-  assert.deepEqual(JSON.parse(posts[2].body), { name: 'example' });
-});
-
-test('connection test does not claim success for failed or authentication-required inventory', async t => {
-  const { ids } = await fixture(t);
-  const settings = createMcpSettings({ isBusy: () => false, notify: assert.fail });
-  for (const [status, expected] of [['failed', /연결을 확인하지 못했습니다/], ['authenticationRequired', /인증이 필요합니다/], ['connected', /연결을 확인하지 못했습니다/]]) {
-    globalThis.fetch = async url => ({ ok: true, json: async () => ({ ok: true, data: url.endsWith('/mcp/test')
-      ? { name: 'test', status, tested: false, tools: [] }
-      : { servers: [{ name: 'test', enabled: true, status, connected: status === 'connected', tools: [] }] } }) });
-    settings.update({ desktop: true, externalMcp: { servers: [{ name: 'test', enabled: true, status }] } });
-    await ids['mcp-server-list'].children[0].children.at(-1).children[0].listeners.click();
-    assert.match(ids['mcp-notice'].textContent, expected);
-    assert.match(ids['mcp-notice'].textContent, /도구 0개/);
-    assert.doesNotMatch(ids['mcp-notice'].textContent, /연결됨/);
-  }
-});
-
-test('invalid JSON and failed server responses stay visible without trusting a config', async t => {
-  const { ids, requests } = await fixture(t);
-  const settings = createMcpSettings({ isBusy: () => false, notify: assert.fail });
-  settings.update({ desktop: true });
-  ids['mcp-config'].value = '{broken'; ids['mcp-trusted'].checked = true;
-  ids['mcp-config-form'].listeners.submit({ preventDefault() {} });
-  await flush();
-  assert.match(ids['mcp-notice'].textContent, /JSON/);
-  assert.equal(requests.length, 0);
-  globalThis.fetch = async () => ({ ok: false, json: async () => ({ ok: false, error: '서버에 연결할 수 없습니다.' }) });
+  assert.match(content(ids['mcp-server-list']), /fresh/);
   await ids['mcp-refresh'].listeners.click();
-  assert.equal(ids['mcp-notice'].textContent, '서버에 연결할 수 없습니다.');
+  assert.equal(requests.length, 6);
+  assert.ok(requests.every(item => ['/api/desktop/mcp', '/api/desktop/references', '/api/desktop/plugins'].includes(item.url) && !item.body));
 });
 
-test('MCP configuration cannot change while a chat is active', async t => {
-  const { ids, requests } = await fixture(t);
-  let busy = false;
-  const settings = createMcpSettings({ isBusy: () => busy, notify: assert.fail });
-  settings.update({ desktop: true, externalMcp: { servers: [{ name: 'blocked', enabled: false, transport: 'stdio', envKeys: ['EXAMPLE_TOKEN'], error: '연결 대기' }] } });
-  const buttons = ids['mcp-server-list'].children[0].children.at(-1).children;
-  assert.equal(buttons[0].disabled, true);
-  busy = true; settings.sync();
+test('failed refresh remains visible and retains the previous complete inventory', async t => {
+  const { ids } = await fixture(t, { configured: true }, [{ name: 'kept', enabled: true }]);
+  const settings = createMcpSettings({ isBusy: () => false });
+  settings.update({ desktop: true }); await settings.refresh();
+  globalThis.fetch = async url => ({ ok: !url.endsWith('/references'), json: async () => url.endsWith('/references') ? { ok: false, error: '상태 조회 실패' } : { ok: true, data: { servers: [{ name: 'partial-new' }] } } });
+  await ids['mcp-refresh'].listeners.click();
+  assert.equal(ids['mcp-notice'].hidden, false);
+  assert.match(ids['mcp-notice'].textContent, /상태 조회 실패/);
+  assert.match(content(ids['mcp-server-list']), /kept.*VWorld/);
+  assert.doesNotMatch(content(ids['mcp-server-list']), /partial-new/);
+  assert.equal(ids['mcp-refresh'].disabled, false);
+});
+
+test('busy or unsupported state blocks inventory actions while close remains available', async t => {
+  const { ids, requests, html } = await fixture(t);
+  let busy = true;
+  const settings = createMcpSettings({ isBusy: () => busy });
+  settings.update({ desktop: true });
   assert.equal(ids['manage-mcp'].disabled, true);
   assert.equal(ids['mcp-refresh'].disabled, true);
-  assert.equal(buttons[1].disabled, true);
-  await buttons[1].listeners.click();
-  settings.handleCommand('/mcp add {}');
-  await flush();
+  await ids['manage-mcp'].listeners.click(); await ids['mcp-refresh'].listeners.click();
   assert.equal(requests.length, 0);
   assert.equal(ids['mcp-dialog'].open, false);
-});
-
-test('MCP review reports unsupported desktop and missing presets without execution', async t => {
-  const { ids, requests } = await fixture(t);
-  const notices = [];
-  const settings = createMcpSettings({ isBusy: () => false, notify: (...args) => notices.push(args) });
+  assert.match(html, /<button type="submit" aria-label="외부 연결 닫기">/);
+  busy = false; settings.sync();
+  assert.equal(ids['mcp-refresh'].disabled, false);
   settings.update({ desktop: false });
-  settings.handleCommand('/mcp');
-  assert.equal(notices.length, 1);
+  assert.equal(ids['manage-mcp'].hidden, true);
+  assert.equal(ids['external-mcp-status'].hidden, true);
+  await settings.refresh();
   assert.equal(requests.length, 0);
-  settings.update({ desktop: true });
-  globalThis.fetch = async () => ({ ok: true, json: async () => ({ ok: true, data: { servers: [] } }) });
-  settings.handleCommand('REA MCP 추가해줘');
-  await flush();
-  assert.match(ids['mcp-notice'].textContent, /사전 설정을 찾지/);
-  assert.equal(ids['mcp-save'].disabled, true);
 });
 
 test('external tools show bounded inputs and do not approve hidden arguments', async t => {
@@ -363,6 +211,24 @@ test('failed approval remains visible and expired approvals disappear on status 
   assert.equal(card.children.at(-1).children[0].disabled, false);
   settings.update({ desktop: true, approvals: [] });
   assert.equal(ids['tool-approvals'].hidden, true);
+});
+
+test('plugin approval shows all instructions and rejects content exceeding the review limit', async t => {
+  const { ids, requests } = await fixture(t);
+  const settings = createMcpSettings({ isBusy: () => true });
+  const instructions = '사용자가 지정한 도면만 조회합니다.\n'.repeat(1000);
+  settings.update({ desktop: true, approvals: [{ id: 'plugin', kind: 'plugin-install', server: 'sitecad', tool: 'install', arguments: instructions }] });
+  let card = ids['tool-approvals'].children.at(-1);
+  assert.equal(card.children[0].textContent, '플러그인 변경 승인');
+  assert.equal(card.children[2].textContent, instructions);
+  assert.match(card.children[3].textContent, /슬래시 명령.*도면 저장 검증/);
+  await card.children.at(-1).children[0].listeners.click();
+  assert.deepEqual(JSON.parse(requests[0].body), { id: 'plugin', approved: true });
+  settings.update({ desktop: true, approvals: [{ id: 'large', kind: 'plugin-remove', arguments: 'x'.repeat(512 * 1024 + 1) }] });
+  card = ids['tool-approvals'].children.at(-1);
+  assert.equal(card.children.at(-1).children[0].disabled, true);
+  await card.children.at(-1).children[0].listeners.click();
+  assert.equal(requests.length, 1);
 });
 
 test('reference and concept cards retain provenance and render untrusted text safely', async t => {

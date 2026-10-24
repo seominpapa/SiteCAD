@@ -6,7 +6,6 @@ import { createServer } from 'node:http';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { JsonRpcProcess, runtimeConfig } from '../lib/codex-runtime.mjs';
 import { isolatedProcessEnv } from '../lib/mcp-launcher.mjs';
@@ -18,7 +17,6 @@ import { cadFont } from '../server.mjs';
 const windows = { skip: process.platform !== 'win32', timeout: 600000 };
 const root = fileURLToPath(new URL('../', import.meta.url));
 const mcpPath = join(root, 'lib', 'sitecad-mcp.mjs');
-const reaPath = join(root, 'node_modules', 'rea-agents', 'scripts', 'rea.mjs');
 
 test('Windows local web launcher serves protected editor/font assets and authenticates a real internal MCP', windows, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'sitecad-windows-web-'));
@@ -36,13 +34,21 @@ test('Windows local web launcher serves protected editor/font assets and authent
     instance = await startLocalWeb({ dataDir, codexPath: process.execPath, openBrowser: async url => opened.push(url),
       controllerFactory: async () => controller, installSignalHandlers: false });
     assert.equal(starts, 1);
-    assert.equal((await fetch(instance.baseUrl)).status, 403);
+    const landing = await fetch(instance.baseUrl);
+    assert.equal(landing.status, 200);
+    assert.match(await landing.text(), /이 브라우저로 연결/);
+    assert.equal((await fetch(`${instance.baseUrl}/api/desktop/status`)).status, 403);
     const launch = await fetch(opened[0], { redirect: 'manual' });
     assert.equal(launch.status, 303);
     const cookie = launch.headers.get('set-cookie').split(';')[0];
-    const request = (path, options = {}) => fetch(`${instance.baseUrl}${path}`, { ...options, headers: { Cookie: cookie, ...options.headers } });
+    let ownerToken;
+    const request = (path, options = {}) => fetch(`${instance.baseUrl}${path}`, { ...options, headers: { Cookie: cookie, ...(ownerToken ? { 'X-SiteCAD-Owner': ownerToken } : {}), ...options.headers } });
     assert.match(await (await request('/')).text(), /<title>SiteCAD/);
     assert.match(await (await request('/app/')).text(), /Open CAD Studio/);
+    const claim = await request('/api/browser/claim', { method: 'POST', headers: { Origin: instance.baseUrl, 'Content-Type': 'application/json' }, body: JSON.stringify({ tabId: randomUUID() }) });
+    assert.equal(claim.status, 200);
+    ownerToken = (await claim.json()).data.ownerToken;
+    assert.match(ownerToken, /^[a-f0-9]{64}$/);
     const health = await (await request('/api/health')).json();
     assert.equal(health.data.browser, true); assert.equal(health.data.editorInstalled, true);
     const font = await request('/api/cad-font');
@@ -93,28 +99,6 @@ test('Windows native Credential Manager and encrypted SiteCAD stores persist wit
     await master.deletePassword();
     await rm(dataDir, { recursive: true, force: true });
   }
-});
-
-test('Windows installed REA loads its native module and serves actual read-only MCP tools', windows, async t => {
-  const directory = await mkdtemp(join(tmpdir(), 'sitecad-windows-rea-'));
-  const rpc = new JsonRpcProcess(spawn(process.execPath, [reaPath, 'mcp'], { cwd: directory,
-    env: isolatedProcessEnv(directory, process.execPath), shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }));
-  try {
-    if (process.arch === 'x64') {
-      const native = createRequire(import.meta.url)(join(root, 'node_modules', 'rea-agents', 'native', 'windows', 'build', 'rea-windows-x64.node'));
-      assert.ok(native && Object.keys(native).length > 0);
-    }
-    const initialized = await rpc.request('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'sitecad-windows-test', version: '1' } });
-    assert.ok(initialized.serverInfo.name);
-    rpc.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
-    const inventory = await rpc.request('tools/list', {});
-    assert.ok(inventory.tools.length >= 200);
-    assert.ok(inventory.tools.some(tool => tool.name === 'inspect_pe_resources'));
-    const result = await rpc.request('tools/call', { name: 'inspect_pe_resources', arguments: { path: process.execPath, max_file_bytes: 256 * 1024 * 1024 } });
-    assert.notEqual(result.isError, true);
-    assert.ok(result.content.some(item => item.type === 'text' && item.text.length > 10));
-    t.diagnostic(`REA real stdio catalog: ${inventory.tools.length} tools; read-only PE inspection passed.`);
-  } finally { await rpc.stop(); await rm(directory, { recursive: true, force: true }); }
 });
 
 test('Windows official Codex app-server discovers and invokes the internal SiteCAD MCP without ChatGPT credentials', windows, async t => {

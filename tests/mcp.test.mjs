@@ -7,7 +7,7 @@ import { researchTools } from '../lib/research-mcp.mjs';
 test('research MCP schemas dispatch to the backend without requiring a CAD write context', async () => {
   const calls = [];
   const handle = createMcpHandler(async (method, args) => { calls.push([method, args]); return { source: true }; }, researchTools);
-  assert.equal((await handle('tools/list')).tools.length, 20);
+  assert.equal((await handle('tools/list')).tools.length, 21);
   assert.equal((await handle('tools/call', { name: 'cad_fetch', arguments: { url: 'https://example.org' } })).structuredContent.source, true);
   await handle('tools/call', { name: 'cad_design_note', arguments: { title: 'test' } });
   await handle('tools/call', { name: 'cad_vworld_geocode', arguments: { address: '서울 중구' } });
@@ -21,7 +21,7 @@ const context = { documentId: 1, revision: 2, units: 4, selection: [], entities:
 test('MCP exposes drawing tools and binds edits to fresh context', async () => {
   const calls = [];
   const handle = createMcpHandler(async (method, payload) => { calls.push({ method, payload }); return method === 'context' ? context : { success: true }; });
-  assert.deepEqual((await handle('tools/list', {})).tools.map(t => t.name), ['cad_context', 'cad_execute', 'cad_save', 'cad_insert_parcels', 'cad_insert_terrain','sitecad_mcp','sitecad_skills', 'cad_prepare_site', 'cad_discover', 'cad_query', 'cad_control', 'cad_download', 'cad_calculate', 'cad_terrain_register']);
+  assert.deepEqual((await handle('tools/list', {})).tools.map(t => t.name), ['cad_context', 'cad_execute', 'cad_save', 'cad_insert_parcels', 'cad_insert_terrain','sitecad_mcp','sitecad_skills','sitecad_plugins', 'cad_prepare_site', 'cad_discover', 'cad_query', 'cad_control', 'cad_download', 'cad_calculate', 'cad_terrain_register']);
   const operations = [{ type: 'line', x1_mm: 0, y1_mm: 0, x2_mm: 10, y2_mm: 0 }];
   assert.equal((await handle('tools/call', { name: 'cad_execute', arguments: { operations } })).isError, undefined);
   assert.deepEqual(calls.map(c => c.method), ['context', 'execute']);

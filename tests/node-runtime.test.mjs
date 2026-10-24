@@ -76,11 +76,11 @@ test('Node web launcher starts the whole controller, authenticates the browser, 
   const controller = { start: async value => calls.push(['start', value]), close: async () => calls.push(['close']) };
   const first = await startLocalWeb({ dataDir, codexPath: '/fixture/codex', entry: keyring(), openBrowser: async url => opened.push(url),
     controllerFactory: async value => { options = value; return controller; },
-    serverFactory: ({ browserAccess }) => createServer((req, res) => { if (!browserAccess.protect(req, res, new URL(req.url, 'http://127.0.0.1').pathname)) return; res.end('private CAD'); }),
+    serverFactory: ({ browserAccess }) => createServer(async(req, res) => { if (!await browserAccess.protect(req, res, new URL(req.url, 'http://127.0.0.1').pathname)) return; res.end('private CAD'); }),
     installSignalHandlers: false });
   t.after(() => first.close());
   assert.equal(first.reused, false); assert.equal(options.nodePath, process.execPath); assert.deepEqual(options.nodeEnv, {});
-  assert.equal((await fetch(first.baseUrl)).status, 403);
+  const entry=await fetch(first.baseUrl); assert.equal(entry.status,200); assert.match(await entry.text(),/이 브라우저로 연결/);
   const launch = await fetch(opened[0], { redirect: 'manual' });
   const cookie = launch.headers.get('set-cookie').split(';')[0];
   assert.equal(launch.status, 303);

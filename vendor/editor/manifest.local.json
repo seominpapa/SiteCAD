@@ -81,5 +81,19 @@
       "bytes": 10447,
       "sha256": "7febae81241b8a7dcce0e20327af198432423482ba037e3f61cdbab7248c1f11"
     }
+  ],
+  "modifications": [
+    {
+      "path": "index.html",
+      "by": "SiteCAD contributors",
+      "originalInstallationDate": "2026-10-21",
+      "noticeAddedOn": "2026-10-24",
+      "changes": [
+        "Removed upstream offline service-worker registration and manifest/icon links.",
+        "Enabled the published automation control API for local hosting.",
+        "Added this author/date notice on 2026-10-24."
+      ],
+      "localSha256": "f1624cd6c67de841de484d4ecb3a5ad94f6dceceb5edd1c6d13179e2b1b84864"
+    }
   ]
 }

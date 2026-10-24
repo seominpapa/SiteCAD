@@ -156,7 +156,7 @@ export async function startLocalWeb({ dataDir = defaultDataDir(), codexPath, ent
     const stores = createNodeSecretStores({ dataDir, entry });
     controller = await controllerFactory({ dataDir, codexPath, nodePath: process.execPath, nodeEnv: {},
       secureStore: stores.auth, mcpSecretStore: stores.mcp, referenceSecretStore: stores.references,
-      reaSource: join(appRoot, 'node_modules/rea-agents'), modelCatalogPath: join(appRoot, 'codex-models.json'),
+      modelCatalogPath: join(appRoot, 'codex-models.json'),
       openExternal: async url => { if (!isAllowedAuthUrl(url)) throw Error('허용되지 않은 로그인 주소입니다.'); await openBrowser(url); } });
     const fixture = join(appRoot, 'fixtures', 'retaining-wall.dwg');
     const fixturePath = await stat(fixture).then(value => value.isFile()).catch(() => false) ? fixture

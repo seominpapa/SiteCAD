@@ -5,12 +5,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDesktopController } from '../lib/desktop-controller.mjs';
 
+const TEST_API_KEY = 'valid-test-key';
+const TEST_PRIVATE_TOKEN = 'private-token';
 const context = { documentId: 2, revision: 1, units: 4, selection: [], entities: [] };
 async function setup(overrides = {}) {
   const dataDir = await mkdtemp(join(tmpdir(), 'sitecad-controller-'));
   let options;
   let stopped = 0;
-  const auth = { status: () => ({ loggedIn: true, sharing: true, pending: false }), getAccessToken: async () => 'private-token', login: async () => ({ pending: true }), logout: async () => {}, close: async () => {} };
+  const auth = { status: () => ({ loggedIn: true, sharing: true, pending: false }), getAccessToken: async () => TEST_PRIVATE_TOKEN, login: async () => ({ pending: true }), logout: async () => {}, close: async () => {} };
   const runtime = { start: async () => {}, chat: async () => ({ reply: '완료' }), status: () => ({ connected: true }), cancel: async () => {}, stop: async () => { stopped++; } };
   const controller = await createDesktopController({ dataDir, codexPath: '/app/codex', nodePath: '/app/node', secureStore: {}, openExternal: async () => {}, authFactory: async () => auth, runtimeFactory: async value => { options = value; return runtime; }, bridgeTimeoutMs: 40, ...overrides });
   await controller.start({ baseUrl: 'http://127.0.0.1:4318' });
@@ -44,6 +46,51 @@ test('isolates runtime configuration and never exposes tokens through status', a
     assert.equal(t.options().bridgeUrl, 'http://127.0.0.1:4318');
     assert.doesNotMatch(JSON.stringify(await t.controller.status()), /private-token|bridgeToken/);
   } finally { await t.close(); }
+});
+
+test('steering is limited to the active chat and accepted text survives cancellation in history', async () => {
+  const t = await setup();
+  try {
+    const { chat } = await t.controller.chatCreate();
+    const calls = [];
+    t.runtime.steer = async message => { calls.push(message); return { accepted: true }; };
+    await assert.rejects(t.controller.steer({ message: '높이 3m', chatId: chat.id }), /진행/);
+    let release, entered;
+    const started = new Promise(resolve => { entered = resolve; });
+    t.runtime.chat = async () => { entered(); await new Promise(resolve => { release = resolve; }); return { reply: '최종 답변' }; };
+    const turn = t.controller.chat({ message: '옹벽 그려줘', context, history: [], chatId: chat.id });
+    const done = assert.rejects(turn, /취소/);
+    await started;
+    assert.deepEqual(await t.controller.steer({ message: '높이는 3m로 해줘', chatId: chat.id }), { accepted: true });
+    for (const input of [{ message: '다른 채팅', chatId: 'other' }, { message: '/api vworld', chatId: chat.id }, { message: 'x'.repeat(2001), chatId: chat.id }, { message: '추가', chatId: chat.id, model: 'changed' }]) await assert.rejects(t.controller.steer(input));
+    assert.deepEqual(calls, ['높이는 3m로 해줘']);
+    await t.controller.cancel(); release(); await done;
+    const restored = await t.controller.chatRead(chat.id);
+    assert.deepEqual(restored.chat.messages.slice(0, 2).map(item => item.text), ['옹벽 그려줘', '높이는 3m로 해줘']);
+    await assert.rejects(t.controller.steer({ message: '취소 뒤 요청', chatId: chat.id }), /진행/);
+  } finally { await t.close(); }
+});
+
+test('concurrent steering is rejected and the final response waits for accepted input to be recorded', async () => {
+  const t = await setup();
+  let finishTurn, acceptSteer, entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  try {
+    const { chat } = await t.controller.chatCreate();
+    t.runtime.chat = async () => { entered(); return new Promise(resolve => { finishTurn = resolve; }); };
+    t.runtime.steer = () => new Promise(resolve => { acceptSteer = resolve; });
+    const turn = t.controller.chat({ message: '원래 요청', context, history: [], chatId: chat.id });
+    await started;
+    const steering = t.controller.steer({ message: '추가 요청', chatId: chat.id });
+    await assert.rejects(t.controller.steer({ message: '동시 요청', chatId: chat.id }), /처리 중/);
+    finishTurn({ reply: '완료' });
+    let completed = false;
+    void turn.then(() => { completed = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(completed, false);
+    acceptSteer({ accepted: true }); await steering; await turn;
+    assert.deepEqual((await t.controller.chatRead(chat.id)).chat.messages.map(item => item.text), ['원래 요청', '추가 요청', '완료']);
+  } finally { acceptSteer?.({ accepted: true }); finishTurn?.({ reply: '완료' }); await t.close(); }
 });
 test('CAD bridge validates operations before dispatch and requires expected document context', async () => {
   const t = await setup();
@@ -91,6 +138,39 @@ test('timeouts and cancellation reject pending work instead of leaving hanging M
     await t.controller.cancel(); await rejected;
     assert.equal(await t.controller.pollCad({ waitMs: 1 }), null);
   } finally { await t.close(); }
+});
+
+test('cancellation revokes the previous runtime MCP bearer before another drawing owner can connect', async () => {
+  const t = await setup();
+  try {
+    await t.controller.chat({ message: '연결 확인', context, history: [] });
+    const token = t.options().bridgeToken;
+    assert.equal(t.controller.authorizeMcp(`Bearer ${token}`), true);
+    await t.controller.cancel();
+    assert.equal(t.controller.authorizeMcp(`Bearer ${token}`), false);
+    await t.controller.chat({ message: '재연결', context, history: [] });
+    assert.notEqual(t.options().bridgeToken, token);
+    assert.equal(t.controller.authorizeMcp(`Bearer ${t.options().bridgeToken}`), true);
+  } finally { await t.close(); }
+});
+
+test('a finished turn cannot start another runtime while cancellation is still draining', async () => {
+  const t = await setup();
+  let releaseTurn, releaseCancel, entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  try {
+    t.runtime.chat = () => { entered(); return new Promise(resolve => { releaseTurn = resolve; }); };
+    t.runtime.cancel = () => { releaseTurn({ reply: '중지됨' }); return new Promise(resolve => { releaseCancel = resolve; }); };
+    const turn = t.controller.chat({ message: '첫 작업', context, history: [] });
+    const failed = assert.rejects(turn, /취소/);
+    await started;
+    const cancellation = t.controller.cancel();
+    await failed;
+    assert.equal((await t.controller.status()).active, true);
+    await assert.rejects(t.controller.chat({ message: '새 작업', context, history: [] }), /진행|취소/);
+    releaseCancel(); await cancellation;
+    assert.equal((await t.controller.status()).active, false);
+  } finally { releaseCancel?.(); releaseTurn?.({ reply: '완료' }); await t.close(); }
 });
 
 test('cancelling runtime startup prevents a late chat from changing the drawing', async () => {
@@ -238,7 +318,7 @@ const parcelData = { type: 'FeatureCollection', crs: 'EPSG:4326', bbox: [126.978
   sourceUrl: 'https://www.vworld.kr/dev/v4dv_2ddataguide2_s002.do?svcIde=cadastral', retrievedAt: '2026-10-22T10:00:00Z',
   features: [{ type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[126.978, 37.5665], [126.979, 37.5665], [126.979, 37.5675], [126.978, 37.5675], [126.978, 37.5665]]] }, properties: { pnu: '111101' } }] };
 test('parcel bridge projects only cached real data, checks the anchor, and persists a hash-bound DWG sidecar', async () => {
-  const t = await setup({ bridgeTimeoutMs: 1000, referenceApiFactory: () => ({ parcels: async () => parcelData }) });
+  const t = await setup({ bridgeTimeoutMs: 1000, referenceSecretStore: { read: async () => ({ apiKey: TEST_API_KEY }) }, referenceApiFactory: () => ({ parcels: async () => parcelData }) });
   try {
     await assert.rejects(t.controller.callCad('insert_parcels', { sourceId: 'invented', expectedContext: context }), /진행/);
     await duringTurn(t, async () => {
@@ -274,7 +354,7 @@ test('parcel bridge projects only cached real data, checks the anchor, and persi
 });
 
 test('cancelled parcel context never dispatches a late drawing insertion', async () => {
-  const t = await setup({ referenceApiFactory: () => ({ parcels: async () => parcelData }) });
+  const t = await setup({ referenceSecretStore: { read: async () => ({ apiKey: TEST_API_KEY }) }, referenceApiFactory: () => ({ parcels: async () => parcelData }) });
   try {
     await duringTurn(t, async () => {
       const source = await t.controller.callCad('parcels', {});

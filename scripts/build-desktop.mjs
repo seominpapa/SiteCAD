@@ -17,7 +17,7 @@ export async function buildDesktop({ arch = process.arch, archivePath, dmg = tru
   const staging = await mkdtemp(join(tmpdir(), 'sitecad-package-'));
   const output = join(root, 'dist');
   try {
-    for (const name of ['server.mjs', 'lib', 'public', 'skills', 'vendor/editor', 'plan.schema.json', 'codex-models.json', 'desktop/main.mjs', 'desktop/runtime.mjs', 'desktop/licenses', 'scripts/install-codex.mjs']) {
+    for (const name of ['LICENSE', 'THIRD_PARTY_NOTICES.md', 'README.md', 'SOURCE_BUILD.md', 'server.mjs', 'lib', 'public', 'skills', 'vendor/editor', 'plan.schema.json', 'codex-models.json', 'desktop/main.mjs', 'desktop/runtime.mjs', 'desktop/licenses', 'scripts/install-codex.mjs', 'scripts/update-model-catalog.mjs', 'scripts/install-editor.mjs', 'scripts/build-desktop.mjs']) {
       await mkdir(dirname(join(staging, name)), { recursive: true });
       await cp(join(root, name), join(staging, name), { recursive: true, dereference: false, errorOnExist: true });
     }

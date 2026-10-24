@@ -4,6 +4,8 @@ import { appendProvenance, createMcpSettings } from './mcp-settings.js';
 import { createSkillMenu } from './skills.js';
 import { createChatPanel } from './chat-panel.js';
 import { createChatSessionsUI } from './chat-sessions.js';
+import { createChatConnections, parseConnectionCommand } from './chat-connections.js';
+import { createChatRuntime, readChatStream } from './chat-runtime.js';
 
 const $ = (id) => document.getElementById(id);
 const iframe = $('editor');
@@ -11,6 +13,16 @@ const cad = new CadEditor(iframe);
 const history = [];
 let ready = false;
 let busy = false;
+let chatRunning = false;
+let stopRequested = false;
+let steeringPending = false;
+let steeringRequest;
+let chatCompleting = false;
+let cancelPending = false;
+let cancellationRequest;
+let activeChatId;
+let browserFrozen = false;
+let serverActive = false;
 let connected = false;
 let polling = false;
 let desktop = false;
@@ -18,12 +30,19 @@ let browser = false;
 let unsaved = false;
 let stopBridge;
 let authPending = false;
-const mcpSettings = createMcpSettings({ isBusy: () => busy, notify: notice });
-const skillMenu = createSkillMenu({ isBusy: () => busy, onChange: updateControls });
+let connectionBusy = false;
+const isBusy = () => busy || connectionBusy || browserFrozen || steeringPending || cancelPending;
+const mcpSettings = createMcpSettings({ isBusy, notify: notice });
+const chatConnections = createChatConnections({ isBusy: () => busy || browserFrozen || steeringPending || cancelPending, notify: notice,
+  onPending(value) { connectionBusy = value; updateControls(); }, onChange: () => mcpSettings.refresh() });
+const skillMenu = createSkillMenu({ isBusy, onChange: updateControls });
 const chatPanel = createChatPanel();
-const chatSessions = createChatSessionsUI({ isBusy: () => busy, isAvailable: () => desktop,
+const chatRuntime = createChatRuntime({ isBusy, onError: message => notice(message, true), onChange: updateControls });
+const chatSessions = createChatSessionsUI({ isBusy, isAvailable: () => desktop,
   onError: message => notice(errorMessage(message), true), onChange: updateControls,
   onSelect(chat) {
+    chatConnections.clear();
+    chatRuntime.finish();
     history.splice(0); $('messages').replaceChildren(); $('message-input').value = '';
     for (const message of chat.messages ?? []) {
       if (!['user', 'assistant'].includes(message.role) || typeof message.text !== 'string') continue;
@@ -34,22 +53,33 @@ const chatSessions = createChatSessionsUI({ isBusy: () => busy, isAvailable: () 
   } });
 
 function updateControls() {
-  document.querySelectorAll('[data-action]').forEach((button) => { button.disabled = busy || !ready; });
-  document.querySelectorAll('[data-prompt]').forEach((button) => { button.disabled = busy || !ready || !connected; });
-  $('message-input').disabled = busy || !ready || !connected || (desktop && chatSessions.isPending());
-  $('send-message').disabled = busy || !ready || !connected || (desktop && (!chatSessions.currentId() || chatSessions.isPending())) || !$('message-input').value.trim();
-  $('save-name').disabled = busy || !ready;
-  $('file-input').disabled = busy || !ready;
-  $('refresh-connection').disabled = busy;
-  $('login-chatgpt').disabled = busy || authPending;
-  $('logout-chatgpt').disabled = busy;
-  $('cancel-task').hidden = !desktop || (!busy && !authPending);
-  iframe.inert = busy || !ready;
-  iframe.style.pointerEvents = busy || !ready ? 'none' : '';
-  $('editor-stage').setAttribute('aria-busy', String(busy || !ready));
+  const locked = isBusy();
+  document.querySelectorAll('[data-action]').forEach((button) => { button.disabled = locked || !ready; });
+  document.querySelectorAll('[data-prompt]').forEach((button) => { button.disabled = locked || !ready || !connected; });
+  const composing = !browserFrozen && !connectionBusy && !cancelPending && (!busy || (desktop && chatRunning && !stopRequested));
+  $('message-input').disabled = !composing || !ready || !connected || (desktop && chatSessions.isPending());
+  $('message-input').placeholder = chatRunning ? '진행 중인 작업에 추가 지시 입력' : '도면 요청 · /스킬 · MCP·API·플러그인 등록';
+  $('send-message').disabled = !composing || steeringPending || chatCompleting || !ready || !connected || (desktop && (!chatSessions.currentId() || chatSessions.isPending())) || !$('message-input').value.trim();
+  $('send-message').textContent = steeringPending ? '전달 중…' : chatRunning ? '추가 지시' : '전송';
+  $('stop-task').hidden = !desktop || (!chatRunning && !cancelPending);
+  $('stop-task').disabled = stopRequested || cancelPending;
+  $('stop-task').textContent = stopRequested || cancelPending ? '정지 중…' : '정지';
+  $('composer-hint').textContent = chatRunning ? 'Enter 추가 지시 · Shift+Enter 줄바꿈' : 'Enter 전송 · Shift+Enter 줄바꿈';
+  $('save-name').disabled = locked || !ready;
+  $('file-input').disabled = locked || !ready;
+  $('refresh-connection').disabled = locked;
+  $('login-chatgpt').disabled = locked || authPending;
+  $('logout-chatgpt').disabled = locked;
+  $('cancel-task').hidden = !desktop || chatRunning || (!busy && !authPending && !cancelPending);
+  $('cancel-task').disabled = cancelPending;
+  iframe.inert = locked || !ready;
+  iframe.style.pointerEvents = locked || !ready ? 'none' : '';
+  $('editor-stage').setAttribute('aria-busy', String(locked || !ready));
   mcpSettings.sync();
+  chatConnections.sync();
   skillMenu.sync();
   chatSessions.sync();
+  chatRuntime.sync();
 }
 
 function overlay(message, working = false) {
@@ -74,7 +104,7 @@ function errorMessage(error) {
 }
 
 async function runAction(label, action) {
-  if (busy || !ready) return;
+  if (isBusy() || !ready) return;
   busy = true;
   updateControls();
   notice();
@@ -118,8 +148,8 @@ async function checkConnection() {
     browser = body.data.browser === true;
     if (body.data.desktop) {
       desktop = true;
+      serverActive = body.data.active === true || body.data.runtime?.busy === true;
       $('chat-session-controls').hidden = false;
-      document.querySelector('.composer-note').textContent = '경기도 광주시 주소만 입력하면 반경 100m의 필지·공개 등고선을 같은 위치·실척으로 넣어 DWG로 저장합니다. 다른 지역은 지형 원본 등록이 필요합니다. 일반 작도 치수는 mm 기준입니다.';
       authPending = body.data.auth?.pending === true;
       $('login-chatgpt').hidden = connected;
       $('logout-chatgpt').hidden = !body.data.auth?.loggedIn;
@@ -131,7 +161,7 @@ async function checkConnection() {
         : body.data.auth?.error || (body.data.auth?.loggedIn && !body.data.auth?.sharing
           ? 'ChatGPT 요금제 사용 권한에 동의해야 AI 도구를 사용할 수 있습니다. 다시 로그인해 주세요.'
           : '위의 ChatGPT로 계속 버튼을 눌러 로그인하세요. Codex나 터미널을 따로 열 필요가 없습니다.');
-      if (!stopBridge) stopBridge = startDesktopBridge(cad, { isReady: () => ready,
+      if (!stopBridge && !browserFrozen) stopBridge = startDesktopBridge(cad, { isReady: () => ready && !browserFrozen,
         onError: error => { if (!busy) notice(errorMessage(error), true); } });
     }
     $('oauth-status').textContent = connected ? 'OpenAI OAuth 연결됨' : 'OpenAI 로그인 필요';
@@ -139,8 +169,10 @@ async function checkConnection() {
     if (authPending) $('oauth-status').textContent = 'ChatGPT 로그인 진행 중';
     $('auth-help').hidden = connected;
     mcpSettings.update(body.data);
+    chatConnections.update(body.data);
     skillMenu.update(body.data);
     chatPanel.update(body.data);
+    chatRuntime.update(body.data);
     if (desktop) await chatSessions.init();
     if (body.data.editorInstalled === false) notice('OpenCADStudio 파일이 준비되지 않았습니다. 프로젝트 실행 안내를 확인해 주세요.', true);
   } catch (error) {
@@ -242,29 +274,66 @@ function appendMessage(role, text, { error = false, details, reports = [], sourc
   else $('messages').scrollTop = $('messages').scrollHeight;
 }
 
+async function submitSteering(message) {
+  if (!desktop || !chatRunning || chatCompleting || stopRequested || steeringPending || cancelPending || connectionBusy || browserFrozen) return;
+  if (message.startsWith('/') || parseConnectionCommand(message)) {
+    notice('작업 중에는 추가 지시만 전달할 수 있습니다. 스킬·연결 등록은 작업을 정지하거나 완료한 뒤 요청해 주세요.', true);
+    return;
+  }
+  steeringPending = true;
+  updateControls();
+  steeringRequest = (async () => {
+    try {
+      const result = await desktopRequest('steer', { message, chatId: activeChatId });
+      if (result?.accepted !== true) throw Error('추가 지시를 전달하지 못했습니다. 현재 작업 상태를 확인해 주세요.');
+      appendMessage('user', message);
+      history.push({ role: 'user', text: message });
+      if ($('message-input').value.trim() === message) $('message-input').value = '';
+      notice('진행 중인 작업에 추가 지시를 전달했습니다.');
+    } catch (error) { notice(errorMessage(error), true); }
+    finally { steeringPending = false; updateControls(); }
+  })();
+  return steeringRequest;
+}
+
 async function submitMessage(event) {
   event.preventDefault();
   const message = $('message-input').value.trim();
-  if (!message || busy) return;
-  if (mcpSettings.handleCommand(message)) { $('message-input').value = ''; updateControls(); return; }
+  if (!message) return;
+  if (chatRunning) return submitSteering(message);
+  if (isBusy()) return;
+  if (chatConnections.handleCommand(message)) { $('message-input').value = ''; updateControls(); return; }
   if (!ready || !connected || (desktop && (!chatSessions.currentId() || chatSessions.isPending()))) return;
   const previousHistory = history.slice(-8);
   appendMessage('user', message);
+  history.push({ role: 'user', text: message });
   $('message-input').value = '';
   busy = true;
+  chatRunning = desktop;
+  stopRequested = false;
+  activeChatId = chatSessions.currentId();
+  chatCompleting = false;
+  steeringRequest = undefined;
+  cancellationRequest = undefined;
   updateControls();
   notice();
   overlay('자연어 요청을 처리하고 있습니다.', true);
   $('chat-progress-text').textContent = '도면을 확인하고 요청을 해석하고 있습니다.';
   $('chat-progress').hidden = false;
+  if (desktop) chatRuntime.begin();
   try {
     const context = await cad.context();
     const response = await fetch('/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, context, history: previousHistory, ...(desktop ? { chatId: chatSessions.currentId() } : {}) }),
+      headers: { 'Content-Type': 'application/json', ...(desktop ? { Accept: 'application/x-ndjson' } : {}) },
+      body: JSON.stringify({ message, context, history: previousHistory, ...(desktop ? { chatId: activeChatId, model: chatRuntime.selectedModel() } : {}) }),
     });
-    const body = await response.json();
+    const body = desktop && response.ok
+      ? { ok: true, data: await readChatStream(response, event => chatRuntime.event(event)) }
+      : await response.json();
+    chatCompleting = true;
+    updateControls();
+    await steeringRequest;
     if (!response.ok || !body.ok) throw new Error(body.error || '요청을 처리하지 못했습니다.');
     $('chat-progress-text').textContent = '도면에 적용하고 실행 결과를 확인하고 있습니다.';
     overlay('도면에 적용하고 결과를 확인하고 있습니다.', true);
@@ -273,18 +342,28 @@ async function submitMessage(event) {
     const reply = result.message || body.data.reply || '요청을 처리했습니다.';
     appendMessage('assistant', reply, { details: result.reports?.length ? { operations: result.details, reports: result.reports } : result.details, reports: result.reports,
       sources: body.data.sources, design: body.data.design, savedFiles: body.data.savedFiles });
-    history.push({ role: 'user', text: message }, { role: 'assistant', text: reply.slice(0, 2000) });
+    chatRuntime.finish();
+    history.push({ role: 'assistant', text: reply.slice(0, 2000) });
     if (history.length > 8) history.splice(0, history.length - 8);
     await refreshDocument().catch(() => notice('작업은 완료되었지만 도면 상태 표시를 새로 고치지 못했습니다. 도면을 확인해 주세요.', true));
   } catch (error) {
+    chatCompleting = true;
+    updateControls();
+    await steeringRequest;
+    if (desktop) chatRuntime.fail('응답이 중단됐습니다. 도면 상태를 확인한 뒤 다시 요청해 주세요.');
     appendMessage('assistant', errorMessage(error), { error: true });
-    $('message-input').value = message;
+    if (!stopRequested && !$('message-input').value.trim()) $('message-input').value = message;
   } finally {
     if (desktop) {
       try { const result = await stopBridge?.cancel(); if (result?.cancelled) notice('미완료 명령의 입력 대기를 정리했습니다. 이미 반영된 객체는 도면에 남아 있을 수 있습니다.'); }
       catch (error) { notice(errorMessage(error), true); }
     }
+    await cancellationRequest;
     busy = false;
+    chatRunning = false;
+    chatCompleting = false;
+    stopRequested = false;
+    activeChatId = undefined;
     if (desktop) await Promise.allSettled([skillMenu.refresh(), chatSessions.refresh(), mcpSettings.refresh()]);
     $('chat-progress').hidden = true;
     overlay(null);
@@ -383,27 +462,75 @@ $('logout-chatgpt').addEventListener('click', async () => {
   try { await desktopRequest('logout'); await checkConnection(); notice('SiteCAD에서 로그아웃했습니다.'); }
   catch (error) { notice(errorMessage(error), true); }
 });
-$('cancel-task').addEventListener('click', async () => {
-  try {
-    const cleanup = stopBridge?.cancel();
-    await desktopRequest('cancel');
-    await cleanup;
-    notice('작업을 취소했습니다. 이미 반영된 도면 변경은 실행 취소로 되돌릴 수 있습니다.');
-    await checkConnection();
-  } catch (error) { notice(errorMessage(error), true); }
-});
+async function cancelTask() {
+  if (cancelPending || (chatRunning && stopRequested)) return;
+  cancelPending = true;
+  if (chatRunning) stopRequested = true;
+  updateControls();
+  cancellationRequest = (async () => {
+    try {
+      const cleanup = stopBridge?.cancel();
+      await desktopRequest('cancel');
+      await cleanup;
+      notice('정지를 요청했습니다. 이미 반영된 도면 변경은 남아 있을 수 있으므로 도면을 확인해 주세요.');
+      await checkConnection();
+    } catch (error) {
+      stopRequested = false; notice(errorMessage(error), true);
+    } finally { cancelPending = false; updateControls(); }
+  })();
+  return cancellationRequest;
+}
+$('cancel-task').addEventListener('click', cancelTask);
+$('stop-task').addEventListener('click', cancelTask);
 $('retry-editor').addEventListener('click', connectEditor);
 setInterval(async () => {
-  if (!ready || busy || polling) return;
+  if (!ready || busy || polling || browserFrozen) return;
   polling = true;
   try { await refreshDocument(); }
   catch { $('document-status').textContent = '도면 상태 확인 지연 · 연결을 확인해 주세요'; }
   finally { polling = false; }
 }, 1500);
 
+async function cleanTransferState() {
+  const state = await cad.snapshot();
+  const documents = state.documents ?? [];
+  const dirtyKnown = typeof state.dirty === 'boolean' || (documents.length > 0 && documents.every(doc => typeof doc.dirty === 'boolean'));
+  return dirtyKnown && !state.dirty && !documents.some(doc => doc.dirty) &&
+    !state.command && !state.modal && !state.text_editor && !state.mtext_editor;
+}
+
+export const browserSessionHooks = {
+  async isSafeToTransfer() {
+    if (!ready || isBusy() || authPending || serverActive) return false;
+    browserFrozen = true;
+    updateControls();
+    try {
+      if (await cleanTransferState()) return true;
+    } catch { /* Failed state reads cannot establish a safe transfer. */ }
+    browserFrozen = false;
+    updateControls();
+    notice('브라우저를 전환하려면 열려 있는 도면을 모두 저장하고 진행 중 명령을 끝내 주세요.', true);
+    return false;
+  },
+  async freeze() {
+    if (!browserFrozen || busy || connectionBusy || steeringPending || cancelPending || authPending || serverActive || !(await cleanTransferState())) throw Error('도면 상태가 변경되어 브라우저를 전환하지 않았습니다. 먼저 저장해 주세요.');
+    await stopBridge?.cancel();
+    stopBridge?.();
+    stopBridge = undefined;
+    updateControls();
+  },
+  async resume() {
+    if (!browserFrozen) return;
+    browserFrozen = false;
+    await checkConnection();
+    updateControls();
+  },
+};
+
 await Promise.all([checkConnection(), connectEditor()]);
 setInterval(() => { if (desktop) void checkConnection(); }, 2000);
 addEventListener('pagehide', () => {
+  chatConnections.clear();
   stopBridge?.();
   if (browser && (busy || authPending)) void fetch('/api/desktop/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', keepalive: true }).catch(() => {});
 });

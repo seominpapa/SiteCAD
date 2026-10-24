@@ -18,7 +18,7 @@ async function setup(options = {}) {
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${app.address().port}`;
   const request = (path, init = {}) => fetch(base + path, { ...init, headers: { ...(init.method === 'POST' ? { Origin: base, 'Content-Type': 'application/json' } : {}), ...init.headers } });
-  return { app, request, base, close: async () => { await new Promise(resolve => app.close(resolve)); await rm(root, { recursive: true, force: true }); } };
+  return { app, request, base, root, close: async () => { await new Promise(resolve => app.close(resolve)); await rm(root, { recursive: true, force: true }); } };
 }
 test('serves local chat, editor/wasm and bounded structured plans', async () => {
   const t = await setup();
@@ -33,6 +33,68 @@ test('serves local chat, editor/wasm and bounded structured plans', async () => 
     assert.equal((await t.request('/api/missing')).status, 404);
     assert.equal((await t.request('/leak.txt')).status, 404);
   } finally { await t.close(); }
+});
+
+test('license documents are readable through a fixed allowlist without exposing project files', async () => {
+  const legalRoot = await mkdtemp(join(tmpdir(), 'sitecad-legal-'));
+  try {
+    for (const name of ['LICENSE', 'THIRD_PARTY_NOTICES.md', 'SOURCE_BUILD.md']) await writeFile(join(legalRoot, name), `document ${name}`);
+    await writeFile(join(legalRoot, 'secret.env'), 'private');
+    const t = await setup({ legalRoot });
+    try {
+      for (const name of ['LICENSE', 'THIRD_PARTY_NOTICES.md', 'SOURCE_BUILD.md']) {
+        const response = await t.request(`/legal/${name}`);
+        assert.equal(response.status, 200); assert.match(response.headers.get('content-type'), /text\/plain/);
+        assert.equal(await response.text(), `document ${name}`);
+      }
+      assert.equal((await t.request('/legal/LICENSE', { method: 'HEAD' })).status, 200);
+      assert.equal((await t.request('/legal/secret.env')).status, 404);
+      assert.equal((await t.request('/legal/%2e%2e%2fsecret.env')).status, 404);
+    } finally { await t.close(); }
+  } finally { await rm(legalRoot, { recursive: true, force: true }); }
+});
+
+test('the fixed engine source archive downloads locally without opening arbitrary editor files', async () => {
+  const t = await setup();
+  try {
+    await mkdir(join(t.root, 'editor/source'));
+    await writeFile(join(t.root, 'editor/source/OpenCADStudio-b6fbac39ffc74398ba5d283ce2bc1dc07a8fd8f0-source.tar.gz'), Buffer.alloc(2048, 42));
+    const response = await t.request('/legal/opencadstudio-source.tar.gz');
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/gzip');
+    assert.match(response.headers.get('content-disposition'), /attachment; filename="OpenCADStudio-b6fbac39ffc74398ba5d283ce2bc1dc07a8fd8f0-source.tar.gz"/);
+    assert.ok((await response.arrayBuffer()).byteLength > 1024);
+  } finally { await t.close(); }
+});
+
+test('desktop chat streams public events before the final result and preserves model metadata', async () => {
+  let release; const waited = new Promise(resolve => { release = resolve; });
+  let received;
+  const t = await setup({desktop:{status:async()=>({oauth:{connected:true}}),modelsList:async()=>({models:[{id:'gpt-test'}]}),
+    chat:async(input,{onEvent}={})=>{received=input;onEvent?.({type:'delta',text:'한글 응답'});await waited;return {reply:'완료',executed:true};},cancel:async()=>{}}});
+  try {
+    assert.equal((await (await t.request('/api/desktop/models')).json()).data.models[0].id,'gpt-test');
+    const response=await t.request('/api/chat',{method:'POST',headers:{Accept:'application/x-ndjson'},body:JSON.stringify({...payload,model:'gpt-test'})});
+    assert.match(response.headers.get('content-type'),/application\/x-ndjson/);
+    const reader=response.body.getReader(),decoder=new TextDecoder();
+    const first=decoder.decode((await reader.read()).value);assert.match(first,/한글 응답/);assert.doesNotMatch(first,/"type":"result"/);
+    assert.equal(received.model,'gpt-test');release();
+    let rest='';for(;;){const item=await reader.read();if(item.done)break;rest+=decoder.decode(item.value,{stream:true});}
+    assert.match(rest,/"type":"result".*완료/);
+  } finally {release();await t.close();}
+});
+
+test('stream errors stay private and client disconnect cancels the active desktop turn', async () => {
+  let cancelled=0; let started;const ready=new Promise(resolve=>{started=resolve;});let release;
+  const t=await setup({desktop:{status:async()=>({oauth:{connected:true}}),chat:async(_,options)=>{options.onEvent({type:'delta',text:'일부 응답'});started();await new Promise(resolve=>{release=resolve;});throw Error('private-secret');},cancel:async()=>{cancelled++;release?.();}}});
+  try {
+    const response=await t.request('/api/chat',{method:'POST',headers:{Accept:'application/x-ndjson'},body:JSON.stringify(payload)});
+    await ready;const reader=response.body.getReader();await reader.read();await reader.cancel();
+    for(let i=0;i<100&&!cancelled;i++)await new Promise(resolve=>setTimeout(resolve,5));
+    assert.equal(cancelled,1);
+  } finally {release?.();await t.close();}
+  const failing=await setup({desktop:{status:async()=>({oauth:{connected:true}}),chat:async(_,options)=>{options.onEvent({type:'delta',text:'일부 응답'});throw Error('private-secret');}}});
+  try {const response=await failing.request('/api/chat',{method:'POST',headers:{Accept:'application/x-ndjson'},body:JSON.stringify(payload)});const body=await response.text();assert.match(body,/"type":"error"/);assert.doesNotMatch(body,/private-secret|"type":"result"/);}finally{await failing.close();}
 });
 test('standalone source serves its bundled example drawing without a parent checkout', async () => {
   const t = await setup();
@@ -152,6 +214,7 @@ test('desktop runtime routes require local origin or a private MCP token and ret
     pollCad: async () => ({ id: 'job', method: 'context', payload: {} }),
     completeCad: (id, result) => { calls.push([id, result]); } };
   desktop.mcpList = async () => ({ servers: [{ name: 'rea' }] });
+  desktop.pluginsList = async () => ({ plugins: [{ name: 'quantity-workflows', status: 'installed' }] });
   const chatId='12345678-1234-4123-8123-123456789abc';
   desktop.skillsList=async()=>({skills:[{name:'skill-creator'}]});
   desktop.chatList=async()=>({chats:[{id:chatId,title:'검증'}]});
@@ -175,6 +238,7 @@ test('desktop runtime routes require local origin or a private MCP token and ret
     assert.equal((await request('/api/internal/mcp', { method: 'context', payload: {} }, { Authorization: 'Bearer private-test' })).status, 200);
     assert.equal(calls.length, 2);
     assert.equal((await (await t.request('/api/desktop/mcp')).json()).data.servers[0].name, 'rea');
+    assert.equal((await (await t.request('/api/desktop/plugins')).json()).data.plugins[0].name, 'quantity-workflows');
     assert.equal((await (await t.request('/api/desktop/skills')).json()).data.skills[0].name,'skill-creator');
     assert.equal((await (await t.request('/api/desktop/chats')).json()).data.chats[0].id,chatId);
     assert.equal((await (await t.request(`/api/desktop/chats/${chatId}`)).json()).data.chat.id,chatId);

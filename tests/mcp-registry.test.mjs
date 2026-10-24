@@ -10,7 +10,7 @@ async function setup(t, options = {}) {
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   let saved = null;
   const secretStore = { read: async () => structuredClone(saved), write: async value => { saved = structuredClone(value); } };
-  const config = { dataDir, nodePath: '/Applications/SiteCAD.app/Contents/MacOS/SiteCAD', nodeEnv: { ELECTRON_RUN_AS_NODE: '1' }, secretStore, reaSource: '/Applications/SiteCAD.app/Contents/Resources/app/rea', ...options };
+  const config = { dataDir, nodePath: '/Applications/SiteCAD.app/Contents/MacOS/SiteCAD', nodeEnv: { ELECTRON_RUN_AS_NODE: '1' }, secretStore, ...options };
   return { dataDir, config, registry: await createMcpRegistry(config), secrets: () => saved };
 }
 
@@ -78,15 +78,28 @@ test('registry validates names, absolute commands, schema, environment, tools an
   for (const [i, url] of ['http://127.0.0.1:3000/mcp', 'http://localhost:3001/mcp', 'http://[::1]:3002/mcp'].entries()) await registry.upsert({ name: `local${i}`, transport: 'http', url });
 });
 
-test('REA preset uses the bundled Node runtime without executing or inheriting ambient credentials', async t => {
-  const { registry, config } = await setup(t);
-  await registry.upsert({ name: 'rea', preset: 'rea', enabledTools: ['inspect_web_page'] });
-  const [server] = await registry.runtimeServers();
-  assert.equal(server.command, config.nodePath);
-  assert.deepEqual(server.args, [join(config.reaSource, 'scripts/rea.mjs'), 'mcp']);
-  assert.deepEqual(server.env, { ELECTRON_RUN_AS_NODE: '1' });
-  assert.equal((await registry.list())[0].preset, 'rea');
+test('bundled presets cannot register but an explicitly configured REA uses the generic isolated runtime', async t => {
+  const { registry } = await setup(t);
+  await assert.rejects(registry.upsert({ name: 'rea', preset: 'rea' }), /MCP/);
   await assert.rejects(registry.upsert({ name: 'rea', preset: 'unknown' }), /MCP/);
+  await registry.upsert({ ...stdio, name: 'rea', enabledTools: ['inspect_web_page'] });
+  assert.equal((await registry.runtimeServers())[0].command, stdio.command);
+  assert.deepEqual((await registry.runtimeServers())[0].env, {});
+});
+
+test('legacy bundled REA records remain removable without launching a missing bundled runtime', async t => {
+  const { config, dataDir } = await setup(t);
+  const stored = { version: 1, servers: [{ name: 'rea', preset: 'rea', enabled: true, enabledTools: [] }] };
+  await writeFile(join(dataDir, 'external-mcp.json'), JSON.stringify(stored));
+  const registry = await createMcpRegistry(config);
+  assert.equal((await registry.list())[0].name, 'rea');
+  assert.equal((await registry.list())[0].enabled, false);
+  assert.equal((await registry.list())[0].status, 'unavailable');
+  assert.equal((await registry.list())[0].unavailableReason, 'bundled-preset-removed');
+  assert.deepEqual(await registry.runtimeServers(), []);
+  assert.deepEqual(JSON.parse(await readFile(join(dataDir, 'external-mcp.json'),'utf8')), stored);
+  await registry.remove('rea');
+  assert.deepEqual(await registry.list(), []);
 });
 
 test('removal erases stored credentials and simultaneous additions cannot bypass the eight-server limit', async t => {
@@ -134,6 +147,6 @@ test('invalid persisted names, metadata and encrypted records cannot become runt
     await assert.rejects(createMcpRegistry(config), /MCP/);
   }
   await assert.rejects(createMcpRegistry({ ...config, dataDir: 'relative' }), /MCP/);
-  const { registry: unavailable } = await setup(t, { reaSource: undefined });
+  const { registry: unavailable } = await setup(t);
   await assert.rejects(unavailable.upsert({ name: 'rea', preset: 'rea' }), /MCP/);
 });

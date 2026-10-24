@@ -49,20 +49,21 @@ async function readBody(req, limit = 128 * 1024) {
   try { return JSON.parse(body.toString('utf8')); } catch { throw error('JSON 요청을 확인해 주세요.'); }
 }
 
-async function staticFile(res, file, allowedRoot, method) {
+async function staticFile(res, file, allowedRoot, method, contentType) {
   const [actual, allowed] = await Promise.all([realpath(file), realpath(allowedRoot)]);
   const rel = relative(allowed, actual);
   if (!rel || rel.startsWith('..') || isAbsolute(rel) || rel.split(/[\\/]/).some(part => part.startsWith('.'))) throw error('파일을 찾을 수 없습니다.', 404);
   const info = await stat(actual);
-  if (!info.isFile() || !types[extname(actual)]) throw error('파일을 찾을 수 없습니다.', 404);
-  res.writeHead(200, { 'Content-Type': types[extname(actual)], 'Content-Length': info.size, 'Cache-Control': 'no-store' });
+  const type = contentType ?? types[extname(actual)];
+  if (!info.isFile() || !type) throw error('파일을 찾을 수 없습니다.', 404);
+  res.writeHead(200, { 'Content-Type': type, 'Content-Length': info.size, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
   if (method === 'HEAD') return res.end();
   const stream = createReadStream(actual);
   stream.on('error', () => res.destroy());
   stream.pipe(res);
 }
 
-export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desktop, browserAccess, browserActions, publicRoot = join(root, 'public'), editorRoot = join(root, 'vendor/editor'), fixturePath = join(root, 'fixtures/retaining-wall.dwg'), now = Date.now } = {}) {
+export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desktop, browserAccess, browserActions, publicRoot = join(root, 'public'), editorRoot = join(root, 'vendor/editor'), legalRoot = root, fixturePath = join(root, 'fixtures/retaining-wall.dwg'), now = Date.now } = {}) {
   let active = false;
   let recent = [];
   let authCache;
@@ -79,9 +80,11 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
     if (req.headers.origin !== `http://${req.headers.host}`) throw error('이 로컬 앱에서만 요청할 수 있습니다.', 403);
     if (req.headers['content-type']?.split(';')[0].trim() !== 'application/json') throw error('JSON 요청만 지원합니다.', 415);
     const body = await readBody(req);
-    const {chatId,...request} = body;
+    browserAccess?.assertOwner(req);
+    const {chatId,model,...request} = body;
     const input = validateChat(request);
     if (chatId !== undefined && (!desktop || typeof chatId !== 'string' || !/^[a-f0-9-]{36}$/.test(chatId))) throw error('채팅을 다시 선택해 주세요.');
+    if (model !== undefined && (!desktop || typeof model !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(model))) throw error('모델 선택을 확인해 주세요.');
     recent = recent.filter(time => now() - time < 60000);
     if (active || recent.length >= 20) throw error('진행 중인 요청이 끝난 뒤 잠시 후 다시 시도해 주세요.', 429);
     active = true;
@@ -90,7 +93,23 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
       if (desktop) {
         const status = await desktop.status();
         if (!status.oauth?.connected) throw error('SiteCAD의 ChatGPT 로그인 버튼으로 로그인해 주세요.', 503);
-        return respond(res, 200, { ok: true, data: await desktop.chat({...input,...(chatId ? {chatId} : {})}) });
+        const request = {...input,...(chatId ? {chatId} : {}),...(model ? {model} : {})};
+        if (req.headers.accept?.split(',').some(value => value.trim() === 'application/x-ndjson')) {
+          res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+          res.flushHeaders();
+          const send = event => {
+            if (res.destroyed || res.writableEnded) return;
+            if (res.writableLength > 2 * 1024 * 1024) { res.destroy(); return; }
+            res.write(`${JSON.stringify(event)}\n`);
+          };
+          const disconnected = () => { if (!res.writableEnded) void desktop.cancel().catch(() => {}); };
+          res.once('close', disconnected);
+          try { send({ type: 'result', data: await desktop.chat(request, { onEvent: send }) }); }
+          catch { send({ type: 'error', message: '요청을 완료하지 못했습니다. 로그인·연결·도면 상태를 확인해 주세요. 일부 변경이 남아 있을 수 있습니다.' }); }
+          finally { res.off('close', disconnected); if (!res.destroyed) res.end(); }
+          return;
+        }
+        return respond(res, 200, { ok: true, data: await desktop.chat(request) });
       }
       if (!(await currentAuth()).connected) throw error(loginMessage, 503);
       let result;
@@ -106,11 +125,15 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
     if (path === '/api/internal/mcp') {
       if (req.method !== 'POST' || !desktop.authorizeMcp(req.headers.authorization)) throw error('허용되지 않은 연결입니다.', 403);
       const { method, payload } = await readBody(req, 512 * 1024);
+      browserAccess?.assertMcpOwner(req);
+      if (!desktop.authorizeMcp(req.headers.authorization)) throw error('허용되지 않은 연결입니다.', 403);
       return respond(res, 200, { ok: true, data: await desktop.callCad(method, payload) });
     }
     if (path === '/api/desktop/status' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.status() });
     if (path === '/api/desktop/mcp' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.mcpList() });
     if (path === '/api/desktop/skills' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.skillsList() });
+    if (path === '/api/desktop/plugins' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.pluginsList() });
+    if (path === '/api/desktop/models' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.modelsList() });
     if (path === '/api/desktop/chats' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.chatList() });
     if (/^\/api\/desktop\/chats\/[a-f0-9-]{36}$/.test(path) && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.chatRead(path.split('/').at(-1)) });
     if (path === '/api/desktop/references' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.referencesStatus() });
@@ -118,6 +141,7 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
     if (req.method !== 'POST' || req.headers.origin !== `http://${req.headers.host}`) throw error('이 로컬 앱에서만 요청할 수 있습니다.', 403);
     if (req.headers['content-type']?.split(';')[0].trim() !== 'application/json') throw error('JSON 요청만 지원합니다.', 415);
     const body = await readBody(req, path === '/api/desktop/cad/result' ? 42 * 1024 * 1024 : 128 * 1024);
+    browserAccess?.assertOwner(req);
     let data;
     if (path === '/api/desktop/login') data = await desktop.login();
     else if (path === '/api/desktop/chats/new') {
@@ -126,6 +150,7 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
     }
     else if (path === '/api/desktop/logout') data = await desktop.logout();
     else if (path === '/api/desktop/cancel') data = await desktop.cancel();
+    else if (path === '/api/desktop/steer') data = await desktop.steer(body);
     else if (path === '/api/desktop/cad/poll') data = await desktop.pollCad();
     else if (path === '/api/desktop/cad/claim') data = desktop.claimCad(body.id);
     else if (path === '/api/desktop/cad/result') data = desktop.completeCad(body.id, body.result, body.error);
@@ -153,7 +178,7 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
       const rawPath = decodeURIComponent(req.url.split('?')[0]);
       if (rawPath.includes('\\') || rawPath.includes('\0') || rawPath.split('/').some(part => part.startsWith('.'))) throw error('파일을 찾을 수 없습니다.', 404);
       const path = new URL(req.url, `http://${req.headers.host}`).pathname;
-      if (browserAccess && !browserAccess.protect(req, res, path)) return;
+      if (browserAccess && !await browserAccess.protect(req, res, path, { readBody, desktop, isBusy: () => active })) return;
       if (browserAccess && path.startsWith('/api/local/')) {
         if (req.method === 'GET' && path.startsWith('/api/local/drawings/')) {
           const file = await desktop.readDrawing(decodeURIComponent(path.slice('/api/local/drawings/'.length)));
@@ -167,11 +192,13 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
           const form = await new Request('http://127.0.0.1', { method: 'POST', headers: { 'Content-Type': req.headers['content-type'] }, body: bytes }).formData();
           const entries = [...form.entries()];
           if (!entries.length || entries.length > 3 || entries.some(([key, value]) => key !== 'files' || typeof value === 'string')) throw error('GeoJSON 또는 SHP·DBF·PRJ 파일을 선택해 주세요.');
+          browserAccess.assertOwner(req);
           const files = await Promise.all(entries.map(async ([, file]) => ({ name: file.name, bytes: Buffer.from(await file.arrayBuffer()) })));
           return respond(res, 200, { ok: true, data: await desktop.terrainImport(files) });
         }
         if (req.headers['content-type']?.split(';')[0].trim() !== 'application/json') throw error('JSON 요청만 지원합니다.', 415);
         const input = await readBody(req, path === '/api/local/drawings/save' ? 42 * 1024 * 1024 : 128 * 1024);
+        browserAccess.assertOwner(req);
         if (path === '/api/local/drawings/save') {
           if (!input || Object.keys(input).some(key => !['name', 'result', 'expectedContext'].includes(key))) throw error('저장 요청을 확인해 주세요.');
           return respond(res, 200, { ok: true, data: await desktop.saveDrawing(input.result, input.name, input.expectedContext) });
@@ -197,6 +224,16 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
         return await staticFile(res, join(font.directory, font.name), font.directory, req.method);
       }
       if (path.startsWith('/api/')) throw error('경로를 찾을 수 없습니다.', 404);
+      if (path === '/legal/opencadstudio-source.tar.gz') {
+        const name = 'OpenCADStudio-b6fbac39ffc74398ba5d283ce2bc1dc07a8fd8f0-source.tar.gz';
+        res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+        return await staticFile(res, join(editorRoot, 'source', name), editorRoot, req.method, 'application/gzip');
+      }
+      if (path.startsWith('/legal/')) {
+        const name = path.slice(7);
+        if (!['LICENSE', 'THIRD_PARTY_NOTICES.md', 'SOURCE_BUILD.md'].includes(name)) throw error('파일을 찾을 수 없습니다.', 404);
+        return await staticFile(res, join(legalRoot, name), legalRoot, req.method, 'text/plain; charset=utf-8');
+      }
       if (path === '/fixtures/retaining-wall.dwg') return await staticFile(res, fixturePath, dirname(fixturePath), req.method);
       if (path.startsWith('/app/')) return await staticFile(res, join(editorRoot, decodeURIComponent(path.slice(5)) || 'index.html'), editorRoot, req.method);
       return await staticFile(res, join(publicRoot, decodeURIComponent(path.slice(1)) || 'index.html'), publicRoot, req.method);

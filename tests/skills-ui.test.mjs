@@ -24,11 +24,12 @@ async function fixture(t) {
     return { ok: true, json: async () => ({ ok: true, data: { skills: [
       { name: 'skill-creator', description: '<img onerror=attack()> 스킬 만들기', builtin: true, path: '/private/hidden' },
       { name: 'layer-review', description: '레이어 물량검토' },
+      { name: 'plugin-construction-check', description: '설치된 플러그인의 도면 검토' },
       { name: '../../unsafe', description: 'unsafe' },
     ] } }) };
   };
   t.after(() => { globalThis.document = before.document; globalThis.fetch = before.fetch; });
-  return { ids, requests };
+  return { ids, requests, html };
 }
 
 test('installed skills are listed safely and a selected slash remains chat input', async t => {
@@ -41,7 +42,8 @@ test('installed skills are listed safely and a selected slash remains chat input
   menu.update({ desktop: true }); await flush();
   assert.equal(requests[0].url, '/api/desktop/skills');
   assert.equal(requests[0].options.method, 'GET');
-  assert.equal(ids['skill-list'].children.length, 2);
+  assert.equal(requests.length, 1);
+  assert.equal(ids['skill-list'].children.length, 3);
   assert.match(ids['skill-list'].children[0].children[1].textContent, /<img onerror=attack\(\)>/);
   assert.doesNotMatch(JSON.stringify(ids['skill-list']), /private\/hidden/);
   ids['skill-toggle'].listeners.click();
@@ -80,7 +82,7 @@ test('busy state prevents skill insertion and chat completion refresh adds saved
   assert.equal(ids['skill-toggle'].disabled, true);
   await button.listeners.click();
   assert.equal(ids['message-input'].value, '');
-  globalThis.fetch = async () => ({ ok: true, json: async () => ({ ok: true, data: { skills: [{ name: 'new-skill', description: '새로 만든 작업' }] } }) });
+  globalThis.fetch = async url => ({ ok: true, json: async () => ({ ok: true, data: { skills: [{ name: 'new-skill', description: '새로 만든 작업' }] } }) });
   await menu.refresh();
   busy = false; menu.sync();
   ids['skill-list'].children[0].listeners.click();
@@ -96,7 +98,52 @@ test('failed skill lookup gives safe retry state instead of claiming installatio
   assert.match(ids['skill-status'].textContent, /불러오지 못/);
   assert.doesNotMatch(ids['skill-status'].textContent, /private|secret|설치됨/);
   assert.equal(ids['skill-list'].children.length, 0);
-  globalThis.fetch = async () => ({ ok: true, json: async () => ({ ok: true, data: { skills: [] } }) });
+  globalThis.fetch = async url => ({ ok: true, json: async () => ({ ok: true, data: { skills: [] } }) });
   await ids['skill-toggle'].listeners.click();
   assert.match(ids['skill-status'].textContent, /스킬 만들기/);
+});
+
+
+test('slash control lists skills only and registration guidance is separate from drawing examples', async t => {
+  const { html } = await fixture(t);
+  assert.match(html, /id="skill-toggle"[^>]*>슬래시: 스킬<\/button>/);
+  assert.match(html, /id="skill-menu"[^>]*aria-label="설치된 스킬"/);
+  const guide = html.match(/<details[^>]*class="registration-help"[\s\S]*?<\/details>/)?.[0];
+  assert.ok(guide, 'Registration help must be discoverable without sending a chat request.');
+  assert.match(guide, /<summary>스킬·연결 등록 방법<\/summary>/);
+  for (const label of ['스킬', 'MCP', 'API', '플러그인']) assert.match(guide, new RegExp(`<strong>${label}<`));
+  assert.match(guide, /전용 입력|전용 카드/);
+  assert.match(guide, /GitHub/);
+  const examples = html.match(/<div class="example-prompts"[\s\S]*?<\/div>/)[0];
+  assert.doesNotMatch(examples, /스킬|MCP|API|플러그인/);
+  const popup = html.match(/<dialog id="mcp-dialog"[\s\S]*?<\/dialog>/)[0];
+  assert.doesNotMatch(popup, /registration-help|<input|<textarea/);
+});
+
+test('skills provided by a plugin keep their real command without a separate plugin type or lookup', async t => {
+  const { ids, requests } = await fixture(t);
+  let changes = 0;
+  const menu = createSkillMenu({ isBusy: () => false, onChange: () => { changes++; } });
+  menu.update({ desktop: true }); await flush();
+  assert.match(ids['skill-list'].children[0].children[0].textContent, /skill-creator · 기본/);
+  const provided = ids['skill-list'].children[2];
+  assert.equal(provided.children[0].textContent, '/plugin-construction-check');
+  ids['message-input'].value = '/plugin-construction-check 선택한 객체만';
+  provided.listeners.click();
+  assert.equal(ids['message-input'].value, '/plugin-construction-check 선택한 객체만');
+  assert.equal(changes, 1);
+  assert.deepEqual(requests.map(request => request.url), ['/api/desktop/skills']);
+});
+
+test('connection slash commands do not open an unmatched skill menu or consume Enter', async t => {
+  const { ids, requests } = await fixture(t);
+  const menu = createSkillMenu({ isBusy: () => false });
+  menu.update({ desktop: true }); await flush();
+  for (const command of ['/mcp', '/api']) {
+    ids['message-input'].value = command; ids['message-input'].listeners.input();
+    assert.equal(ids['skill-menu'].hidden, true);
+    ids['message-input'].listeners.keydown({ key: 'Enter', preventDefault: assert.fail });
+    assert.equal(ids['message-input'].value, command);
+  }
+  assert.equal(requests.length, 1);
 });
