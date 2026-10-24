@@ -4,7 +4,8 @@ import { lstat, mkdtemp, readFile, readdir, writeFile, stat, rm } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { promisify } from 'node:util';
 import { createHash, randomUUID } from 'node:crypto';
 import { createNodeSecretStores } from '../lib/node-secret-store.mjs';
 import { startLocalWeb } from '../local-web.mjs';
@@ -168,6 +169,10 @@ test('private launcher directory remains owned and Windows uses the per-user dat
   const path = join(await directory(t), '한글 private');
   await privateDirectory(path);
   assert.equal((await lstat(path)).isDirectory(), true);
+  if (process.platform === 'win32') {
+    const script = `$ErrorActionPreference='Stop';$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${Buffer.from(path).toString('base64')}'));$id=[Security.Principal.WindowsIdentity]::GetCurrent().User;$a=Get-Acl -LiteralPath $p;if($a.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $id.Value -or -not $a.AreAccessRulesProtected){throw 'Incorrect private owner'};foreach($r in $a.Access){if($r.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -ne $id.Value){throw 'Another principal has access'}}`;
+    await promisify(execFile)('powershell.exe', ['-NoProfile', '-EncodedCommand', Buffer.from(script,'utf16le').toString('base64')]);
+  }
   assert.match(defaultDataDir('win32'), /SiteCAD Web$/);
   assert.match(defaultDataDir('darwin'), /Library[/\\]Application Support[/\\]SiteCAD Web$/);
 });
