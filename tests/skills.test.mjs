@@ -23,7 +23,7 @@ test('default creator, finder and installer seed only into private Codex home an
     assert.equal(skill.builtin, true);
     assert.equal(skill.path, join(codexHome, 'skills', skill.name, 'SKILL.md'));
     assert.match(skill.hash, /^[a-f0-9]{64}$/);
-    assert.equal((await stat(skill.path)).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal((await stat(skill.path)).mode & 0o777, 0o600);
     assert.ok((await store.read(skill.name)).body.includes('sitecad_'));
   }
   const changed = (await readFile(skills[0].path, 'utf8')).replace('# SiteCAD', '# Changed SiteCAD');
@@ -41,7 +41,7 @@ test('skill creation is private, discoverable, immutable to callers and hash gua
   assert.equal(saved.path, join(codexHome, 'skills', draft.name, 'SKILL.md'));
   const raw = await readFile(saved.path, 'utf8');
   assert.ok(raw.startsWith('---\nname: "drawing-review"\ndescription: '));
-  assert.equal((await stat(saved.path)).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal((await stat(saved.path)).mode & 0o777, 0o600);
   assert.equal((await store.read(draft.name)).body, draft.body);
   saved.description = 'external mutation';
   assert.equal((await store.list())[0].description, draft.description);

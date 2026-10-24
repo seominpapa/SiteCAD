@@ -13,7 +13,7 @@ async function setup(t, options = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'sitecad-installer-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const dataDir = join(directory, 'private');
-  const nodePath = join(directory, 'runtime', 'bin', 'node');
+  const nodePath = join(directory, 'runtime', 'bin', process.platform === 'win32' ? 'node.exe' : 'node');
   const npm = join(directory, 'runtime', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
   await mkdir(dirname(nodePath), { recursive: true });
   await mkdir(dirname(npm), { recursive: true });
@@ -59,7 +59,7 @@ test('published Node bin paths may have harmless leading relative prefixes', asy
   const plan = await installer.inspect('https://github.com/example/cad-mcp');
   assert.equal(plan.bin, 'dist/server.js');
   const result = await installer.install({ planId: plan.planId, name: 'relative' }, { approve: async () => true });
-  assert.ok(result.config.args[0].endsWith('/dist/server.js'));
+  assert.ok(result.config.args[0].endsWith(join('dist', 'server.js')));
 });
 
 test('GitHub tree URL chooses only its package path and immutable commit for contents', async t => {
@@ -126,7 +126,7 @@ test('installation uses private HOME/cache, script-free pinned npm package and v
   assert.equal(run.settings.env.CODEX_HOME, undefined); assert.equal(run.settings.env.ACCESS_TOKEN, undefined);
   assert.equal(run.settings.env.NODE_OPTIONS, undefined);
   assert.ok(run.args.some(arg => arg.startsWith('--cache=' + run.settings.cwd)));
-  assert.equal((await lstat(result.installation.path)).mode & 0o777, 0o700);
+  if (process.platform !== 'win32') assert.equal((await lstat(result.installation.path)).mode & 0o777, 0o700);
   await assert.rejects(installer.install({ planId: plan.planId, name: 'my-cad' }, { approve: async () => true }), /다시|만료/);
   await installer.remove(result.installation.id);
   assert.deepEqual(await readdir(join(dataDir, 'managed-mcp')), []);
