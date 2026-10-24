@@ -23,7 +23,7 @@ test('fresh Windows release double-click installs its private runtimes and opens
   let child;
   try {
     const archive = await buildLocalWeb({ platform: 'win32', outputDirectory: join(directory, 'release') });
-    const command = `$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath ${literal(archive)} -DestinationPath ${literal(extracted)}`;
+    const command = `$ProgressPreference='SilentlyContinue'; $ErrorActionPreference='Stop'; Expand-Archive -LiteralPath ${literal(archive)} -DestinationPath ${literal(extracted)}`;
     await execute('powershell.exe', ['-NoProfile', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], { timeout: 60000 });
     for (const name of ['.runtime', 'node_modules', 'runtime']) await assert.rejects(stat(join(root, name)), { code: 'ENOENT' });
     child = spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `""${join(root, 'Start SiteCAD.cmd')}""`], {

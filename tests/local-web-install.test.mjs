@@ -10,7 +10,7 @@ import { buildLocalWeb, sourceEntries } from '../scripts/build-local-web.mjs';
 const execute = promisify(execFile);
 const project = new URL('../', import.meta.url);
 const psLiteral = value => "'" + value.replaceAll("'", "''") + "'";
-const powershell = code => execute('powershell.exe', ['-NoProfile', '-EncodedCommand', Buffer.from("$ErrorActionPreference='Stop'; " + code, 'utf16le').toString('base64')]);
+const powershell = code => execute('powershell.exe', ['-NoProfile', '-EncodedCommand', Buffer.from("$ProgressPreference='SilentlyContinue'; $ErrorActionPreference='Stop'; " + code, 'utf16le').toString('base64')]);
 const archiveEntries = async archive => process.platform === 'win32'
   ? (await powershell(`Add-Type -AssemblyName System.IO.Compression.FileSystem; $zip=[IO.Compression.ZipFile]::OpenRead(${psLiteral(archive)}); try { $zip.Entries.FullName } finally { $zip.Dispose() }`)).stdout.replaceAll('\\', '/')
   : (await execute('/usr/bin/unzip', ['-Z1', archive])).stdout;
@@ -209,4 +209,11 @@ test('Windows release ZIP contains both launchers, verified bootstrap and no pri
   assert.match(entries, /SiteCAD\/scripts\/bootstrap-local-web\.ps1/);
   assert.doesNotMatch(entries, /secret|\.env|\.runtime/);
   await assert.rejects(buildLocalWeb({ sourceRoot, fixturePath, platform: '../private' }), /Unsupported SiteCAD release platform/);
+});
+
+test('Windows archive commands suppress progress XML within bounded output capture', async () => {
+  for (const file of ['scripts/build-local-web.mjs', 'tests/windows-bootstrap-real.test.mjs']) {
+    const source = await readFile(new URL(file, project), 'utf8');
+    assert.match(source, /\$ProgressPreference[^;]*SilentlyContinue/, `${file} must suppress PowerShell progress output`);
+  }
 });

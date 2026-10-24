@@ -46,7 +46,7 @@ export async function buildLocalWeb({ sourceRoot = root, platform = 'darwin', ou
     const archive = resolve(outputDirectory, `SiteCAD-${packageInfo.version}-local-web-${platform === 'win32' ? 'Windows' : 'macOS'}.zip`);
     const pending = join(temporary, 'release.zip');
     if (process.platform === 'win32') {
-      const command = '$ErrorActionPreference = \'Stop\'; Compress-Archive -LiteralPath SiteCAD -DestinationPath release.zip -CompressionLevel Optimal';
+      const command = '$ProgressPreference=\'SilentlyContinue\'; $ErrorActionPreference = \'Stop\'; Compress-Archive -LiteralPath SiteCAD -DestinationPath release.zip -CompressionLevel Optimal';
       await execute('powershell.exe', ['-NoProfile', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], { cwd: temporary, timeout: 180000, maxBuffer: 16384 });
     } else await execute('/usr/bin/zip', ['-q', '-r', pending, 'SiteCAD'], { cwd: temporary, timeout: 180000, maxBuffer: 16384 });
     await cp(pending, archive);
