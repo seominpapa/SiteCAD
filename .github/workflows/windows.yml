@@ -19,7 +19,7 @@ jobs:
         run: npm.cmd ci --omit=dev --no-audit --no-fund
       - name: Native Windows installer, credentials, Codex and MCP probes
         shell: powershell
-        run: node --test tests/windows-install.test.mjs tests/windows-runtime.test.mjs tests/node-runtime.test.mjs tests/mcp-launcher.test.mjs tests/runtime.test.mjs tests/desktop.test.mjs tests/annotations.test.mjs tests/cad-control.test.mjs
+        run: node --test tests/windows-install.test.mjs tests/windows-runtime.test.mjs tests/node-runtime.test.mjs tests/mcp-launcher.test.mjs tests/runtime.test.mjs tests/desktop.test.mjs tests/annotations.test.mjs tests/cad-control.test.mjs tests/chat-sessions.test.mjs tests/skills.test.mjs tests/extensions.test.mjs tests/mcp-installer.test.mjs tests/controller-extensions.test.mjs tests/chat-panel.test.mjs tests/skills-ui.test.mjs tests/mcp-ui.test.mjs
       - name: Windows Korean system font endpoint
         shell: powershell
         run: node --test --test-name-pattern="Korean CAD font" tests/server.test.mjs

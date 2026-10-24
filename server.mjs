@@ -78,7 +78,10 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
   async function chat(req, res) {
     if (req.headers.origin !== `http://${req.headers.host}`) throw error('이 로컬 앱에서만 요청할 수 있습니다.', 403);
     if (req.headers['content-type']?.split(';')[0].trim() !== 'application/json') throw error('JSON 요청만 지원합니다.', 415);
-    const input = validateChat(await readBody(req));
+    const body = await readBody(req);
+    const {chatId,...request} = body;
+    const input = validateChat(request);
+    if (chatId !== undefined && (!desktop || typeof chatId !== 'string' || !/^[a-f0-9-]{36}$/.test(chatId))) throw error('채팅을 다시 선택해 주세요.');
     recent = recent.filter(time => now() - time < 60000);
     if (active || recent.length >= 20) throw error('진행 중인 요청이 끝난 뒤 잠시 후 다시 시도해 주세요.', 429);
     active = true;
@@ -87,7 +90,7 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
       if (desktop) {
         const status = await desktop.status();
         if (!status.oauth?.connected) throw error('SiteCAD의 ChatGPT 로그인 버튼으로 로그인해 주세요.', 503);
-        return respond(res, 200, { ok: true, data: await desktop.chat(input) });
+        return respond(res, 200, { ok: true, data: await desktop.chat({...input,...(chatId ? {chatId} : {})}) });
       }
       if (!(await currentAuth()).connected) throw error(loginMessage, 503);
       let result;
@@ -102,11 +105,14 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
     if (!desktop) throw error('경로를 찾을 수 없습니다.', 404);
     if (path === '/api/internal/mcp') {
       if (req.method !== 'POST' || !desktop.authorizeMcp(req.headers.authorization)) throw error('허용되지 않은 연결입니다.', 403);
-      const { method, payload } = await readBody(req);
+      const { method, payload } = await readBody(req, 512 * 1024);
       return respond(res, 200, { ok: true, data: await desktop.callCad(method, payload) });
     }
     if (path === '/api/desktop/status' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.status() });
     if (path === '/api/desktop/mcp' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.mcpList() });
+    if (path === '/api/desktop/skills' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.skillsList() });
+    if (path === '/api/desktop/chats' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.chatList() });
+    if (/^\/api\/desktop\/chats\/[a-f0-9-]{36}$/.test(path) && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.chatRead(path.split('/').at(-1)) });
     if (path === '/api/desktop/references' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.referencesStatus() });
     if (path === '/api/desktop/terrain' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.terrainStatus() });
     if (req.method !== 'POST' || req.headers.origin !== `http://${req.headers.host}`) throw error('이 로컬 앱에서만 요청할 수 있습니다.', 403);
@@ -114,6 +120,10 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
     const body = await readBody(req, path === '/api/desktop/cad/result' ? 42 * 1024 * 1024 : 128 * 1024);
     let data;
     if (path === '/api/desktop/login') data = await desktop.login();
+    else if (path === '/api/desktop/chats/new') {
+      if (!body || Array.isArray(body) || Object.keys(body).length) throw error('새 채팅 요청을 확인해 주세요.');
+      data = await desktop.chatCreate();
+    }
     else if (path === '/api/desktop/logout') data = await desktop.logout();
     else if (path === '/api/desktop/cancel') data = await desktop.cancel();
     else if (path === '/api/desktop/cad/poll') data = await desktop.pollCad();

@@ -15,7 +15,7 @@ function engine({ anchored = false, incomplete = false, replyError = false, chan
     return { ok: true, measurements: [{ handle: 'A', curve: { length: 4, area: 2 } }] }; } };
   const request = async value => {
     calls.push(value);
-    if (value.op === 'set_properties' || (value.op === 'run' && /^SETVAR DIMASSOC [12]$/.test(value.cmd))) {
+    if ((value.op === 'set_properties' && value.collection === 'header') || (value.op === 'run' && /^SETVAR DIMASSOC [12]$/.test(value.cmd))) {
       if(value.op==='set_properties') assert.equal(value.updates[0].expected, dimensionMode);
       dimensionMode = value.op==='set_properties' ? value.updates[0].value : Number(value.cmd.at(-1));
       state = {...state,revision:state.revision+1,geometry_revision:state.geometry_revision+1};
@@ -24,7 +24,9 @@ function engine({ anchored = false, incomplete = false, replyError = false, chan
     if (value.op === 'cancel') { state = { ...state, command: null }; return { ok: true, status: 'cancelled', state: structuredClone(state) }; }
     if (replyError) return { ok: false, error: 'invalid_point' };
     state = { ...state, revision: state.revision + 1, geometry_revision: state.geometry_revision + 1,
-      ...(value.op === 'select' ? { selection: value.clear ? [] : value.handles } : {}), ...(incomplete ? { command: structuredClone(command) } : {}) };
+      ...(value.op === 'select' ? { selection: value.clear ? [] : value.handles } : {}),
+      ...(value.op === 'action' && value.name === 'layout_switch' ? {layout:value.value,selection:[]} : {}),
+      ...(incomplete ? { command: structuredClone(command) } : {}) };
     const result = { ok: true, status: incomplete ? 'waiting_input' : 'completed', result: { handles: ['B'], created: 1 }, state: structuredClone(state) };
     if (changedReply) state = { ...state, revision: state.revision + 1 };
     if (replyEvent) state = {...state,event_cursor:(state.event_cursor || 0)+1};
@@ -41,6 +43,139 @@ test('discovery and measurements preserve native drawing units', async () => {
   assert.equal(data.mmPerDrawingUnit, 1000);
   assert.equal(data.result.measurements[0].curve.length, 4);
   assert.ok(calls.some(call => call.op === 'measure'));
+});
+
+test('3D native measurements preserve volume and surface area without converting raw values', async () => {
+  const value=engine({units:6});const native=value.cad.request;
+  value.cad.request=async request=>request.op==='measure'?{ok:true,measurements:[{handle:'A',mesh:{volume:24,surface_area:52}}]}:native(request);
+  const reply=await queryDrawing(value.cad,{request:{op:'measure',handles:['A']},expectedContext:value.base});
+  assert.deepEqual(reply.result.measurements,[{handle:'A',mesh:{volume:24,surface_area:52}}]);
+  assert.equal(reply.mmPerDrawingUnit,1000);
+  assert.equal(reply.units,6);
+});
+
+test('3D interactive input preserves Z while stale state and georeference guards still stop execution', async () => {
+  const value=engine({incomplete:true,command:{name:'3DPOLY',accepts:['point']}});
+  assert.equal((await controlDrawing(value.cad,{request:{op:'start',cmd:'3DPOLY'},expectedContext:value.base})).status,'waiting_input');
+  const state=await value.cad.snapshot();
+  const expectedContext={...value.base,revision:state.revision,geometryRevision:state.geometry_revision};
+  await controlDrawing(value.cad,{request:{op:'input',kind:'point',point:[10,20,300],space:'wcs'},expectedContext});
+  assert.deepEqual(value.calls.find(call=>call.op==='input').point,[10,20,300]);
+  await assert.rejects(controlDrawing(value.cad,{request:{op:'input',kind:'point',point:[40,50,600]},expectedContext}),/변경/);
+  assert.equal(value.calls.filter(call=>call.op==='input').length,1);
+  const creation=engine({anchored:true});
+  await controlDrawing(creation.cad,{request:{op:'start',cmd:'BOX'},expectedContext:creation.base});
+  for(const cmd of ['EXTRUDE','UNION','3DMOVE']) {
+    const editing=engine({anchored:true});
+    await assert.rejects(controlDrawing(editing.cad,{request:{op:'start',cmd},expectedContext:editing.base}),/공간 기준/);
+    assert.equal(editing.calls.some(call=>call.protocol===1),false);
+  }
+  for(const cmd of ['VIEW SWISO','VISUALSTYLES HIDDENLINE']) {
+    const viewing=engine({anchored:true});
+    assert.equal((await controlDrawing(viewing.cad,{request:{op:'run',cmd},expectedContext:viewing.base})).status,'completed');
+  }
+});
+
+test('POLYSOLID cannot consume a preselected georeference path in an anchored drawing', async () => {
+  const value=engine({anchored:true});
+  value.setState({selection:['FE']});
+  await assert.rejects(controlDrawing(value.cad,{request:{op:'start',cmd:'POLYSOLID'},expectedContext:{...value.base,selection:['FE']}}),/공간 기준/);
+  assert.equal(value.calls.some(call=>call.protocol===1),false);
+});
+
+test('generic native record edits preserve explicit targets, compare values and drawing guards', async () => {
+  for (const record of [
+    {collection:'entities',handle:'A',type:'Line',properties:{common:{layer:'AI_DRAFT'},end:{x:100,y:0,z:0}}},
+    {collection:'layers',handle:'B',name:'현장 도면',properties:{color:7}},
+  ]) {
+    const value=engine({anchored:true});
+    const native=value.cad.request;
+    value.cad.request=async request=>request.op==='records' ? {ok:true,records:[record],next_offset:null} : native(request);
+    const request={op:'set_properties',collection:record.collection,handle:record.handle,updates:[record.collection==='entities'?{path:'/end/x',expected:100,value:200}:{path:'/color',expected:7,value:3}]};
+    assert.equal((await controlDrawing(value.cad,{request,expectedContext:value.base})).status,'completed');
+    assert.deepEqual(value.calls.find(call=>call.op==='set_properties').updates,request.updates);
+  }
+  const value=engine();
+  value.cad.request=async request=>request.op==='records'?{ok:true,records:[]}:request.op==='header'?{ok:true,insertion_units:4}:{ok:true};
+  await assert.rejects(controlDrawing(value.cad,{request:{op:'set_properties',collection:'entities',handle:'A',updates:[{path:'/end/x',expected:0,value:1}]},expectedContext:value.base}),/대상|확인/);
+  assert.equal(value.calls.some(call=>call.op==='set_properties'),false);
+});
+
+test('sysvar reads use the native envelope without permitting changes during a read', async () => {
+  const value=engine();
+  value.cad.iframe.contentWindow.ocsControl.request=async request=>{value.calls.push(request);const state=await value.cad.snapshot();value.setState({event_cursor:1});return {ok:true,result:{clayer:'0',ltscale:1},state};};
+  const reply=await queryDrawing(value.cad,{request:{op:'sysvar',get:['clayer','ltscale']},expectedContext:value.base});
+  assert.equal(reply.result.result.clayer,'0');
+  assert.equal(value.calls.find(call=>call.op==='sysvar').protocol,1);
+  const changed=engine();
+  await assert.rejects(queryDrawing(changed.cad,{request:{op:'sysvar',get:['clayer']},expectedContext:changed.base}),/변경/);
+});
+
+test('block replacement and forced deletion protect children and references outside the current layout', async () => {
+  for (const request of [{op:'block_define',name:'검토블록',base:[0,0,0],handles:['A'],replace:true},{op:'block_delete',name:'검토블록',force:true}]) {
+    for(const properties of [{common:{layer:'SITECAD_GEOREF',owner_handle:32}},{common:{layer:'SITECAD_GEOREF',owner_handle:1},block_name:'검토블록'}]) {
+      const value=engine();const native=value.cad.request;
+      value.cad.request=async req=>req.op!=='records'?native(req):{ok:true,records:req.collection==='block_records'?[{handle:'20',name:'검토블록'}]:[{handle:'FE',properties}],next_offset:null};
+      await assert.rejects(controlDrawing(value.cad,{request,expectedContext:value.base}),/공간 기준/);
+      assert.equal(value.calls.some(call=>call.protocol===1),false);
+    }
+  }
+  const value=engine();const native=value.cad.request;
+  value.cad.request=async req=>req.op!=='records'?native(req):{ok:true,records:req.collection==='block_records'?[{handle:'20',name:'검토블록'}]:[{handle:'A',properties:{common:{layer:'벽체',owner_handle:32}}}],next_offset:null};
+  assert.equal((await controlDrawing(value.cad,{request:{op:'block_delete',name:'검토블록',force:true},expectedContext:value.base})).status,'completed');
+});
+
+test('block replacement refuses sources erased by replacement and unreadable ownership before dispatch', async () => {
+  for(const properties of [{common:{layer:'벽체',owner_handle:32}},{common:{layer:'벽체',owner_handle:1},block_name:'검토블록'},{common:{layer:'SITECAD_GEOREF',owner_handle:Number.MAX_SAFE_INTEGER+1}}]) {
+    const value=engine();const native=value.cad.request;
+    value.cad.request=async req=>req.op!=='records'?native(req):{ok:true,records:req.collection==='block_records'?[{handle:'20',name:'검토블록'}]:[{handle:'A',properties}],next_offset:null};
+    await assert.rejects(controlDrawing(value.cad,{request:{op:'block_define',name:'검토블록',base:[0,0,0],handles:['A'],replace:true},expectedContext:value.base}),/원본|소유|공간 기준/);
+    assert.equal(value.calls.some(call=>call.protocol===1),false);
+  }
+});
+
+test('record edits cannot target protected records indirectly by handle or through renamed layers', async () => {
+  for (const record of [
+    {collection:'entities',handle:'A',properties:{common:{layer:'SITECAD_GEOREF'},value:'anchor'}},
+    {collection:'entities',handle:'A',properties:{common:{layer:'0'},value:'SITECAD_GEOREF_V1:payload'}},
+    {collection:'entities',handle:'A',properties:{Linear:{base:{common:{layer:'SITECAD_GEOREF',owner_handle:32}}}}},
+    {collection:'layers',handle:'A',name:'SITECAD_GEOREF',properties:{color:7}},
+    {collection:'dim_styles',handle:'A',name:'SiteCAD_DIM',properties:{dimtxt:2.5}},
+  ]) {
+    const value=engine();const native=value.cad.request;
+    value.cad.request=async request=>request.op==='records'?{ok:true,records:[record],next_offset:null}:native(request);
+    await assert.rejects(controlDrawing(value.cad,{request:{op:'set_properties',collection:record.collection,handle:'A',updates:[{path:record.collection==='entities'?'/height':record.collection==='layers'?'/color':'/dimtxt',expected:1,value:2}]},expectedContext:value.base}),/공간 기준|보호|스타일/);
+    assert.equal(value.calls.some(call=>call.op==='set_properties'),false);
+  }
+});
+
+test('layout switching permits only the requested destination and retains document and unit guards', async () => {
+  const value=engine();
+  assert.equal((await controlDrawing(value.cad,{request:{op:'action',name:'layout_switch',value:'검토 배치'},expectedContext:value.base})).status,'completed');
+  assert.equal((await value.cad.snapshot()).layout,'검토 배치');
+  const wrong=engine();
+  wrong.cad.iframe.contentWindow.ocsControl.request=async ()=>{wrong.setState({layout:'wrong'});return {ok:true,status:'completed',state:await wrong.cad.snapshot()};};
+  await assert.rejects(controlDrawing(wrong.cad,{request:{op:'action',name:'layout_switch',value:'검토 배치'},expectedContext:wrong.base}),/변경|배치/);
+});
+
+test('viewport insert-view input is refused before changing layouts and the owned command can still cancel', async () => {
+  const value=engine({incomplete:true,command:{name:'MVIEW',accepts:['token'],options:['INSERT','FIT']}});
+  await controlDrawing(value.cad,{request:{op:'start',cmd:'MVIEW'},expectedContext:value.base});
+  const state=await value.cad.snapshot(),context={...value.base,revision:state.revision,geometryRevision:state.geometry_revision};
+  const before=value.calls.length;
+  await assert.rejects(controlDrawing(value.cad,{request:{op:'input',kind:'token',text:'INSERT'},expectedContext:context}),/배치|뷰/);
+  assert.equal(value.calls.slice(before).some(call=>call.op==='input'),false);
+  assert.equal((await cancelOwnedCommand(value.cad)).cancelled,true);
+});
+
+test('safe native block and page operations use the same envelope and cannot bypass stale context', async () => {
+  for (const request of [{op:'block_define',name:'검토블록',base:[0,0,0],handles:['A']},{op:'layout_create',name:'검토배치'},{op:'page_setup_set',layout:'Model',paper:'A3',scale:'1:50'},{op:'sysvar',set:{ltscale:2}}]) {
+    const value=engine();
+    assert.equal((await controlDrawing(value.cad,{request,expectedContext:value.base})).status,'completed');
+    const stale=engine();stale.setState({revision:99});
+    await assert.rejects(controlDrawing(stale.cad,{request,expectedContext:stale.base}),/변경/);
+    assert.equal(stale.calls.some(call=>call.protocol===1),false);
+  }
 });
 
 test('native mutation envelope checks geometry and exact selection at dispatch', async () => {

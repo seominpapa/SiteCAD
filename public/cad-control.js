@@ -1,6 +1,6 @@
 import { validateControlRequest, validateQueryRequest, validateDiscoverRequest, controlSchemas } from './control-schema.js';
 import { commandName, commandAccess, validateAliases } from './command-policy.js';
-import { GEO_LAYER } from './geo-reference.js';
+import { GEO_LAYER, METADATA_PREFIX } from './geo-reference.js';
 import { mmPerUnit } from './units.js';
 import { prepareText, prepareDimension, isCadFontResult } from './annotations.js';
 
@@ -19,12 +19,13 @@ export const isOwnedCommand = (cad, state) => Boolean(pendingCommands.get(cad) &
 async function nativeCommand(cad, request, state) {
   const name = commandName(request.cmd);
   const manifest = await cad.request({ op:'commands', name });
-  const access = commandAccess(manifest.command);
+  const access = commandAccess(manifest.command, request.cmd);
   if (manifest.command?.name !== name || !access.allowed) throw Error(access.reason || '현재 편집기에서 실행할 수 없는 명령입니다.');
   if (state.plugins?.length) throw Error('플러그인이 로드된 편집기의 범용 명령은 실행할 수 없습니다.');
   const storage = cad.iframe?.contentWindow?.localStorage;
   validateAliases(storage?.getItem('opencadstudio.aliases') ?? '', name);
-  return { name, ...access };
+  const bounded = ['STYLE','DIMSTYLE','VIEW','VISUALSTYLES'].includes(name) || /^LAYER NEW [\p{L}\p{N}_-]{1,200}$/u.test(request.cmd);
+  return { name, ...access, bounded };
 }
 
 async function guarded(cad, expected, signal) {
@@ -77,30 +78,78 @@ export async function queryDrawing(cad, { request: input, expectedContext }, { s
   const scale = mmPerUnit(expectedContext?.units);
   const checked = validateQueryRequest(input);
   const request = ['query', 'records', 'layers', 'history'].includes(checked.op) ? { limit: 200, ...checked } : checked;
-  const state = await guarded(cad, expectedContext, signal);
+  let state = await guarded(cad, expectedContext, signal);
   const result = checked.op === 'properties'
     ? await objectProperties(cad, checked.handles, state, expectedContext.units, signal)
-    : await cad.request(request);
+    : checked.op === 'sysvar' ? await execute(cad, request, state) : await cad.request(request);
+  if (checked.op === 'sysvar') {
+    // The native getter logs a control event, but must not change any drawing or command state.
+    const after = await cad.snapshot();
+    if (!result?.ok || !result.state || !sameCommand(state, after) || !sameCommand(result.state, after) ||
+      ![state.event_cursor, (state.event_cursor ?? 0)+1].includes(after.event_cursor)) throw Error('시스템 변수 조회 중 도면이 변경되었습니다. 다시 조회해 주세요.');
+    state = after;
+  }
   await stable(cad, state, expectedContext.units, signal);
   return { result, units: expectedContext.units, mmPerDrawingUnit: scale };
 }
 
 async function protectTargets(cad, request, access) {
+  if (request.op === 'set_properties') {
+    const result = await cad.request({op:'records',collection:request.collection,...(request.handle ? {handle:request.handle} : {name:request.name}),limit:2});
+    if (!result.ok || result.records?.length !== 1) throw Error('수정 대상 레코드를 확인하지 못했습니다.');
+    const record = result.records[0];
+    if ((request.handle && (!/^[a-f\d]{1,16}$/i.test(record.handle) || BigInt(`0x${record.handle}`) !== BigInt(`0x${request.handle}`))) || (request.name && record.name !== request.name)) throw Error('수정 대상 레코드가 다릅니다.');
+    protectRecord({...record,collection:request.collection});
+  }
+  if (request.op === 'block_delete' || (request.op === 'block_define' && request.replace)) await protectBlock(cad, request.name, request.handles);
   if (['run','start','input'].includes(request.op) || (request.op === 'entities_create' && request.entities.some(entity => !entity.layer))) {
     const header = await cad.request({ op:'header' });
     if ([GEO_LAYER,'SITE_GEOREFERENCE'].includes(header.current_layer?.toUpperCase())) throw Error('공간 기준 레이어를 현재 작도 레이어로 사용할 수 없습니다.');
   }
-  const handles = ['entities_delete','entities_transform'].includes(request.op) ? request.handles
+  const handles = ['entities_delete','entities_transform','block_define'].includes(request.op) ? request.handles
     : request.op === 'input' ? (request.handles || (request.handle ? [request.handle] : [])) : [];
   if (handles.length) {
     const result = await cad.request({ op:'query', handles, detail:'full', limit:handles.length });
     if (result.entities?.length !== handles.length) throw Error('수정 대상 객체를 모두 확인하지 못했습니다.');
-    if (result.entities.some(entity => [GEO_LAYER,'SITE_GEOREFERENCE'].includes(entity.layer?.toUpperCase()))) throw Error('도면의 공간 기준 객체는 수정하거나 삭제할 수 없습니다.');
+    for (const entity of result.entities) protectRecord(entity);
   }
-  if (access && !access.createsOnly && !access.readOnly) {
+  if (access && !access.createsOnly && !access.readOnly && !access.bounded) {
     const result = await cad.request({ op:'query', layer:GEO_LAYER, detail:'summary', limit:1 });
     if (result.entities?.length) throw Error('공간 기준이 있는 도면의 수정은 객체 핸들을 지정하는 도구를 사용해 주세요.');
   }
+}
+
+const recordCommon = record => record.properties?.common || Object.values(record.properties || {}).find(value => value?.base?.common)?.base.common;
+function protectRecord(record) {
+  const properties = record.properties || {};
+  const layer = recordCommon(record)?.layer || record.layer;
+  if ([GEO_LAYER,'SITE_GEOREFERENCE'].includes((layer || record.name || '').toUpperCase()) || JSON.stringify(properties).toUpperCase().includes(METADATA_PREFIX.toUpperCase())) throw Error('도면의 공간 기준 레코드는 보호되어 있습니다.');
+  if (['text_styles','dim_styles'].includes(record.collection) && /^SITECAD_(?:KO|DIM)(?:_|$)/i.test(record.name)) throw Error('SiteCAD 자동 주석 스타일은 보호되어 있습니다. 새 스타일을 만들어 사용해 주세요.');
+}
+
+async function protectBlock(cad, name, sources = []) {
+  const result = await cad.request({op:'records',collection:'block_records',name,limit:2});
+  if (!result.ok || result.records?.length > 1) throw Error('블록 수정 대상을 확인하지 못했습니다.');
+  const block = result.records?.[0];
+  if (!block) return;
+  if (!/^[a-f\d]{1,16}$/i.test(block.handle)) throw Error('블록 소유 정보를 확인하지 못했습니다.');
+  protectRecord(block);
+  // Replacement also erases referencing INSERTs, including those outside the active layout.
+  for (let offset=0; offset<10000; offset+=200) {
+    const page = await cad.request({op:'records',collection:'entities',offset,limit:200});
+    if (!page.ok || !Array.isArray(page.records)) throw Error('블록 참조 객체를 확인하지 못했습니다.');
+    for (const record of page.records) {
+      const owner = recordCommon(record)?.owner_handle;
+      if (!Number.isSafeInteger(owner)) throw Error('블록 객체의 소유 정보를 확인하지 못했습니다.');
+      const owned = BigInt(owner) === BigInt(`0x${block.handle}`);
+      if (owned || record.properties?.block_name?.toUpperCase() === name.toUpperCase()) {
+        protectRecord(record);
+        if (sources.some(handle => BigInt(`0x${handle}`) === BigInt(`0x${record.handle}`))) throw Error('블록 교체가 지울 원본 객체는 새 정의에 사용할 수 없습니다. 다른 이름으로 정의해 주세요.');
+      }
+    }
+    if (page.records.length < 200 || page.next_offset === null) return;
+  }
+  throw Error('블록 참조가 조회 한도를 초과했습니다. 도면을 나누어 검토해 주세요.');
 }
 
 async function execute(cad, request, state) {
@@ -195,6 +244,7 @@ export async function controlDrawing(cad, { request:input, expectedContext }, {s
   if (continuation && !isOwnedCommand(cad, state)) throw Error('현재 명령은 SiteCAD가 시작한 상태와 다릅니다. 사용자의 명령은 이어서 실행하거나 취소하지 않습니다.');
   if (!continuation && (state.modal || state.command || state.text_editor || state.mtext_editor)) throw Error('편집기의 진행 중 명령이나 대화상자를 먼저 닫아 주세요.');
   if (continuation && state.modal) throw Error('진행 중 대화상자는 입력 명령으로 처리할 수 없습니다.');
+  if (request.op === 'input' && pending?.access?.name === 'MVIEW' && ['I','INSERT','INSERTVIEW','INSERT VIEW'].includes(request.text?.trim().toUpperCase())) throw Error('이 엔진의 뷰 삽입은 내부 배치를 전환합니다. 일반 뷰포트 작도나 배치 전환 도구를 사용해 주세요.');
   if (request.op === 'input') checkInput(request, state.command);
   const access = ['run','start'].includes(request.op) ? await nativeCommand(cad, request, state) : continuation ? pending.access : null;
   if (request.op !== 'cancel') await protectTargets(cad, request, access);
@@ -252,7 +302,8 @@ export async function controlDrawing(cad, { request:input, expectedContext }, {s
     const reply = await execute(cad, nativeRequest, state);
     const after = await cad.snapshot();
     const header = await cad.request({op:'header'});
-    if (after.document_id !== state.document_id || after.layout !== state.layout || header.insertion_units !== expectedContext.units ||
+    const destination = request.op === 'action' && request.name === 'layout_switch' ? request.value : state.layout;
+    if (after.document_id !== state.document_id || after.layout !== destination || header.insertion_units !== expectedContext.units ||
       (reply?.state && !sameCommand(reply.state, after))) throw Error('실행 결과 확인 중 도면이나 명령 상태가 변경되었습니다. 현재 도면을 확인해 주세요.');
     const handles = updateHandles(cad, reply || {}, after, continuation ? pending.handles : []);
     if (after.command || after.modal || compatibility) pendingCommands.set(cad, {state:after,access,handles,compatibility});

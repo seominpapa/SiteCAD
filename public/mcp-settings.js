@@ -1,4 +1,6 @@
 const MAX_TEXT = 8000;
+// A 64KiB skill can expand to six times its size when displayed as JSON.
+const MAX_SKILL_REVIEW_TEXT = 512 * 1024;
 const text = (value, max = MAX_TEXT) => String(value ?? '').slice(0, max);
 
 export function safeSourceUrl(value) {
@@ -271,22 +273,30 @@ export function createMcpSettings({ isBusy, notify }) {
     for (const item of items) {
       if (approvals.has(item.id)) continue;
       const card = document.createElement('article'); card.className = 'tool-approval';
-      const title = document.createElement('strong'); title.textContent = '외부 도구 실행 승인';
+      const installing = item.kind === 'mcp-install';
+      const replacingSkill = item.kind === 'skill-overwrite';
+      const title = document.createElement('strong'); title.textContent = installing ? 'MCP 설치·연결 승인' : replacingSkill ? '스킬 덮어쓰기 승인' : '외부 도구 실행 승인';
       const name = document.createElement('p'); name.textContent = `${text(item.server, 100)} · ${text(item.tool, 150)}`;
       const argumentText = typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments ?? {}, null, 2);
-      const args = document.createElement('pre'); args.textContent = text(argumentText);
-      const note = document.createElement('p'); note.className = 'source-meta'; note.textContent = '표시된 입력으로 이 도구를 한 번 실행합니다. 내용을 확인한 뒤 승인하거나 거절하세요.';
-      if (argumentText.length > MAX_TEXT) note.textContent = '입력이 길어 앞 8,000자만 표시합니다. 전체 입력을 확인할 수 없으므로 이 요청은 거절하고 범위를 줄여 다시 요청해 주세요.';
+      const reviewLimit = replacingSkill ? MAX_SKILL_REVIEW_TEXT : MAX_TEXT;
+      const truncated = argumentText.length > reviewLimit;
+      const args = document.createElement('pre'); args.textContent = text(argumentText, reviewLimit);
+      const note = document.createElement('p'); note.className = 'source-meta';
+      note.textContent = installing
+        ? '표시한 패키지를 설치하고 이 SiteCAD 전용 설정에 연결합니다. 로컬 서버는 사용자 권한으로 실행되어 자신의 권한에 따라 파일을 읽거나 네트워크에 접근할 수 있습니다. 내용을 확인한 뒤 승인하거나 거절하세요.'
+        : replacingSkill ? '표시된 내용으로 이 SiteCAD의 기존 스킬을 교체합니다. 이후 해당 슬래시 명령에도 변경된 지침이 적용됩니다.'
+        : '표시된 입력으로 이 도구를 한 번 실행합니다. 내용을 확인한 뒤 승인하거나 거절하세요.';
+      if (truncated) note.textContent = `입력이 길어 앞 ${reviewLimit.toLocaleString('ko-KR')}자만 표시합니다. 전체 입력을 확인할 수 없으므로 이 요청은 거절하고 범위를 줄여 다시 요청해 주세요.`;
       const error = document.createElement('p'); error.className = 'mcp-inline-error'; error.hidden = true;
       const actions = document.createElement('div'); actions.className = 'mcp-server-actions';
-      for (const [label, approved] of [['1회 승인', true], ['거절', false]]) {
+      for (const [label, approved] of [[installing ? '설치·연결 승인' : replacingSkill ? '덮어쓰기 승인' : '1회 승인', true], ['거절', false]]) {
         const button = document.createElement('button'); button.type = 'button'; button.textContent = label; if (approved) button.className = 'primary';
-        if (approved && argumentText.length > MAX_TEXT) button.disabled = true;
+        if (approved && truncated) button.disabled = true;
         button.addEventListener('click', async () => {
-          if (approved && argumentText.length > MAX_TEXT) return;
+          if (approved && truncated) return;
           for (const control of actions.children) control.disabled = true;
           try { await request('approvals/resolve', { id: item.id, approved }); card.remove(); approvals.delete(item.id); $('tool-approvals').hidden = !approvals.size; }
-          catch (cause) { error.textContent = text(cause.message); error.hidden = false; for (const control of actions.children) control.disabled = false; if (argumentText.length > MAX_TEXT) actions.children[0].disabled = true; }
+          catch (cause) { error.textContent = text(cause.message); error.hidden = false; for (const control of actions.children) control.disabled = false; if (truncated) actions.children[0].disabled = true; }
         });
         actions.append(button);
       }
@@ -396,6 +406,7 @@ export function createMcpSettings({ isBusy, notify }) {
       controls();
     },
     sync: controls,
+    refresh,
     handleCommand(message) {
       const command = parseMcpCommand(message);
       if (!command) return false;

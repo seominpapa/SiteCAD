@@ -16,12 +16,12 @@
       <div id="local-actions" class="connection" hidden><button id="open-saved-folder" class="header-button" type="button">저장 폴더</button><button id="quit-local" class="header-button" type="button">실행기 종료</button></div>
     </header>
 
-    <main class="workspace">
+    <main id="workspace" class="workspace">
       <section class="drawing-panel" aria-label="도면 편집">
         <div class="drawing-toolbar" aria-label="도면 도구">
           <div class="toolbar-group"><button id="new-drawing" type="button" data-action disabled>새 도면</button><button id="open-drawing" type="button" data-action disabled>도면 열기</button><input id="file-input" type="file" accept=".dwg,.dxf" hidden /><button id="open-example" type="button" data-action disabled>예제 열기</button></div>
           <div class="toolbar-group"><button id="fit-drawing" type="button" data-action disabled>전체 보기</button><button id="undo-drawing" type="button" data-action disabled>실행 취소</button></div>
-          <div class="save-group"><label for="save-name" class="sr-only">저장할 DWG 파일 이름</label><input id="save-name" value="drawing.dwg" maxlength="120" spellcheck="false" aria-label="저장할 DWG 파일 이름" /><button id="save-drawing" class="primary" type="button" data-action disabled>DWG 저장</button></div>
+          <button id="chat-expand" type="button" aria-controls="sitecad-chat-panel" aria-expanded="true" hidden>채팅 열기</button><div class="save-group"><label for="save-name" class="sr-only">저장할 DWG 파일 이름</label><input id="save-name" value="drawing.dwg" maxlength="120" spellcheck="false" aria-label="저장할 DWG 파일 이름" /><button id="save-drawing" class="primary" type="button" data-action disabled>DWG 저장</button></div>
         </div>
         <div class="editor-stage" id="editor-stage" aria-busy="true">
           <iframe id="editor" title="OpenCADStudio 도면 편집기" allow="clipboard-read; clipboard-write" inert></iframe>
@@ -31,8 +31,9 @@
         <p id="workspace-notice" class="workspace-notice" role="status" hidden></p>
       </section>
 
-      <aside class="chat-panel" aria-labelledby="chat-title">
-        <div class="chat-heading"><div><p class="eyebrow">DRAWING ASSISTANT</p><h2 id="chat-title">도면에 요청하기</h2></div><div class="chat-heading-actions"><button id="manage-mcp" type="button" hidden>MCP 관리</button><span id="external-mcp-status" class="external-mcp-status" hidden>외부 MCP 없음</span></div></div>
+      <aside id="sitecad-chat-panel" class="chat-panel" aria-labelledby="chat-title">
+        <div class="chat-heading"><div><p class="eyebrow">DRAWING ASSISTANT</p><h2 id="chat-title">도면에 요청하기</h2></div><div class="chat-heading-actions"><button id="chat-collapse" type="button" aria-controls="sitecad-chat-panel" aria-expanded="true">채팅 접기</button><button id="manage-mcp" type="button" hidden>MCP 관리</button><span id="external-mcp-status" class="external-mcp-status" hidden>외부 MCP 없음</span></div></div>
+        <div id="chat-session-controls" class="chat-session-controls" hidden><label class="sr-only" for="chat-select">채팅 선택</label><select id="chat-select" aria-label="채팅 선택" disabled><option>채팅을 준비하고 있습니다</option></select><button id="chat-new" type="button" disabled>새 채팅</button><p id="chat-history-status" role="status"></p></div>
         <div id="auth-help" class="auth-help" hidden><strong>OpenAI 로그인이 필요합니다.</strong><p>이 프로젝트의 터미널에서 <code>codex login</code>을 실행한 뒤 연결 확인을 눌러 주세요. ChatGPT 계정의 OAuth 로그인을 사용합니다.</p></div>
         <div id="messages" class="messages" role="log" aria-label="도면 작업 대화" aria-live="polite" aria-relevant="additions">
           <article class="message assistant welcome"><p class="message-author">SiteCAD</p><p>원하는 도면이나 현장 주소를 입력해 주세요.</p><p class="secondary-text">객체를 선택해 수정하거나, 물량검토를 요청해 레이어별 객체 개수·길이·면적을 표로 확인하세요.</p></article>
@@ -41,6 +42,8 @@
         <div id="chat-progress" class="chat-progress" role="status" hidden><span class="spinner" aria-hidden="true"></span><span id="chat-progress-text">요청을 해석하고 있습니다.</span></div>
         <div class="composer-area">
           <div class="example-prompts" aria-label="요청 예시">
+            <button type="button" class="prompt-chip" data-prompt="레이어별 물량검토 후 DWG로 저장하는 작업을 quantity-save 스킬로 만들어줘" disabled>자주 쓰는 작업을 스킬로</button>
+            <button type="button" class="prompt-chip" data-prompt="MCP GitHub URL을 붙여 넣으면 설치할 수 있는지 알려줘" disabled>MCP 설치 안내</button>
             <button type="button" class="prompt-chip" data-prompt="가로 6m, 세로 4m 사각형을 그려줘" disabled>6 × 4m 사각형 그리기</button>
             <button type="button" class="prompt-chip" data-prompt="선택한 객체를 오른쪽으로 500mm 옮겨줘" disabled>선택 객체 500mm 이동</button>
             <button type="button" class="prompt-chip" data-prompt="선택한 객체의 길이와 면적을 알려줘" disabled>길이·면적 확인</button>
@@ -48,7 +51,8 @@
             <button type="button" class="prompt-chip" data-prompt="경기도 광주시 행정타운로 50" disabled>주소로 필지·지형 그리기</button>
             <button type="button" class="prompt-chip" data-prompt="공개 설계기준을 찾아 배수로 개념 단면도를 그려줘. 누락 치수는 가정하고 출처를 표시해줘." disabled>설계기준 참고 개념도</button>
           </div>
-          <form id="chat-form"><label for="message-input" class="sr-only">도면 생성 또는 수정 요청</label><textarea id="message-input" rows="3" maxlength="2000" placeholder="예: 가로 6m, 세로 4m 사각형을 그려줘" disabled></textarea><div class="composer-footer"><span>Enter 전송 · Shift+Enter 줄바꿈</span><button id="send-message" class="primary" type="submit" disabled>전송</button></div></form>
+          <div class="skill-menu-controls"><button id="skill-toggle" type="button" aria-expanded="false" aria-controls="skill-menu" hidden>/ 스킬</button></div><section id="skill-menu" class="skill-menu" aria-label="설치된 스킬" hidden><p id="skill-status" role="status"></p><div id="skill-list"></div></section>
+          <form id="chat-form"><label for="message-input" class="sr-only">도면 생성 또는 수정 요청</label><textarea id="message-input" rows="3" maxlength="2000" placeholder="도면 요청 · /스킬 · MCP GitHub URL" aria-controls="skill-menu" disabled></textarea><div class="composer-footer"><span>Enter 전송 · Shift+Enter 줄바꿈</span><button id="send-message" class="primary" type="submit" disabled>전송</button></div></form>
           <p class="composer-note">새 도면과 단위 없는 치수는 mm 기준입니다. m를 명시하면 도면 단위로 환산합니다. 경기도 광주시 주소만 입력하면 주변 필지·공개 등고선을 넣어 DWG로 저장합니다. 다른 지역의 자동 지형 제공처는 준비 중입니다.</p>
         </div>
       </aside>

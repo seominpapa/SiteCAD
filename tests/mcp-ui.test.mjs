@@ -52,6 +52,18 @@ test('source links only allow absolute HTTPS addresses without credentials', () 
   for (const url of ['javascript:alert(1)', 'data:text/html,attack', 'http://example.org', '/local', 'https://user:secret@example.org']) assert.equal(safeSourceUrl(url), null);
 });
 
+test('chat completion can refresh registered MCP status without opening settings', async t => {
+  const { ids } = await fixture(t);
+  const settings = createMcpSettings({ isBusy: () => false });
+  settings.update({ desktop: true });
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ ok: true, data: {
+    servers: [{ name: 'rea', enabled: true, connected: true, status: 'connected', tools: ['binary_session'] }],
+  } }) });
+  await settings.refresh();
+  assert.equal(ids['external-mcp-status'].textContent, '외부 MCP 1 연결 · 1 활성');
+  assert.equal(ids['mcp-dialog'].open, false);
+});
+
 test('MCP commands request review locally and never turn ordinary chat into config', () => {
   assert.deepEqual(parseMcpCommand('/mcp add {"mcpServers":{}}'), { config: '{"mcpServers":{}}' });
   assert.deepEqual(parseMcpCommand('REA MCP 추가해줘'), { preset: 'rea' });
@@ -410,4 +422,52 @@ test('downloaded terrain cards show original hash, download time and unverified 
   assert.ok(all.some(node => node.textContent.includes('다운로드 2026-10-22T00:00:00Z')));
   assert.ok(all.some(node => node.title === `SHA256 ${'a'.repeat(64)}`));
   assert.ok(all.some(node => node.textContent.includes('원출처·표고 기준 미검증')));
+});
+
+test('persistent MCP installation and skill replacement approvals explain their scope', async t => {
+  const { ids, requests } = await fixture(t);
+  const settings = createMcpSettings({ isBusy: () => true, notify: assert.fail });
+  settings.update({ desktop: true, approvals: [{ id: 'install', kind: 'mcp-install', server: 'SiteCAD', tool: 'MCP 설치 및 연결', arguments: { package: '@example/mcp@1.0.0' } }] });
+  const install = ids['tool-approvals'].children[0];
+  assert.match(install.children[0].textContent, /설치·연결/);
+  assert.match(install.children[3].textContent, /사용자 권한.*파일/);
+  assert.match(install.children[3].textContent, /SiteCAD.*설정/);
+  assert.doesNotMatch(install.children[3].textContent, /한 번 실행/);
+  assert.equal(install.children.at(-1).children[0].textContent, '설치·연결 승인');
+  await install.children.at(-1).children[0].listeners.click();
+  assert.deepEqual(JSON.parse(requests[0].body), { id: 'install', approved: true });
+  settings.update({ desktop: true, approvals: [{ id: 'overwrite', kind: 'skill-overwrite', server: 'SiteCAD', tool: '스킬 수정', arguments: { name: 'quantity-review' } }] });
+  const overwrite = ids['tool-approvals'].children[0];
+  assert.match(overwrite.children[0].textContent, /스킬 덮어쓰기/);
+  assert.match(overwrite.children[3].textContent, /기존 스킬.*교체/);
+  assert.equal(overwrite.children.at(-1).children[0].textContent, '덮어쓰기 승인');
+});
+
+test('large skill overwrite reviews show the whole bounded skill and remain approvable', async t => {
+  const { ids, requests } = await fixture(t);
+  const settings = createMcpSettings({ isBusy: () => true, notify: assert.fail });
+  const args = { name: 'large-review', description: '큰 스킬의 검토', body: `${'\t'.repeat(60000)}끝까지 확인`, expectedHash: 'a'.repeat(64) };
+  const argumentText = JSON.stringify(args, null, 2);
+  assert.ok(argumentText.length > 70000);
+  settings.update({ desktop: true, approvals: [{ id: 'large-skill', kind: 'skill-overwrite', server: 'SiteCAD', tool: '스킬 수정', arguments: args }] });
+  const card = ids['tool-approvals'].children[0];
+  assert.ok(card.children[2].textContent === argumentText, 'The full skill review must remain visible.');
+  assert.match(card.children[2].textContent, /끝까지 확인/);
+  assert.doesNotMatch(card.children[3].textContent, /앞 .*자만|전체 입력을 확인할 수 없/);
+  assert.equal(card.children.at(-1).children[0].disabled, false);
+  await card.children.at(-1).children[0].listeners.click();
+  assert.deepEqual(JSON.parse(requests[0].body), { id: 'large-skill', approved: true });
+});
+
+
+test('oversized skill reviews stay bounded and cannot approve hidden content', async t => {
+  const { ids, requests } = await fixture(t);
+  const settings = createMcpSettings({ isBusy: () => true, notify: assert.fail });
+  settings.update({ desktop: true, approvals: [{ id: 'oversized-skill', kind: 'skill-overwrite', server: 'SiteCAD', tool: '스킬 수정', arguments: { body: 'x'.repeat(600000) } }] });
+  const card = ids['tool-approvals'].children[0];
+  assert.equal(card.children[2].textContent.length, 512 * 1024);
+  assert.match(card.children[3].textContent, /전체 입력을 확인할 수 없/);
+  assert.equal(card.children.at(-1).children[0].disabled, true);
+  await card.children.at(-1).children[0].listeners.click();
+  assert.equal(requests.length, 0);
 });

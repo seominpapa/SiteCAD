@@ -152,6 +152,11 @@ test('desktop runtime routes require local origin or a private MCP token and ret
     pollCad: async () => ({ id: 'job', method: 'context', payload: {} }),
     completeCad: (id, result) => { calls.push([id, result]); } };
   desktop.mcpList = async () => ({ servers: [{ name: 'rea' }] });
+  const chatId='12345678-1234-4123-8123-123456789abc';
+  desktop.skillsList=async()=>({skills:[{name:'skill-creator'}]});
+  desktop.chatList=async()=>({chats:[{id:chatId,title:'검증'}]});
+  desktop.chatRead=async id=>({chat:{id,messages:[]}});
+  desktop.chatCreate=async()=>({chat:{id:chatId,messages:[]}});
   desktop.referencesStatus = async () => ({ vworld: { configured: false }, catalog: [] });
   desktop.terrainStatus = async () => ({ datasets: [] });
   desktop.terrainImport = async () => ({ cancelled: true });
@@ -170,6 +175,12 @@ test('desktop runtime routes require local origin or a private MCP token and ret
     assert.equal((await request('/api/internal/mcp', { method: 'context', payload: {} }, { Authorization: 'Bearer private-test' })).status, 200);
     assert.equal(calls.length, 2);
     assert.equal((await (await t.request('/api/desktop/mcp')).json()).data.servers[0].name, 'rea');
+    assert.equal((await (await t.request('/api/desktop/skills')).json()).data.skills[0].name,'skill-creator');
+    assert.equal((await (await t.request('/api/desktop/chats')).json()).data.chats[0].id,chatId);
+    assert.equal((await (await t.request(`/api/desktop/chats/${chatId}`)).json()).data.chat.id,chatId);
+    assert.equal((await request('/api/desktop/chats/new',{}, {Origin:'https://evil.example'})).status,403);
+    assert.equal((await request('/api/desktop/chats/new',{nativeThreadId:'foreign'})).status,400);
+    assert.equal((await (await request('/api/desktop/chats/new')).json()).data.chat.id,chatId);
     assert.equal((await (await t.request('/api/desktop/references')).json()).data.vworld.configured, false);
     assert.deepEqual((await (await t.request('/api/desktop/terrain')).json()).data.datasets, []);
     assert.equal((await request('/api/desktop/terrain/import', {}, { Origin: 'https://evil.example' })).status, 403);
@@ -187,5 +198,7 @@ test('desktop runtime routes require local origin or a private MCP token and ret
     const result = await (await request('/api/chat', payload)).json();
     assert.equal(result.data.executed, true);
     assert.equal(result.data.reply, '사각형');
+    assert.equal((await request('/api/chat',{...payload,chatId})).status,200);
+    assert.equal((await request('/api/chat',{...payload,chatId:'foreign'})).status,400);
   } finally { await t.close(); }
 });

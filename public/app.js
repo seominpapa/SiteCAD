@@ -1,6 +1,9 @@
 import { CadEditor } from './cad.js';
 import { desktopRequest, executeDesktopCad, startDesktopBridge } from './desktop.js';
 import { appendProvenance, createMcpSettings } from './mcp-settings.js';
+import { createSkillMenu } from './skills.js';
+import { createChatPanel } from './chat-panel.js';
+import { createChatSessionsUI } from './chat-sessions.js';
 
 const $ = (id) => document.getElementById(id);
 const iframe = $('editor');
@@ -16,12 +19,25 @@ let unsaved = false;
 let stopBridge;
 let authPending = false;
 const mcpSettings = createMcpSettings({ isBusy: () => busy, notify: notice });
+const skillMenu = createSkillMenu({ isBusy: () => busy, onChange: updateControls });
+const chatPanel = createChatPanel();
+const chatSessions = createChatSessionsUI({ isBusy: () => busy, isAvailable: () => desktop,
+  onError: message => notice(errorMessage(message), true), onChange: updateControls,
+  onSelect(chat) {
+    history.splice(0); $('messages').replaceChildren(); $('message-input').value = '';
+    for (const message of chat.messages ?? []) {
+      if (!['user', 'assistant'].includes(message.role) || typeof message.text !== 'string') continue;
+      appendMessage(message.role, message.text);
+      history.push({ role: message.role, text: message.text.slice(0, 2000) });
+    }
+    if (history.length > 8) history.splice(0, history.length - 8);
+  } });
 
 function updateControls() {
   document.querySelectorAll('[data-action]').forEach((button) => { button.disabled = busy || !ready; });
   document.querySelectorAll('[data-prompt]').forEach((button) => { button.disabled = busy || !ready || !connected; });
-  $('message-input').disabled = busy || !ready || !connected;
-  $('send-message').disabled = busy || !ready || !connected || !$('message-input').value.trim();
+  $('message-input').disabled = busy || !ready || !connected || (desktop && chatSessions.isPending());
+  $('send-message').disabled = busy || !ready || !connected || (desktop && (!chatSessions.currentId() || chatSessions.isPending())) || !$('message-input').value.trim();
   $('save-name').disabled = busy || !ready;
   $('file-input').disabled = busy || !ready;
   $('refresh-connection').disabled = busy;
@@ -32,6 +48,8 @@ function updateControls() {
   iframe.style.pointerEvents = busy || !ready ? 'none' : '';
   $('editor-stage').setAttribute('aria-busy', String(busy || !ready));
   mcpSettings.sync();
+  skillMenu.sync();
+  chatSessions.sync();
 }
 
 function overlay(message, working = false) {
@@ -100,6 +118,7 @@ async function checkConnection() {
     browser = body.data.browser === true;
     if (body.data.desktop) {
       desktop = true;
+      $('chat-session-controls').hidden = false;
       document.querySelector('.composer-note').textContent = '경기도 광주시 주소만 입력하면 반경 100m의 필지·공개 등고선을 같은 위치·실척으로 넣어 DWG로 저장합니다. 다른 지역은 지형 원본 등록이 필요합니다. 일반 작도 치수는 mm 기준입니다.';
       authPending = body.data.auth?.pending === true;
       $('login-chatgpt').hidden = connected;
@@ -120,6 +139,9 @@ async function checkConnection() {
     if (authPending) $('oauth-status').textContent = 'ChatGPT 로그인 진행 중';
     $('auth-help').hidden = connected;
     mcpSettings.update(body.data);
+    skillMenu.update(body.data);
+    chatPanel.update(body.data);
+    if (desktop) await chatSessions.init();
     if (body.data.editorInstalled === false) notice('OpenCADStudio 파일이 준비되지 않았습니다. 프로젝트 실행 안내를 확인해 주세요.', true);
   } catch (error) {
     connected = false;
@@ -225,7 +247,7 @@ async function submitMessage(event) {
   const message = $('message-input').value.trim();
   if (!message || busy) return;
   if (mcpSettings.handleCommand(message)) { $('message-input').value = ''; updateControls(); return; }
-  if (!ready || !connected) return;
+  if (!ready || !connected || (desktop && (!chatSessions.currentId() || chatSessions.isPending()))) return;
   const previousHistory = history.slice(-8);
   appendMessage('user', message);
   $('message-input').value = '';
@@ -240,7 +262,7 @@ async function submitMessage(event) {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, context, history: previousHistory }),
+      body: JSON.stringify({ message, context, history: previousHistory, ...(desktop ? { chatId: chatSessions.currentId() } : {}) }),
     });
     const body = await response.json();
     if (!response.ok || !body.ok) throw new Error(body.error || '요청을 처리하지 못했습니다.');
@@ -263,6 +285,7 @@ async function submitMessage(event) {
       catch (error) { notice(errorMessage(error), true); }
     }
     busy = false;
+    if (desktop) await Promise.allSettled([skillMenu.refresh(), chatSessions.refresh(), mcpSettings.refresh()]);
     $('chat-progress').hidden = true;
     overlay(null);
     updateControls();

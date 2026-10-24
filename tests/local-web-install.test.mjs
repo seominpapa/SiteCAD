@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, mkdir, readFile, writeFile, readdir, rm, symlink, stat } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, readdir, rm, symlink, stat, cp } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildLocalWeb, sourceEntries } from '../scripts/build-local-web.mjs';
@@ -49,11 +49,12 @@ async function fixture(t) {
   t.after(() => rm(base, { recursive: true, force: true }));
   const sourceRoot = join(base, 'source with spaces');
   for (const name of sourceEntries) {
-    const directory = ['lib', 'public', 'desktop/licenses', 'vendor/editor'].includes(name);
+    const directory = ['lib', 'public', 'skills', 'desktop/licenses', 'vendor/editor'].includes(name);
     await mkdir(directory ? join(sourceRoot, name) : dirname(join(sourceRoot, name)), { recursive: true });
     if (directory) await writeFile(join(sourceRoot, name, 'included.txt'), name);
     else await writeFile(join(sourceRoot, name), name === 'package.json' ? JSON.stringify({ version: '0.11.0' }) : 'fixture');
   }
+  await cp(new URL('skills',project),join(sourceRoot,'skills'),{recursive:true});
   await writeFile(join(sourceRoot, 'vendor/editor/manifest.local.json'), JSON.stringify({ files: [] }));
   const fixturePath = join(base, 'original.dwg');
   await writeFile(fixturePath, 'AC1032 test drawing');
@@ -207,6 +208,7 @@ test('Windows release ZIP contains both launchers, verified bootstrap and no pri
   assert.match(entries, /SiteCAD\/Start SiteCAD\.cmd/);
   assert.match(entries, /SiteCAD\/Start SiteCAD\.command/);
   assert.match(entries, /SiteCAD\/scripts\/bootstrap-local-web\.ps1/);
+  for(const name of ['skill-creator','skill-finder','skill-installer']) assert.ok(entries.includes(`SiteCAD/skills/${name}/SKILL.md`));
   assert.doesNotMatch(entries, /secret|\.env|\.runtime/);
   await assert.rejects(buildLocalWeb({ sourceRoot, fixturePath, platform: '../private' }), /Unsupported SiteCAD release platform/);
 });

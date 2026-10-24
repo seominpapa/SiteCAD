@@ -7,7 +7,7 @@ import { researchTools } from '../lib/research-mcp.mjs';
 test('research MCP schemas dispatch to the backend without requiring a CAD write context', async () => {
   const calls = [];
   const handle = createMcpHandler(async (method, args) => { calls.push([method, args]); return { source: true }; }, researchTools);
-  assert.equal((await handle('tools/list')).tools.length, 18);
+  assert.equal((await handle('tools/list')).tools.length, 20);
   assert.equal((await handle('tools/call', { name: 'cad_fetch', arguments: { url: 'https://example.org' } })).structuredContent.source, true);
   await handle('tools/call', { name: 'cad_design_note', arguments: { title: 'test' } });
   await handle('tools/call', { name: 'cad_vworld_geocode', arguments: { address: '서울 중구' } });
@@ -21,7 +21,7 @@ const context = { documentId: 1, revision: 2, units: 4, selection: [], entities:
 test('MCP exposes drawing tools and binds edits to fresh context', async () => {
   const calls = [];
   const handle = createMcpHandler(async (method, payload) => { calls.push({ method, payload }); return method === 'context' ? context : { success: true }; });
-  assert.deepEqual((await handle('tools/list', {})).tools.map(t => t.name), ['cad_context', 'cad_execute', 'cad_save', 'cad_insert_parcels', 'cad_insert_terrain', 'cad_prepare_site', 'cad_discover', 'cad_query', 'cad_control', 'cad_download', 'cad_calculate', 'cad_terrain_register']);
+  assert.deepEqual((await handle('tools/list', {})).tools.map(t => t.name), ['cad_context', 'cad_execute', 'cad_save', 'cad_insert_parcels', 'cad_insert_terrain','sitecad_mcp','sitecad_skills', 'cad_prepare_site', 'cad_discover', 'cad_query', 'cad_control', 'cad_download', 'cad_calculate', 'cad_terrain_register']);
   const operations = [{ type: 'line', x1_mm: 0, y1_mm: 0, x2_mm: 10, y2_mm: 0 }];
   assert.equal((await handle('tools/call', { name: 'cad_execute', arguments: { operations } })).isError, undefined);
   assert.deepEqual(calls.map(c => c.method), ['context', 'execute']);
@@ -178,4 +178,51 @@ test('terrain registration accepts only a download ID and never accepts a model 
   const error = await failed('tools/call', { name: 'cad_terrain_register', arguments: { downloadId } });
   assert.match(error.content[0].text, /현재.*다운로드.*GeoJSON/);
   assert.doesNotMatch(JSON.stringify(error), /private-file-path/);
+});
+
+
+test('existing generic MCP tools advertise native 2D operations and forward them with context guards', async () => {
+  const calls=[];
+  const handler=createMcpHandler(async (method,payload)=>{calls.push({method,payload});return method==='context'?context:{ok:true};});
+  const tools=(await handler('tools/list')).tools;
+  assert.equal(tools.length,mcpTools.length);
+  const schema=name=>tools.find(tool=>tool.name===name).inputSchema.properties.request.properties.op.enum;
+  assert.ok(schema('cad_query').includes('sysvar'));
+  for (const op of ['set_properties','block_define','block_delete','layout_create','page_setup_set','action','sysvar']) assert.ok(schema('cad_control').includes(op),op);
+  for (const [tool,request] of [
+    ['cad_discover',{op:'record_schema',collection:'layers'}],
+    ['cad_query',{op:'records',collection:'layers',name:'벽체',paths:['/color']}],
+    ['cad_query',{op:'sysvar',get:['CLAYER','insunits']}],
+    ['cad_control',{op:'set_properties',collection:'entities',handle:'A',updates:[{path:'/common/layer',value:'벽체',expected:'0'}]}],
+    ['cad_control',{op:'block_define',name:'기둥',base:[0,0],handles:['A']}],
+    ['cad_control',{op:'block_delete',name:'기둥'}],
+    ['cad_control',{op:'layout_create',name:'배치'}],
+    ['cad_control',{op:'action',name:'layout_switch',value:'배치'}],
+    ['cad_control',{op:'page_setup_set',layout:'배치',paper:'A4',scale:'1:100'}],
+    ['cad_control',{op:'sysvar',set:{ltscale:100}}],
+  ]) {
+    const result=await handler('tools/call',{name:tool,arguments:{request}});
+    assert.equal(result.isError,undefined,JSON.stringify(request));
+    assert.deepEqual(calls.at(-1).payload.request,request);
+    if (tool!=='cad_discover') assert.deepEqual(calls.at(-1).payload.expectedContext,{documentId:context.documentId,revision:context.revision,units:context.units,selection:context.selection});
+  }
+});
+
+test('the same generic MCP tools expose native 3D discovery, execution and measurement', async () => {
+  const calls=[];
+  const handler=createMcpHandler(async(method,payload)=>{calls.push({method,payload});return method==='context'?context:{ok:true};});
+  const tools=(await handler('tools/list')).tools;
+  assert.deepEqual(tools.map(tool=>tool.name),mcpTools.map(tool=>tool.name));
+  assert.match(tools.find(tool=>tool.name==='cad_control').description,/3D/);
+  assert.match(tools.find(tool=>tool.name==='cad_query').description,/volume/);
+  const queryDescription=tools.find(tool=>tool.name==='cad_query').description;
+  assert.match(queryDescription,/tessellat.*approximat|approximat.*tessellat/i);
+  assert.match(queryDescription,/reopen.*(?:change|differ)|(?:change|differ).*reopen/i);
+  assert.match(queryDescription,/zero.*bounds.*(?:unknown|unsupported|unavailable).*not.*point/i);
+  for(const [tool,request] of [['cad_discover',{op:'commands',name:'3DPOLY'}],['cad_control',{op:'start',cmd:'3DPOLY'}],['cad_control',{op:'input',kind:'point',point:[10,20,300],space:'wcs'}],['cad_query',{op:'measure',handles:['A']}]] ) {
+    const reply=await handler('tools/call',{name:tool,arguments:{request}});
+    assert.equal(reply.isError,undefined,JSON.stringify(request));
+    assert.deepEqual(calls.at(-1).payload.request,request);
+    if(tool!=='cad_discover') assert.deepEqual(calls.at(-1).payload.expectedContext,{documentId:1,revision:2,units:4,selection:[]});
+  }
 });

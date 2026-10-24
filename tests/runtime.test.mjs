@@ -65,12 +65,30 @@ test('isolated runtime verifies MCP invocation, completes real event flow and ke
     const config = await readFile(join(options.codexHome, 'config.toml'), 'utf8');
     assert.doesNotMatch(config, /oauth-private|bridge-private/);
     assert.match(config, /env_vars/);
-    const result = await runtime.chat({ message: '도면 생성', context: { documentId: 1, revision: 0, units: 4, selection: [], entities: [] }, history: [] });
+    const result = await runtime.chat({ message: '도면 생성', context: { documentId: 1, revision: 0, units: 4, selection: [], entities: [] }, history: [] }, {skill:{name:'example',path:join(options.codexHome,'skills/example/SKILL.md')}});
     assert.equal(result.reply, '작성했습니다.');
     assert.deepEqual(result.reports, [{ created: 1 }]);
     assert.deepEqual(result.details, [{ tool: 'cad_execute', status: 'completed' }]);
     assert.equal(runtime.status().inferenceVerified, true);
-    assert.equal(calls.find(call => call.method === 'thread/start').params.sandbox, 'read-only');
+    const turnInput = calls.find(call=>call.method==='turn/start').params.input;
+    assert.equal(turnInput[1].type,'skill');
+    assert.equal(turnInput[1].name,'example');
+    assert.equal(turnInput[1].path,join(options.codexHome,'skills/example/SKILL.md'));
+    assert.match(turnInput[0].text,/\$example/);
+    const threadParams=calls.find(call => call.method === 'thread/start').params;
+    assert.equal(threadParams.sandbox, 'read-only');
+    assert.match(threadParams.baseInstructions,/set_properties/);
+    assert.match(threadParams.baseInstructions,/block_define/);
+    assert.match(threadParams.baseInstructions,/page_setup_set/);
+    assert.match(threadParams.baseInstructions,/STYLE and DIMSTYLE.*LIST.*NEW/);
+    assert.match(threadParams.baseInstructions,/plot and wblock.*native-only/i);
+    assert.match(threadParams.baseInstructions,/2D.*3D/);
+    assert.match(threadParams.baseInstructions,/Solid3D/);
+    assert.match(threadParams.baseInstructions,/3DPOLY/);
+    assert.match(threadParams.baseInstructions,/volume/);
+    assert.match(threadParams.baseInstructions,/tessellat.*approximat|approximat.*tessellat/i);
+    assert.match(threadParams.baseInstructions,/reopen.*(?:change|differ)|(?:change|differ).*reopen/i);
+    assert.match(threadParams.baseInstructions,/zero.*bounds.*(?:unknown|unsupported|unavailable).*not.*point/i);
   } finally { await runtime.stop(); await rm(directory, { recursive: true, force: true }); }
   assert.equal(child.killed, true);
 });
@@ -84,6 +102,39 @@ test('configuration isolates trusted workspace, disables shell and does not merg
   assert.match(config, /omit_tools_from = \["deferred", "code_mode"\]/);
   for (const name of ['cad_context', 'cad_execute', 'cad_save']) assert.ok(config.includes(`[mcp_servers.sitecad.tools.${name}]\napproval_mode = "approve"`));
   assert.deepEqual(config.match(/^\[mcp_servers\.[^.\]]+\]$/gm), ['[mcp_servers.sitecad]']);
+});
+test('persistent chat sessions use separate native threads, resume across restarts, and wait for optional MCP startup',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'sitecad-sessions-runtime-'));
+  const calls=[];let serial=0,inventoryReads=0;
+  const runtime=createCodexRuntime({codexPath:'/app/codex',nodePath:process.execPath,mcpPath:'/app/mcp.mjs',codexHome:join(directory,'codex'),workspace:join(directory,'workspace'),bridgeUrl:'http://127.0.0.1:1234',bridgeToken:'x'.repeat(32),getAccessToken:async()=> 'token',externalServers:[{name:'slow',transport:'http',url:'https://example.org/mcp'}],
+    spawnImpl:()=>fakeChild((request,send)=>{
+      if(!request.method||!Object.hasOwn(request,'id'))return;
+      calls.push(request);let result={};
+      if(request.method==='model/list')result={data:[{id:'model'}]};
+      if(request.method==='thread/start')result={thread:{id:request.params.ephemeral?'probe':`persist-${++serial}`}};
+      if(request.method==='thread/resume')result={thread:{id:request.params.threadId}};
+      if(request.method==='mcpServerStatus/list')result={data:[{name:'sitecad',tools:Object.fromEntries(mcpTools.map(tool=>[tool.name,{}]))},{name:'slow',runtimeStatus:++inventoryReads>=3?'connected':'starting',tools:inventoryReads>=3?{ping:{}}:{}}]};
+      if(request.method==='turn/start')result={turn:{id:'turn'}};
+      send({id:request.id,result});
+      if(request.method==='turn/start')send({method:'turn/completed',params:{threadId:request.params.threadId,turn:{id:'turn',status:'completed',items:[{type:'agentMessage',text:'완료'}]}}});
+    })});
+  const input={message:'첫 대화',context:{documentId:1,revision:0,units:4,selection:[],entities:[]},history:[]};
+  const first=randomUUID(),second=randomUUID();let firstThread,secondThread;
+  try{
+    await runtime.start();
+    assert.equal((await runtime.testExternal('slow',{waitMs:1000})).tested,true);
+    assert.ok(inventoryReads>=3);
+    await runtime.chat(input,{sessionId:first,onThread:id=>{firstThread=id;}});
+    await runtime.chat({...input,message:'다른 대화'},{sessionId:second,onThread:id=>{secondThread=id;}});
+    await runtime.chat({...input,message:'첫 대화 재개'},{sessionId:first,nativeThreadId:firstThread});
+    assert.notEqual(firstThread,secondThread);
+    assert.deepEqual(calls.filter(item=>item.method==='turn/start').map(item=>item.params.threadId),[firstThread,secondThread,firstThread]);
+    await runtime.stop();
+    await runtime.chat(input,{sessionId:first,nativeThreadId:firstThread});
+    assert.equal(calls.filter(item=>item.method==='thread/resume').at(-1).params.threadId,firstThread);
+    assert.equal(calls.filter(item=>item.method==='thread/resume').at(-1).params.excludeTurns,true);
+    await assert.rejects(runtime.chat(input,{skill:{name:'bad',path:'/outside/SKILL.md'}}),/스킬/);
+  }finally{await runtime.stop();await rm(directory,{recursive:true,force:true});}
 });
 test('external MCP config contains no credentials and research tools use a narrow internal approval list', () => {
   const apiKey = randomUUID(); const bearerToken = randomUUID();
