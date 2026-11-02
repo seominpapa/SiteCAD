@@ -7,15 +7,27 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { stopProcessTree } from '../lib/mcp-launcher.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
-const sanitized = value => String(value ?? '').replace(/(?:https?|wss?):\/\/[^\s"'<>]+/gi, '[redacted URL]')
-  .replace(/((?:access[_-]?token|refresh[_-]?token|api[_-]?key|authorization)\s*[=:]\s*)[^\s,;]+/gi, '$1[redacted]');
-const readyExpression = `JSON.stringify({
+export const sanitizeDiagnostic = value => String(value ?? '').replace(/(?:https?|wss?):\/\/[^\s"'<>]+/gi, '[redacted URL]')
+  .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, 'Bearer [redacted]')
+  .replace(/((?:access[_-]?token|refresh[_-]?token|api[_-]?key|authorization)["']?\s*[=:]\s*["']?)[^\s"',;]+/gi, '$1[redacted]');
+const readyExpression = `(() => {
+  const frame=document.querySelector('#editor');
+  let editor;
+  try {
+    const content=frame?.contentDocument;
+    editor={readyState:content?.readyState,title:content?.title,
+      text:content?.body?.innerText?.slice(0,1500),canvasCount:content?.querySelectorAll('canvas').length,
+      controlPresent:Boolean(frame?.contentWindow?.ocsControl)};
+  } catch { editor={unavailable:true}; }
+  return JSON.stringify({
   title:document.title,
   editorReady:document.querySelector('#editor-stage')?.getAttribute('aria-busy')==='false' && document.querySelector('#new-drawing')?.disabled===false && document.querySelector('#editor')?.inert===false,
   settingsReady:document.querySelector('#settings-open')?.hidden===false,
   settingsTabs:document.querySelectorAll('#settings-dialog [role="tab"]').length,
-  documentStatus:document.querySelector('#document-status')?.textContent
-})`;
+  documentStatus:document.querySelector('#document-status')?.textContent,
+  overlayText:document.querySelector('#editor-progress-text')?.textContent?.slice(0,1500),
+  notice:document.querySelector('#workspace-notice')?.textContent?.slice(0,1000),editor
+}); })()`;
 
 function connect(url) {
   return new Promise((resolveSocket, reject) => {
@@ -26,15 +38,16 @@ function connect(url) {
   });
 }
 
-function protocol(socket) {
+function protocol(socket, onEvent) {
   let next = 0;
   const pending = new Map();
-  const fail = () => { for (const entry of pending.values()) entry.reject(Error('Desktop debugger disconnected')); pending.clear(); };
+  const fail = () => { for (const entry of pending.values()) { clearTimeout(entry.timer); entry.reject(Error('Desktop debugger disconnected')); } pending.clear(); };
   socket.addEventListener('close', fail);
   socket.addEventListener('error', fail);
   socket.addEventListener('message', event => {
     let value;
     try { value = JSON.parse(event.data); } catch { fail(); return; }
+    if (value.method) { onEvent(value); return; }
     const entry = pending.get(value.id);
     if (!entry) return;
     pending.delete(value.id); clearTimeout(entry.timer);
@@ -68,7 +81,8 @@ export async function verifyDesktop({ executable, outputDirectory } = {}) {
   const child = spawn(executable, ['--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1'], {
     shell: false, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: false,
   });
-  let output = '', startupError, socket, stage = 'debugger startup', lastState;
+  let output = '', startupError, socket, call, stage = 'debugger startup', lastState;
+  let rendererEvents = [];
   child.once('error', error => { startupError = error; });
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', text => { output = (output + text).slice(-32768); });
@@ -93,7 +107,15 @@ export async function verifyDesktop({ executable, outputDirectory } = {}) {
     }, stage);
     assert.match(target.webSocketDebuggerUrl, new RegExp(`^ws://127\\.0\\.0\\.1:${port}/devtools/page/`));
     socket = await connect(target.webSocketDebuggerUrl);
-    const call = protocol(socket);
+    call = protocol(socket, ({method,params}) => {
+      let detail;
+      if (method === 'Runtime.exceptionThrown') detail = params.exceptionDetails?.exception?.description ?? params.exceptionDetails?.text;
+      if (method === 'Runtime.consoleAPICalled') detail = `${params.type}: ${(params.args ?? []).map(arg => arg.value ?? arg.description ?? arg.type).join(' ')}`;
+      if (method === 'Log.entryAdded') detail = `${params.entry?.level}: ${params.entry?.text}`;
+      if (detail) rendererEvents = [...rendererEvents.slice(-39), {method,detail:sanitizeDiagnostic(detail).slice(0,2000)}];
+    });
+    await call('Runtime.enable');
+    await call('Log.enable');
     stage = 'CAD editor and unified settings readiness';
     const view = await until(async () => {
       const response = await call('Runtime.evaluate', { expression: readyExpression, returnByValue: true });
@@ -128,12 +150,19 @@ export async function verifyDesktop({ executable, outputDirectory } = {}) {
     console.log(`Desktop ${version} verified on ${process.platform}/${process.arch}: editor, settings and packaged chat modules ready`);
     return report;
   } catch (error) {
-    const failure = {platform:process.platform, arch:process.arch, stage, error:sanitized(error.message),
-      exitCode:child.exitCode, signalCode:child.signalCode, lastState, stderr:sanitized(output)};
-    try { await writeFile(join(outputDirectory, 'desktop-verification-failure.json'), `${JSON.stringify(failure, null, 2)}\n`); }
+    if (call && socket?.readyState === WebSocket.OPEN) {
+      try {
+        const screenshot = await call('Page.captureScreenshot', {format:'png',captureBeyondViewport:false});
+        await writeFile(join(outputDirectory, 'desktop-failure.png'), Buffer.from(screenshot.data, 'base64'));
+      } catch { /* Diagnostic capture must preserve the original verification failure. */ }
+    }
+    const failure = {platform:process.platform, arch:process.arch, stage, error:sanitizeDiagnostic(error.message),
+      exitCode:child.exitCode, signalCode:child.signalCode, lastState, rendererEvents, stderr:sanitizeDiagnostic(output)};
+    const diagnostic = sanitizeDiagnostic(JSON.stringify(failure, null, 2));
+    try { await writeFile(join(outputDirectory, 'desktop-verification-failure.json'), `${diagnostic}\n`); }
     catch { console.error('Could not save desktop failure diagnostic'); }
-    console.error(`Desktop verification failed during ${stage}: ${sanitized(error.message)}`);
-    if (output) console.error(sanitized(output));
+    console.error(`Desktop verification failed during ${stage}: ${sanitizeDiagnostic(error.message)}`);
+    console.error(diagnostic);
     throw error;
   } finally {
     try { socket?.close(); } catch { /* Cleanup must preserve the original verification failure. */ }

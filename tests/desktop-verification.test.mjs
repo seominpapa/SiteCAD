@@ -4,7 +4,14 @@ import { EventEmitter } from 'node:events';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { stopDesktop, verifyDesktop } from '../scripts/verify-desktop.mjs';
+import { sanitizeDiagnostic, stopDesktop, verifyDesktop } from '../scripts/verify-desktop.mjs';
+
+test('desktop diagnostics redact capability URLs and credentials before writing CI logs', () => {
+  const input = 'https://127.0.0.1:4242/?token=private ws://127.0.0.1:1/devtools/private Authorization: Bearer secret-access-token api_key=private-key {"refresh_token":"private-refresh"}';
+  const result = sanitizeDiagnostic(input);
+  for (const secret of ['4242', 'devtools/private', 'secret-access-token', 'private-key', 'private-refresh']) assert.equal(result.includes(secret), false);
+  assert.match(result, /redacted/);
+});
 
 test('desktop shutdown resolves if the process already exited, without waiting for another close', async () => {
   const child = Object.assign(new EventEmitter(), {pid:123,exitCode:1,signalCode:null});
