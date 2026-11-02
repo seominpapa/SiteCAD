@@ -1,6 +1,6 @@
 # SiteCAD — 자연어로 작업하는 로컬 CAD
 
-SiteCAD는 OpenCADStudio 편집기와 AI·MCP를 연결하는 macOS·Windows 로컬 브라우저 앱입니다. AI 계정을 연결한 뒤 채팅으로 2D 도면과 지원되는 3D 형상을 만들고 수정하거나 물량을 검토하고 DWG로 저장합니다. CAD 파일 처리와 도구 실행은 내 PC에서 이루어지며 AI 요청은 온라인 서비스를 사용합니다.
+SiteCAD는 OpenCADStudio 편집기와 AI·MCP를 연결하는 macOS(M계열)·Windows 로컬 브라우저 앱입니다. AI 계정을 연결한 뒤 채팅으로 2D 도면과 지원되는 3D 형상을 만들고 수정하거나 물량을 검토하고 DWG로 저장합니다. CAD 파일 처리와 도구 실행은 내 PC에서 이루어지며 AI 요청은 온라인 서비스를 사용합니다.
 
 **[Windows ZIP](https://github.com/seominpapa/SiteCAD/releases/download/v0.15.0/SiteCAD-0.15.0-local-web-Windows.zip)** · **[macOS ZIP](https://github.com/seominpapa/SiteCAD/releases/download/v0.15.0/SiteCAD-0.15.0-local-web-macOS.zip)** · [릴리스와 SHA-256](https://github.com/seominpapa/SiteCAD/releases/latest)
 
@@ -14,8 +14,6 @@ SiteCAD는 OpenCADStudio 편집기와 AI·MCP를 연결하는 macOS·Windows 로
 
 데스크탑 설치 파일은 배포자 인증서로 서명·공증하지 않았습니다. 운영체제의 출처 확인과 실행 허용은 사용자가 진행합니다. Windows ARM64용 데스크탑 설치 검증은 이번 대상에 포함하지 않습니다.
 
-Intel Mac은 macOS 15 가상환경의 기본·SwiftShader 모드와 macOS 26 가상환경의 기본 모드 모두 CAD 그래픽 초기화·제어 연결에 실패했습니다. [Intel Mac 실패 기록](https://github.com/seominpapa/SiteCAD/actions/runs/41443046011/job/125269364976)을 보존하며, 정규 CI의 통과 대상으로 포함하지 않습니다. `npm run desktop:build -- --arch=x64`로 Intel DMG를 빌드할 수 있지만 실험용입니다. 실제 Intel Mac의 그래픽 실행 확인 전에는 검증 완료로 안내하지 않습니다.
-
 ## 설치·실행
 
 1. 릴리스의 운영체제에 맞는 `SiteCAD-0.15.0-local-web-Windows.zip` 또는 `SiteCAD-0.15.0-local-web-macOS.zip`을 다운로드하고 쓰기 가능한 폴더에 압축을 풉니다. GitHub의 자동 생성 `Source code.zip`보다 위 설치 ZIP을 권장합니다.
@@ -27,7 +25,7 @@ Intel Mac은 macOS 15 가상환경의 기본·SwiftShader 모드와 macOS 26 가
 
 macOS가 실행을 차단하면 파일 출처를 확인하고 **시스템 설정 → 개인정보 보호 및 보안**에서 해당 실행을 허용합니다. 최초 실행·키체인·계정 권한 승인은 사용자가 진행합니다. 자동 우회하지 않습니다. 서명·공증된 설치 앱이 아닌 로컬 실행 스크립트입니다.
 
-최초 설치와 로그인에는 인터넷이 필요하며 이후 실행은 설치된 의존성을 재사용합니다. 설치 실패 시 같은 실행 파일을 다시 열어 복구합니다. 실행 중 터미널 창은 유지합니다. Apple Silicon에서 실제 설치·로그인·DWG 검증을 수행했습니다. Windows 10/11 64비트 x64·ARM64 설치 경로를 제공합니다. Linux 자동 설치기는 제공하지 않습니다. Windows ARM64와 Intel Mac 실기기는 미검증입니다.
+최초 설치와 로그인에는 인터넷이 필요하며 이후 실행은 설치된 의존성을 재사용합니다. 설치 실패 시 같은 실행 파일을 다시 열어 복구합니다. 실행 중 터미널 창은 유지합니다. macOS는 M계열을 대상으로 하며 실제 설치·로그인·DWG 검증을 수행했습니다. Windows 10/11 64비트 x64·ARM64 설치 경로를 제공합니다. Linux 자동 설치기는 제공하지 않습니다. Windows ARM64 실기기는 미검증입니다.
 
 Windows에서는 ZIP 안에서 실행하지 말고 **모두 압축 풀기** 후 실행하세요. 관리자 권한·Git·전역 Node 설치는 필요하지 않습니다. PowerShell은 해당 실행에만 실행 정책을 적용하며 시스템 설정을 바꾸지 않습니다. 회사의 실행 제한·보안 제품 정책이나 로그인 승인은 자동으로 우회하지 않습니다.
 
@@ -79,7 +77,7 @@ VWorld 키는 채팅의 `/api vworld` 전용 팝업에서 등록합니다. 키�
 
 KCSC 기준 조회 MCP는 채팅에 `/api kcsc` 또는 “KCSC MCP 연결해줘”라고 요청해 등록합니다. [국가건설기준센터 API 안내](https://kcsc.re.kr/support/api)에 로그인한 뒤 **인증키 발급신청**으로 개인 키를 발급받고, 설정 → API → KCSC의 비밀번호 입력란에 입력하세요. 등록·실행을 승인하면 고정 버전의 전용 실행 환경을 준비하고 키를 SiteCAD의 암호화된 MCP 비밀 저장소에 보관합니다. 키 저장·교체·삭제와 실제 연결 확인은 같은 설정 항목에서 진행합니다. 다른 사용자의 설치본에는 이 사용자의 키가 포함되지 않습니다.
 
-KCSC 전용 실행 환경 자동 설치는 **Apple Silicon Mac과 Windows x64·ARM64**를 지원합니다. Intel Mac은 필수 암호화 라이브러리의 공식 설치 파일 제공 중단으로 자동 설치를 지원하지 않으며, 설치 요청 시 안내합니다. 보안 취약점이 있는 구버전으로 낮추거나 소스 빌드를 자동 실행하지 않습니다. 이 제한은 Intel Mac의 웹앱·CAD·일반 HTTP MCP 연결과는 별개입니다.
+KCSC 전용 실행 환경 자동 설치는 **Apple Silicon Mac과 Windows x64·ARM64**를 지원합니다.
 
 예: “등록된 kcsc MCP로 콘크리트 습윤 양생 기간을 관련 기준과 조항까지 찾아줘.” 기준 명칭·코드는 `kcsc_search`, 지정 기준 본문은 `kcsc_grep`·`kcsc_read`로 조회하고 `domain=전체`를 사용합니다. 실제 기준 코드·개정 정보·조항·표와 원문 조건을 확인하며 자동 분류와 참조 감사만으로 설계 적합성을 보증하지 않습니다. 설계 flow와 design 도구는 기본 조회 범위에 포함하지 않고 외부 도구 호출 승인 정책을 유지합니다.
 
@@ -139,7 +137,7 @@ KCSC 전용 실행 환경 자동 설치는 **Apple Silicon Mac과 Windows x64·A
 - **다운로드한 정확한 두 DWG를 AutoCAD 2027에서 읽기 전용으로 다시 열어 AUDIT 오류·수정·삭제 모두 0건**을 확인했습니다. DXF 추출 비교에서 객체 3개·레이어·mm 단위·전 좌표·한글 위치/높이·치수 6000과 축척 50이 보존됐고 한글과 치수가 화면에서 읽을 수 있게 표시됐습니다. 원본 파일 해시는 변하지 않았습니다.
 - 공개 준비 후 전체 테스트 459개 통과, 줄 97.18%·분기 90.01%·함수 90.29% 커버리지입니다. 운영 의존성 보안 검사 0건이며 REA의 실제 MCP 연결·도구 207개 목록·읽기 호출도 통과했습니다.
 
-비 Autodesk DWG·누락 SHX 1개 안내가 남습니다. 검증한 한글과 치수는 사용자 macOS의 AppleGothic 글꼴을 사용하며 해당 글꼴 파일을 배포하지 않습니다. 새 치수는 비연관 방식이므로 원본 객체 이동을 자동 추적하지 않습니다. 실제 로그아웃 화면, Intel Mac·Windows ARM64·사내 정책 환경은 미검증입니다. Windows에서 실제 사용자의 ChatGPT 승인 및 AutoCAD GUI 검증은 수행하지 않았습니다. 모든 DWG 객체의 호환성을 보장하지 않습니다.
+비 Autodesk DWG·누락 SHX 1개 안내가 남습니다. 검증한 한글과 치수는 사용자 macOS의 AppleGothic 글꼴을 사용하며 해당 글꼴 파일을 배포하지 않습니다. 새 치수는 비연관 방식이므로 원본 객체 이동을 자동 추적하지 않습니다. 실제 로그아웃 화면, Windows ARM64·사내 정책 환경은 미검증입니다. Windows에서 실제 사용자의 ChatGPT 승인 및 AutoCAD GUI 검증은 수행하지 않았습니다. 모든 DWG 객체의 호환성을 보장하지 않습니다.
 
 ## 소스에서 실행·검사·패키징
 

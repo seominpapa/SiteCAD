@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createKcscInstaller, KCSC_PYTHON_VERSION, KCSC_VERSION } from '../lib/kcsc-runtime.mjs';
 
-test('Intel Mac KCSC bootstrap rejects before network, process execution, or filesystem writes', async t => {
+test('unsupported KCSC bootstrap targets reject before network, process execution, or filesystem writes', async t => {
   const parent = await mkdtemp(join(tmpdir(), 'SiteCAD KCSC unsupported '));
   t.after(() => rm(parent, { recursive: true, force: true }));
   let fetched = false, executed = false;
@@ -15,13 +15,13 @@ test('Intel Mac KCSC bootstrap rejects before network, process execution, or fil
     execute: async () => { executed = true; throw Error('Unexpected process execution'); },
   });
   await assert.rejects(installer.install(), error => error.sitecadSafe === true &&
-    /Intel Mac/.test(error.message) && /Apple Silicon/.test(error.message) && /Windows/.test(error.message));
+    error.message === 'KCSC 자동 설치는 Apple Silicon Mac과 Windows AMD64·ARM64 환경을 지원합니다.');
   assert.equal(fetched, false);
   assert.equal(executed, false);
   assert.deepEqual(await readdir(parent), []);
 });
 
-test('a verified existing Intel Mac KCSC installation remains available without installing again', async t => {
+test('a verified existing KCSC installation remains available without installing again', async t => {
   const dataDir = await mkdtemp(join(tmpdir(), 'SiteCAD KCSC existing '));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   const root = join(dataDir, 'mcp-runtime', 'kcsc'), directory = '00000000-0000-4000-8000-000000000001';

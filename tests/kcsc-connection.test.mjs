@@ -108,6 +108,6 @@ test('KCSC bootstrap targets are fixed official hashed assets for supported macO
   }
   assert.equal(hashes.size, 3);
   assert.throws(() => kcscTarget({ platform: 'darwin', arch: 'x64' }), error =>
-    error.sitecadSafe === true && /Intel Mac/.test(error.message) && /Apple Silicon/.test(error.message));
+    error.sitecadSafe === true && error.message === 'KCSC 자동 설치는 Apple Silicon Mac과 Windows AMD64·ARM64 환경을 지원합니다.');
   assert.throws(() => kcscTarget({ platform: 'linux', arch: 'x64' }));
 });
