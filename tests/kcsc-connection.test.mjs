@@ -100,12 +100,14 @@ test('changing a registered KCSC key or tool policy invalidates previous verific
 
 test('KCSC bootstrap targets are fixed official hashed assets for supported macOS and Windows machines', () => {
   const hashes = new Set();
-  for (const platform of ['darwin', 'win32']) for (const arch of ['arm64', 'x64']) {
+  for (const [platform, arch] of [['darwin', 'arm64'], ['win32', 'arm64'], ['win32', 'x64']]) {
     const target = kcscTarget({ platform, arch });
     assert.match(target.url, /^https:\/\/files\.pythonhosted\.org\/packages\//);
     assert.match(target.sha256, /^[a-f0-9]{64}$/); hashes.add(target.sha256);
     assert.equal(target.member, `uv-0.8.22.data/scripts/uv${platform === 'win32' ? '.exe' : ''}`);
   }
-  assert.equal(hashes.size, 4);
+  assert.equal(hashes.size, 3);
+  assert.throws(() => kcscTarget({ platform: 'darwin', arch: 'x64' }), error =>
+    error.sitecadSafe === true && /Intel Mac/.test(error.message) && /Apple Silicon/.test(error.message));
   assert.throws(() => kcscTarget({ platform: 'linux', arch: 'x64' }));
 });

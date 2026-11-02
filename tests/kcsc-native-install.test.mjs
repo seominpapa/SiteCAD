@@ -50,13 +50,20 @@ test('anonymous KCSC diagnostic executor retains binary output and stops stalled
   await assert.rejects(execute(process.execPath, ['-e', 'process.stderr.write("too much output")'], { env: {}, maxBuffer: 4 }), /KCSC native process failed/);
 });
 
-test('native pinned KCSC bootstrap installs isolated Python and discovers real MCP tools without credentials', {
+const intelMac = process.platform === 'darwin' && process.arch === 'x64';
+test(intelMac ? 'native Intel Mac KCSC bootstrap reports unsupported secure binary installation'
+  : 'native pinned KCSC bootstrap installs isolated Python and discovers real MCP tools without credentials', {
   skip: process.env.SITECAD_TEST_KCSC_INSTALL !== '1', timeout: 600000,
 }, async t => {
   const dataDir = await mkdtemp(join(tmpdir(), 'SiteCAD KCSC native '));
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   const installer = createKcscInstaller({ dataDir, execute: diagnosticExecutor(message => t.diagnostic(message)) });
   assert.equal((await installer.status()).installed, false);
+  if (intelMac) {
+    await assert.rejects(installer.install(), error => error.sitecadSafe === true && /Intel Mac/.test(error.message));
+    t.diagnostic('Intel Mac: KCSC automatic installation is unsupported because cryptography stopped publishing macOS x86_64 wheels in version 49. Secure pinned dependencies remain unchanged; MCP installation and discovery were not performed.');
+    return;
+  }
   const installed = await installer.install();
   assert.equal(installed.installed, true);
   assert.equal((await installer.status()).command, installed.command);

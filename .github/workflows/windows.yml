@@ -13,7 +13,7 @@ jobs:
         include:
           - os: windows-2022
             platform: Windows
-          - os: macos-15
+          - os: macos-26
             platform: macOS
           - os: macos-15-intel
             platform: macOS-Intel
@@ -38,7 +38,7 @@ jobs:
           npm test 2>&1 | tee dist/verification/tests.txt
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
-      - name: Native KCSC installation and MCP discovery
+      - name: Native KCSC installation and platform support
         env:
           SITECAD_TEST_KCSC_INSTALL: '1'
         run: node --test tests/kcsc-native-install.test.mjs
