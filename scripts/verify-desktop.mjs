@@ -1,0 +1,124 @@
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { isAbsolute, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
+import { stopProcessTree } from '../lib/mcp-launcher.mjs';
+
+const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+const readyExpression = `JSON.stringify({
+  title:document.title,
+  editorReady:document.querySelector('#editor-stage')?.getAttribute('aria-busy')==='false' && document.querySelector('#new-drawing')?.disabled===false && document.querySelector('#editor')?.inert===false,
+  settingsReady:document.querySelector('#settings-open')?.hidden===false,
+  settingsTabs:document.querySelectorAll('#settings-dialog [role="tab"]').length,
+  documentStatus:document.querySelector('#document-status')?.textContent
+})`;
+
+function connect(url) {
+  return new Promise((resolveSocket, reject) => {
+    const socket = new WebSocket(url);
+    socket.addEventListener('open', () => resolveSocket(socket), { once: true });
+    socket.addEventListener('error', () => reject(Error('Desktop debugger connection failed')), { once: true });
+    setTimeout(() => { if (socket.readyState === WebSocket.CONNECTING) { socket.close(); reject(Error('Desktop debugger connection timed out')); } }, 5000).unref();
+  });
+}
+
+function protocol(socket) {
+  let next = 0;
+  const pending = new Map();
+  const fail = () => { for (const entry of pending.values()) entry.reject(Error('Desktop debugger disconnected')); pending.clear(); };
+  socket.addEventListener('close', fail);
+  socket.addEventListener('error', fail);
+  socket.addEventListener('message', event => {
+    let value;
+    try { value = JSON.parse(event.data); } catch { fail(); return; }
+    const entry = pending.get(value.id);
+    if (!entry) return;
+    pending.delete(value.id); clearTimeout(entry.timer);
+    if (value.error) entry.reject(Error(`Desktop debugger rejected ${entry.method}`)); else entry.resolve(value.result);
+  });
+  return (method, params = {}) => new Promise((resolveCall, reject) => {
+    const id = ++next;
+    const timer = setTimeout(() => { pending.delete(id); reject(Error(`Desktop debugger timed out: ${method}`)); }, 5000);
+    pending.set(id, { resolve: resolveCall, reject, timer, method });
+    socket.send(JSON.stringify({ id, method, params }));
+  });
+}
+
+export async function verifyDesktop({ executable, outputDirectory } = {}) {
+  // shortcut: clean CI profiles only; add explicit isolated-profile support before local desktop use.
+  if (process.env.CI !== 'true') throw Error('Desktop verification requires a clean CI machine; personal profiles must not be used.');
+  if (!isAbsolute(executable ?? '')) throw Error('Provide an absolute executable path');
+  if (!(await stat(executable)).isFile()) throw Error('Desktop executable must be a file');
+  if (!isAbsolute(outputDirectory ?? '')) throw Error('Provide an absolute output directory');
+  await mkdir(outputDirectory, { recursive: true });
+  const child = spawn(executable, ['--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1'], {
+    shell: false, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: false,
+  });
+  let output = '', startupError, socket;
+  child.once('error', error => { startupError = error; });
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', text => { output = (output + text).slice(-32768); });
+  const deadline = Date.now() + 90000;
+  async function until(action, label) {
+    while (Date.now() < deadline) {
+      if (startupError) throw startupError;
+      if (child.exitCode !== null || child.signalCode !== null) throw Error(`Desktop exited before verification: ${child.exitCode ?? child.signalCode}`);
+      const result = await action();
+      if (result) return result;
+      await delay(250);
+    }
+    throw Error(`Desktop verification timed out: ${label}`);
+  }
+  try {
+    const port = await until(async () => output.match(/DevTools listening on ws:\/\/127\.0\.0\.1:(\d+)\//)?.[1], 'debugger startup');
+    const target = await until(async () => {
+      const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) });
+      assert.equal(response.status, 200);
+      return (await response.json()).find(item => item.type === 'page' && /^http:\/\/127\.0\.0\.1:\d+\/$/.test(item.url));
+    }, 'local application page');
+    assert.match(target.webSocketDebuggerUrl, new RegExp(`^ws://127\\.0\\.0\\.1:${port}/devtools/page/`));
+    socket = await connect(target.webSocketDebuggerUrl);
+    const call = protocol(socket);
+    const view = await until(async () => {
+      const response = await call('Runtime.evaluate', { expression: readyExpression, returnByValue: true });
+      if (response.exceptionDetails || typeof response.result?.value !== 'string') return;
+      const state = JSON.parse(response.result.value);
+      return state.editorReady && state.settingsReady ? state : undefined;
+    }, 'CAD editor and unified settings readiness');
+    assert.match(view.title, /SiteCAD/); assert.equal(view.settingsTabs, 5);
+    const baseUrl = new URL(target.url).origin;
+    const statusResponse = await fetch(`${baseUrl}/api/desktop/status`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(statusResponse.status, 200);
+    const status = await statusResponse.json();
+    assert.equal(status.ok, true); assert.equal(status.data.desktop, true);
+    assert.equal(status.data.oauth.connected, false, 'Clean VM must not inherit real AI credentials');
+    const modules = {};
+    for (const name of ['chat-content.js', 'settings.js']) {
+      const response = await fetch(`${baseUrl}/${name}`, { signal: AbortSignal.timeout(5000) });
+      assert.equal(response.status, 200);
+      const servedHash = hash(Buffer.from(await response.arrayBuffer()));
+      assert.equal(servedHash, hash(await readFile(new URL(`../public/${name}`, import.meta.url))), `Packaged ${name} must match tested source`);
+      modules[name] = servedHash;
+    }
+    const screenshot = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+    await writeFile(join(outputDirectory, 'desktop.png'), Buffer.from(screenshot.data, 'base64'));
+    const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+    const report = { version, platform: process.platform, arch: process.arch, ...view, modules, anonymousProfile: true,
+      limitations: ['No AI inference or authenticated external API/MCP calls', 'No drawing modification or DWG round-trip test'] };
+    await writeFile(join(outputDirectory, 'desktop-verification.json'), `${JSON.stringify(report, null, 2)}\n`);
+    console.log(`Desktop ${version} verified on ${process.platform}/${process.arch}: editor, settings and packaged chat modules ready`);
+    return report;
+  } finally {
+    socket?.close();
+    const stopped = new Promise(resolveStop => { child.once('close', resolveStop); setTimeout(resolveStop, 5000).unref(); });
+    stopProcessTree(child, 'SIGKILL');
+    await stopped;
+  }
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await verifyDesktop({ executable: process.argv[2], outputDirectory: process.argv[3] });
+}

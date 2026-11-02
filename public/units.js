@@ -7,3 +7,8 @@ export function mmPerUnit(units) {
   if (!scale) throw new Error('도면 단위가 미설정이거나 지원 범위 밖입니다. mm 단위의 새 도면을 사용해 주세요.');
   return scale;
 }
+
+export function mmPerUnitOrNull(units) {
+  if (!Number.isSafeInteger(units) || units < 0 || units > 24) throw new Error('도면 단위를 다시 확인해 주세요.');
+  return UNIT_MM[units] ?? null;
+}

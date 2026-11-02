@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, Menu, safeStorage, shell } from 'electron';
 import { mkdir, stat } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from '../server.mjs';
 import { createDesktopController } from '../lib/desktop-controller.mjs';
@@ -54,10 +54,18 @@ async function start() {
   for (const directory of [paths.codexHome, paths.workspace, paths.runtime]) await mkdir(directory, { recursive: true, mode: 0o700 });
   const codexPath = await installBundledCodex({ sourceDir: join(appRoot, 'runtime'), destination: join(paths.runtime, 'codex') });
   controller = await createDesktopController({
-    dataDir, codexPath, nodePath: process.execPath, nodeEnv: { ELECTRON_RUN_AS_NODE: '1' },
+    dataDir, defaultDrawingsPath: join(app.isPackaged ? (process.platform === 'darwin' ? resolve(app.getPath('exe'), '../../../..') : dirname(app.getPath('exe'))) : appRoot, 'drawings'),
+    codexPath, nodePath: process.execPath, nodeEnv: { ELECTRON_RUN_AS_NODE: '1' },
     secureStore: createSecureStore({ file: paths.secrets, safeStorage }),
     mcpSecretStore: createSecureStore({ file: join(dataDir, 'mcp-secrets.enc'), safeStorage }),
     referenceSecretStore: createSecureStore({ file: join(dataDir, 'vworld-secrets.enc'), safeStorage }),
+    llmSecretStore: createSecureStore({ file: join(dataDir, 'llm-secrets.enc'), safeStorage }),
+    apiSecretStore: createSecureStore({ file: join(dataDir, 'api-secrets.enc'), safeStorage }),
+    selectDrawingsFolder: async ({ defaultPath }) => {
+      const options = { title: '도면 저장 폴더 선택', defaultPath, properties: ['openDirectory', 'createDirectory'] };
+      const selection = await (mainWindow ? dialog.showOpenDialog(mainWindow, options) : dialog.showOpenDialog(options));
+      return selection.canceled ? null : selection.filePaths[0];
+    },
     selectTerrainFile: async () => {
       const options = { title: '지형 원본 등록 — SHP는 같은 폴더의 DBF·PRJ 필요',
         properties: ['openFile'], filters: [{ name: '지형 원본 SHP / GeoJSON', extensions: ['shp', 'geojson', 'json'] }] };
@@ -75,7 +83,7 @@ async function start() {
     ? bundledFixture : join(appRoot, '../rhino-experiments/retaining-wall-20261020/retaining-wall-drawing-2d.dwg');
   const browserAccess = browserMode ? createBrowserAccess() : undefined;
   server = createApp({ desktop: controller, fixturePath, browserAccess, browserActions: {
-    openDrawings: async () => { const message = await shell.openPath(join(dataDir, 'Drawings')); if (message) throw Error('저장 폴더를 열지 못했습니다.'); },
+    openDrawings: async () => { const message = await shell.openPath(await controller.drawingDirectory()); if (message) throw Error('저장 폴더를 열지 못했습니다.'); },
     quit: async () => { setImmediate(() => { void confirmClose({ preventDefault() {} }).catch(() => {}); }); },
   } });
   await new Promise((resolveListen, reject) => {
@@ -88,7 +96,7 @@ async function start() {
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: 'SiteCAD', submenu: [
         { label: '브라우저에서 열기', click: () => { void shell.openExternal(`${baseUrl}/`); } },
-        { label: '저장 폴더 열기', click: () => { void shell.openPath(join(dataDir, 'Drawings')); } },
+        { label: '저장 폴더 열기', click: () => { void controller.drawingDirectory().then(path => shell.openPath(path)).catch(() => dialog.showErrorBox('저장 폴더', '설정에서 저장 폴더와 접근 권한을 확인해 주세요.')); } },
         { type: 'separator' }, { role: 'quit' },
       ] },
     ]));
@@ -120,7 +128,7 @@ async function start() {
     const suggested = item.getFilename().replace(/[^\p{L}\p{N}_. -]/gu, '_');
     if (!/\.dwg$/i.test(suggested)) { event.preventDefault(); return; }
     // Chromium owns the Blob bytes; use its native Save As flow without granting renderer filesystem access.
-    item.setSaveDialogOptions({ title: 'DWG 도면 저장', defaultPath: join(app.getPath('documents'), suggested), filters: [{ name: 'AutoCAD DWG', extensions: ['dwg'] }] });
+    item.setSaveDialogOptions({ title: 'DWG 도면 저장', defaultPath: join(controller.storageStatus().path, suggested), filters: [{ name: 'AutoCAD DWG', extensions: ['dwg'] }] });
   });
   mainWindow.on('close', confirmClose);
   mainWindow.once('ready-to-show', () => mainWindow.show());

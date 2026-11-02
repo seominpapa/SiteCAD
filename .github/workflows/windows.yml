@@ -1,47 +1,99 @@
-name: Windows local installer
+name: Native platform verification and installers
 on:
   push:
-    branches: [main]
+    branches: [main, 'validation/**']
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  windows:
-    runs-on: windows-2022
-    timeout-minutes: 40
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            platform: Windows
+          - os: macos-15
+            platform: macOS
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      SITECAD_TEST_FRESH_INSTALL: '1'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24.22.1'
-      - name: Install production dependencies
-        shell: powershell
-        run: npm.cmd ci --omit=dev --no-audit --no-fund
-      - name: Install pinned Codex for bundled model catalog verification
-        shell: powershell
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install pinned Codex for catalog and runtime verification
         run: node scripts/install-codex.mjs runtime
-      - name: Native Windows installer, credentials, Codex and MCP probes
-        shell: powershell
-        run: node --test tests/windows-install.test.mjs tests/windows-runtime.test.mjs tests/node-runtime.test.mjs tests/mcp-launcher.test.mjs tests/runtime.test.mjs tests/desktop.test.mjs tests/annotations.test.mjs tests/cad-control.test.mjs tests/chat-sessions.test.mjs tests/skills.test.mjs tests/extensions.test.mjs tests/mcp-installer.test.mjs tests/controller-extensions.test.mjs tests/chat-panel.test.mjs tests/skills-ui.test.mjs tests/mcp-ui.test.mjs
-      - name: Windows Korean system font endpoint
-        shell: powershell
-        run: node --test --test-name-pattern="Korean CAD font" tests/server.test.mjs
-      - name: Browser ownership, chat steering and external connections
-        shell: powershell
-        run: node --test tests/browser-access.test.mjs tests/browser-files.test.mjs tests/chat-connections.test.mjs tests/chat-runtime-ui.test.mjs tests/chat-interrupt-ui.test.mjs tests/server-steer.test.mjs tests/sitecad-plugins.test.mjs tests/model-catalog.test.mjs tests/license-provenance.test.mjs
-      - name: KCSC managed Python installation and native MCP discovery
-        shell: powershell
+      - name: Unit, integration and fresh native launcher installation
+        shell: bash
+        run: |
+          mkdir -p dist/verification
+          set -o pipefail
+          npm test 2>&1 | tee dist/verification/tests.txt
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=high
+      - name: Native KCSC installation and MCP discovery
         env:
           SITECAD_TEST_KCSC_INSTALL: '1'
-        run: node --test tests/kcsc-connection.test.mjs tests/kcsc-controller.test.mjs tests/kcsc-native-install.test.mjs
-  installer:
-    runs-on: windows-2022
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        run: node --test tests/kcsc-native-install.test.mjs
+      - name: Build macOS local web ZIP
+        if: runner.os == 'macOS'
+        run: node scripts/build-local-web.mjs
+      - name: Build Windows local web ZIP
+        if: runner.os == 'Windows'
+        run: node scripts/build-local-web.mjs --windows
+      - name: Install pinned Windows setup compiler
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TEMP 'innosetup-6.6.1.exe'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-6_6_1/innosetup-6.6.1.exe' -OutFile $installer
+          if ((Get-FileHash $installer -Algorithm SHA256).Hash.ToLower() -ne 'd243ce440c02705530699554fb9612b9b2bd7a2a90629cdb7f41e66f5faeb91f') { throw 'Setup compiler integrity mismatch' }
+          $compilerRoot = Join-Path $env:RUNNER_TEMP 'Inno Setup'
+          $install = Start-Process $installer -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$compilerRoot`"") -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Compiler installation failed: $($install.ExitCode)" }
+          "INNO_SETUP_COMPILER=$compilerRoot\ISCC.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Build native desktop installer
+        run: npm run desktop:build
+      - name: Mount final macOS DMG and verify desktop startup
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg=$(find dist -maxdepth 1 -name 'SiteCAD-*-macOS-*.dmg' -print -quit)
+          mount="$RUNNER_TEMP/sitecad-dmg"
+          hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mount"
+          trap 'hdiutil detach "$mount"' EXIT
+          ditto "$mount/SiteCAD.app" "$RUNNER_TEMP/SiteCAD.app"
+          node scripts/verify-desktop.mjs "$RUNNER_TEMP/SiteCAD.app/Contents/MacOS/SiteCAD" "$PWD/dist/verification"
+      - name: Install Windows setup, verify desktop and preserve drawings on uninstall
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Get-ChildItem 'dist/SiteCAD-*-Windows-x64-Setup.exe' | Select-Object -First 1).FullName
+          $destination = Join-Path $env:RUNNER_TEMP '설치 확인 SiteCAD'
+          $install = Start-Process $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$destination`"") -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "SiteCAD installation failed: $($install.ExitCode)" }
+          node scripts/verify-desktop.mjs "$destination\SiteCAD.exe" "$PWD/dist/verification"
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop verification failed' }
+          New-Item "$destination\drawings" -ItemType Directory -Force | Out-Null
+          Set-Content "$destination\drawings\preserve.txt" 'User drawing placeholder'
+          $uninstall = Start-Process "$destination\unins000.exe" -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0 -or !(Test-Path "$destination\drawings\preserve.txt")) { throw 'Uninstaller removed a user drawing or failed' }
+      - name: Save platform installers and verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          node-version: '24.22.1'
-      - name: Clean ZIP and actual double-click launcher installation
-        shell: powershell
-        run: node --test tests/windows-bootstrap-real.test.mjs
+          name: SiteCAD-${{ matrix.platform }}-${{ github.sha }}
+          path: |
+            dist/*local-web-*.zip
+            dist/*.dmg
+            dist/*-Setup.exe
+            dist/verification/
+          retention-days: 14

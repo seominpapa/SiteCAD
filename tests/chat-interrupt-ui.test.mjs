@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { parseConnectionCommand } from '../public/chat-connections.js';
+import { renderChatContent } from '../public/chat-content.js';
 
 const source = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
 const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
@@ -15,14 +16,17 @@ class Element {
   replaceChildren(...children) { this.children = children; }
   focus() { this.focused = true; }
   scrollIntoView() {}
+  set textContent(value) { this.text = value; this.children = []; }
+  get textContent() { return (this.text ?? '') + this.children.map(child => child.textContent).join(''); }
 }
 function fixture() {
   const ids = Object.fromEntries([...html.matchAll(/id="([^"]+)"/g)].map(match => [match[1], new Element()]));
   const calls = []; let request = async () => ({ accepted: true });
   const stub = () => ({ sync() {}, update() {}, refresh: async () => {}, init: async () => {}, clear() {}, handleCommand() { return false; },
     currentId: () => 'test-chat', isPending: () => false, begin() {}, finish() {}, fail() {}, event() {}, selectedModel() {} });
-  const context = vm.createContext({ document: { getElementById: id => { assert.ok(ids[id], id); return ids[id]; }, querySelectorAll: () => [], createElement: () => new Element() },
-    CadEditor: class {}, createMcpSettings: stub, createSkillMenu: stub, createChatPanel: stub, createChatRuntime: stub,
+  const document = { getElementById: id => { assert.ok(ids[id], id); return ids[id]; }, querySelectorAll: () => [], createElement: tag => Object.assign(new Element(), {tagName: tag, ownerDocument: document}) };
+  const context = vm.createContext({ document, renderChatContent,
+    CadEditor: class {}, createMcpSettings: stub, createSkillMenu: stub, createChatPanel: stub, createChatRuntime: stub, createSettings: stub,
     createChatConnections: stub, createChatSessionsUI: options => {
       let selectedChat = 'test-chat';
       const select = () => { if (!options.isBusy()) { selectedChat = 'new-chat'; options.onSelect({messages:[]}); } };
@@ -38,10 +42,48 @@ function fixture() {
   return { ids, calls, run, request: callback => { request = callback; } };
 }
 
+const descendants = element => [element, ...element.children.flatMap(descendants)];
+test('assistant replies render tables while user input remains literal; feedback drafts require the user to send', () => {
+  const { ids, calls, run } = fixture();
+  run('appendMessage("assistant", "| 항목 | 값 |\\n| --- | --- |\\n| H1 | 8 |", {error:true});');
+  const nodes = descendants(ids.messages.children[0]);
+  assert.equal(nodes.filter(item => item.tagName === 'table').length, 1);
+  const followup = nodes.find(item => item.className === 'chat-review-followup');
+  assert.equal(followup.open, true);
+  assert.match(followup.textContent, /어떤 부분.*처리 방법/);
+  const button = descendants(followup).find(item => item.tagName === 'button');
+  run('busy=true;'); button.listeners.click(); assert.equal(ids['message-input'].value, '');
+  run('busy=false;'); button.listeners.click();
+  assert.match(ids['message-input'].value, /원하는 처리 방법/); assert.match(ids['message-input'].value, /스킬 등록 여부/);
+  assert.match(ids['message-input'].value, /대상 답변: \| 항목 \| 값/);
+  ids['message-input'].value = '작성 중인 내용'; button.listeners.click(); assert.equal(ids['message-input'].value, '작성 중인 내용');
+  assert.equal(calls.length, 0);
+  run('appendMessage("user", "| 항목 | 값 |\\n| --- | --- |\\n| H1 | 8 |");');
+  assert.equal(descendants(ids.messages.children[1]).filter(item => item.tagName === 'table').length, 0);
+});
+
 test('registration help follows composer and the regional footer is removed', () => {
   assert.ok(html.indexOf('class="registration-help"') > html.indexOf('id="chat-form"'));
   assert.doesNotMatch(html, /class="composer-note"|경기도 광주시 주소만 입력하면/);
   assert.match(html, /id="stop-task"[^>]*type="button"/);
+});
+
+test('Claude Console login status names Claude and hides unrelated ChatGPT login controls',async()=>{
+  const {ids,run}=fixture();
+  run('stopBridge = () => {}; fetch = async()=>({ok:true,json:async()=>({ok:true,data:{desktop:true,llm:{active:"anthropic-oauth",connected:false,pending:true,anthropicOAuth:{pending:true},connections:[{id:"anthropic-oauth",label:"Claude Console OAuth"}]},auth:{pending:false},runtime:{}}})});');
+  await run('checkConnection()');
+  assert.match(ids['oauth-status'].textContent,/Claude Console 로그인 진행 중/);
+  assert.equal(ids['login-chatgpt'].hidden,true);assert.equal(run('authPending'),true);
+});
+
+test('an API key header distinguishes registration from a verified connection',async()=>{
+  const {ids,run}=fixture();
+  run('stopBridge = () => {}; fetch = async()=>({ok:true,json:async()=>({ok:true,data:{desktop:true,llm:{active:"openai-api",connected:true,connections:[{id:"openai-api",label:"OpenAI · API 키",method:"api",configured:true}]},runtime:{connected:false}}})});');
+  await run('checkConnection()');
+  assert.match(ids['oauth-status'].textContent,/키 등록됨 · 연결 미확인/);
+  run('fetch = async()=>({ok:true,json:async()=>({ok:true,data:{desktop:true,llm:{active:"openai-api",connected:true,connections:[{id:"openai-api",label:"OpenAI · API 키",method:"api",configured:true,lastCheck:{ok:true}}]},runtime:{connected:false}}})});');
+  await run('checkConnection()');
+  assert.match(ids['oauth-status'].textContent,/연결됨/);assert.doesNotMatch(ids['oauth-status'].textContent,/미확인/);
 });
 
 test('an active chat keeps composer editable and exposes a stop button but other work stays locked', () => {
@@ -76,12 +118,38 @@ test('failed steering preserves the draft and private registration commands neve
   await ids['chat-form'].listeners.submit({ preventDefault() {} });
   assert.equal(ids['message-input'].value, '색상은 빨강');
   assert.match(ids['workspace-notice'].textContent, /끝났/);
-  for (const command of ['/api vworld', '/mcp add {"secret":"never-send"}', 'API 등록해줘']) {
+  for (const command of ['/api vworld', '/mcp add {"secret":"never-send"}']) {
     ids['message-input'].value = command;
     await ids['chat-form'].listeners.submit({ preventDefault() {} });
   }
   assert.equal(calls.length, 1);
   assert.equal(ids.messages.children.length, 0);
+});
+
+test('empty chats restore three welcome questions and the first submitted message hides them', async () => {
+  const { ids, run } = fixture();
+  ids['chat-new'].listeners.click();
+  assert.equal(ids.messages.children[0], ids['chat-welcome']);
+  assert.equal(ids['chat-welcome'].hidden, false);
+  run('appendMessage("user", "처음 요청");');
+  assert.equal(ids['chat-welcome'].hidden, true);
+  ids['chat-new'].listeners.click();
+  assert.equal(ids['chat-welcome'].hidden, false);
+  assert.equal(ids.messages.children.length, 1);
+});
+
+test('compact toolbar redo and selection clear use the guarded current drawing and respect busy state', async () => {
+  const { ids, run } = fixture();
+  run('let toolbarCalls=[]; cad.context=async()=>({documentId:7,revision:3,units:4,selection:["A"]}); cad.control=async value=>{toolbarCalls.push(value);}; refreshDocument=async()=>{};');
+  await ids['redo-drawing'].listeners.click();
+  await ids['clear-selection'].listeners.click();
+  assert.deepEqual(JSON.parse(run('JSON.stringify(toolbarCalls)')), [
+    { request:{op:'redo'}, expectedContext:{documentId:7,revision:3,units:4,selection:['A']} },
+    { request:{op:'select',clear:true}, expectedContext:{documentId:7,revision:3,units:4,selection:['A']} },
+  ]);
+  run('busy=true;');
+  await ids['redo-drawing'].listeners.click();
+  assert.equal(run('toolbarCalls.length'), 2);
 });
 
 test('editing during a steering request does not erase the newer draft or send duplicate instructions', async () => {

@@ -13,15 +13,15 @@
     <header class="app-header">
       <div class="brand"><span class="brand-mark" aria-hidden="true">SC</span><div><h1>SiteCAD</h1><p>로컬 도면 작업실 · <a href="/licenses.html" target="_blank" rel="noopener">라이선스·소스</a></p></div></div>
       <div class="connection"><span id="oauth-status" class="status-badge" role="status">OpenAI 연결 확인 중</span><span id="mcp-status" class="status-badge" hidden>내부 MCP 대기</span><button id="login-chatgpt" class="header-button" type="button" hidden>ChatGPT로 계속</button><button id="logout-chatgpt" class="header-button" type="button" hidden>로그아웃</button><button id="cancel-task" class="header-button" type="button" hidden>작업 취소</button><button id="refresh-connection" class="header-button" type="button">연결 확인</button></div>
-      <div id="local-actions" class="connection" hidden><button id="open-saved-folder" class="header-button" type="button">저장 폴더</button><button id="quit-local" class="header-button" type="button">실행기 종료</button></div>
+      <div class="connection header-actions"><button id="settings-open" class="header-button header-settings" type="button" aria-label="설정" title="설정" aria-haspopup="dialog" aria-controls="settings-dialog" hidden><span aria-hidden="true">⚙︎</span> 설정</button><div id="local-actions" class="connection" hidden><button id="open-saved-folder" class="header-button" type="button">저장 폴더</button><button id="quit-local" class="header-button" type="button">실행기 종료</button></div></div>
     </header>
 
     <main id="workspace" class="workspace">
       <section class="drawing-panel" aria-label="도면 편집">
         <div class="drawing-toolbar" aria-label="도면 도구">
-          <div class="toolbar-group"><button id="new-drawing" type="button" data-action disabled>새 도면</button><button id="open-drawing" type="button" data-action disabled>도면 열기</button><input id="file-input" type="file" accept=".dwg,.dxf" hidden /><button id="open-example" type="button" data-action disabled>예제 열기</button></div>
-          <div class="toolbar-group"><button id="fit-drawing" type="button" data-action disabled>전체 보기</button><button id="undo-drawing" type="button" data-action disabled>실행 취소</button></div>
-          <button id="chat-expand" type="button" aria-controls="sitecad-chat-panel" aria-expanded="true" hidden>채팅 열기</button><div class="save-group"><label for="save-name" class="sr-only">저장할 DWG 파일 이름</label><input id="save-name" value="drawing.dwg" maxlength="120" spellcheck="false" aria-label="저장할 DWG 파일 이름" /><button id="save-drawing" class="primary" type="button" data-action disabled>DWG 저장</button></div>
+          <div class="toolbar-group"><button id="new-drawing" type="button" data-action disabled><span aria-hidden="true">＋</span> 새 도면</button><button id="open-drawing" type="button" data-action disabled><span aria-hidden="true">↥</span> 열기</button><input id="file-input" type="file" accept=".dwg,.dxf" hidden /><button id="open-example" type="button" data-action disabled>예제</button></div>
+          <div class="toolbar-group"><button id="fit-drawing" type="button" data-action disabled>전체 보기</button><button id="undo-drawing" type="button" data-action title="실행 취소" disabled>↶ 취소</button><button id="redo-drawing" type="button" data-action title="다시 실행" disabled>↷ 다시</button><button id="clear-selection" type="button" data-action disabled>선택 해제</button></div>
+          <div class="save-group"><label for="save-name" class="sr-only">저장할 DWG 파일 이름</label><input id="save-name" value="drawing.dwg" maxlength="120" spellcheck="false" aria-label="저장할 DWG 파일 이름" /><button id="save-drawing" class="primary" type="button" data-action disabled>DWG 저장</button></div>
         </div>
         <div class="editor-stage" id="editor-stage" aria-busy="true">
           <iframe id="editor" title="OpenCADStudio 도면 편집기" allow="clipboard-read; clipboard-write" inert></iframe>
@@ -31,46 +31,37 @@
         <p id="workspace-notice" class="workspace-notice" role="status" hidden></p>
       </section>
 
+      <div id="chat-resize" class="chat-resizer" role="separator" aria-orientation="vertical" aria-label="채팅창 너비 조절" aria-controls="sitecad-chat-panel" tabindex="0"></div>
+      <button id="chat-expand" class="chat-edge-toggle chat-edge-open" type="button" aria-label="채팅 열기" title="채팅 열기" aria-controls="sitecad-chat-panel" aria-expanded="true" hidden>‹</button>
       <aside id="sitecad-chat-panel" class="chat-panel" aria-labelledby="chat-title">
-        <div class="chat-heading"><div><p class="eyebrow">DRAWING ASSISTANT</p><h2 id="chat-title">도면에 요청하기</h2></div><div class="chat-heading-actions"><button id="chat-collapse" type="button" aria-controls="sitecad-chat-panel" aria-expanded="true">채팅 접기</button><button id="manage-mcp" type="button" hidden>외부 연결</button><span id="external-mcp-status" class="external-mcp-status" hidden>등록된 연결 없음</span></div></div>
-        <div id="chat-session-controls" class="chat-session-controls" hidden><label class="sr-only" for="chat-select">채팅 선택</label><select id="chat-select" aria-label="채팅 선택" disabled><option>채팅을 준비하고 있습니다</option></select><button id="chat-new" type="button" disabled>새 채팅</button><p id="chat-history-status" role="status"></p></div>
-        <div id="auth-help" class="auth-help" hidden><strong>OpenAI 로그인이 필요합니다.</strong><p>이 프로젝트의 터미널에서 <code>codex login</code>을 실행한 뒤 연결 확인을 눌러 주세요. ChatGPT 계정의 OAuth 로그인을 사용합니다.</p></div>
+        <button id="chat-collapse" class="chat-edge-toggle chat-edge-close" type="button" aria-label="채팅 접기" title="채팅 접기" aria-controls="sitecad-chat-panel" aria-expanded="true">›</button>
+        <div class="chat-heading"><div><p class="eyebrow">DRAWING ASSISTANT</p><h2 id="chat-title">도면에 요청하기</h2></div><span class="local-label">LOCAL</span></div>
+        <div id="chat-session-controls" class="chat-session-controls" hidden><label class="sr-only" for="chat-select">채팅 선택</label><select id="chat-select" aria-label="채팅 선택" disabled><option>채팅을 준비하고 있습니다</option></select><button id="chat-new" type="button" disabled>새 채팅</button><button id="chat-delete" type="button" disabled>삭제</button><p id="chat-history-status" role="status" aria-live="polite"></p></div>
+        <div id="auth-help" class="auth-help" hidden><strong>AI 연결이 필요합니다.</strong><p>설정에서 사용할 AI 서비스와 로그인 또는 API 키 연결을 선택해 주세요.</p></div>
         <div id="messages" class="messages" role="log" aria-label="도면 작업 대화" aria-live="polite" aria-relevant="additions">
-          <article class="message assistant welcome"><p class="message-author">SiteCAD</p><p>원하는 도면이나 현장 주소를 입력해 주세요.</p><p class="secondary-text">객체를 선택해 수정하거나, 물량검토를 요청해 레이어별 객체 개수·길이·면적을 표로 확인하세요.</p></article>
+          <article id="chat-welcome" class="message assistant welcome"><p class="message-author">SiteCAD</p><p class="secondary-text">아래 예시를 눌러 시작하거나, 원하는 작업을 직접 입력하세요.</p><div class="example-prompts" aria-label="처음 시작하는 사용자를 위한 요청 예시">
+            <button type="button" class="prompt-chip" data-prompt="높이 2m 콘크리트 옹벽 도면 만들어줘" disabled>높이 2m 콘크리트 옹벽 도면 만들어줘</button>
+            <button type="button" class="prompt-chip" data-prompt="물량 검증해줘" disabled>물량 검증해줘</button>
+            <button type="button" class="prompt-chip" data-prompt="설계기준 맞는지 확인해줘" disabled>설계기준 맞는지 확인해줘</button>
+          </div></article>
         </div>
-        <section id="chat-live" class="chat-live" aria-label="실시간 답변과 도구 실행" aria-live="polite" hidden>
-          <p id="chat-live-status" class="chat-live-status" role="status"></p>
+        <details id="chat-live" class="chat-live" aria-label="실시간 답변과 도구 실행" aria-live="polite" hidden>
+          <summary id="chat-live-status" class="chat-live-status"></summary>
           <div id="chat-live-tools" class="chat-live-tools"></div>
-          <p id="chat-live-text" class="chat-live-text"></p>
-        </section>
+          <details class="chat-tool-group"><summary>응답 작성</summary><div id="chat-live-text" class="chat-live-text chat-content"></div></details>
+        </details>
         <div id="tool-approvals" class="tool-approvals" aria-live="polite" aria-label="외부 도구 실행 승인" hidden></div>
         <div id="chat-progress" class="chat-progress" role="status" hidden><span class="spinner" aria-hidden="true"></span><span id="chat-progress-text">요청을 해석하고 있습니다.</span></div>
         <div class="composer-area">
 
-          <div class="example-prompts" aria-label="도면 요청 예시">
-            <button type="button" class="prompt-chip" data-prompt="가로 6m, 세로 4m 사각형을 그려줘" disabled>6 × 4m 사각형 그리기</button>
-            <button type="button" class="prompt-chip" data-prompt="선택한 객체를 오른쪽으로 500mm 옮겨줘" disabled>선택 객체 500mm 이동</button>
-            <button type="button" class="prompt-chip" data-prompt="선택한 객체의 길이와 면적을 알려줘" disabled>길이·면적 확인</button>
-            <button type="button" class="prompt-chip" data-prompt="도면 전체의 레이어별 객체 개수, 길이, 면적을 물량검토 표로 보여줘" disabled>레이어별 물량검토</button>
-            <button type="button" class="prompt-chip" data-prompt="경기도 광주시 행정타운로 50" disabled>주소로 필지·지형 그리기</button>
-            <button type="button" class="prompt-chip" data-prompt="공개 설계기준을 찾아 배수로 개념 단면도를 그려줘. 누락 치수는 가정하고 출처를 표시해줘." disabled>설계기준 참고 개념도</button>
-          </div>
-          <div class="skill-menu-controls"><button id="skill-toggle" type="button" aria-expanded="false" aria-controls="skill-menu" hidden>슬래시: 스킬</button><button id="model-choice" type="button" aria-haspopup="dialog" aria-controls="model-dialog" hidden disabled>모델: 자동 선택</button></div><section id="skill-menu" class="skill-menu" aria-label="설치된 스킬" hidden><p id="skill-status" role="status"></p><div id="skill-list"></div></section>
+          <div class="skill-menu-controls"><button id="skill-toggle" type="button" aria-expanded="false" aria-controls="skill-menu" hidden>스킬목록(/)</button><button id="model-choice" type="button" aria-haspopup="dialog" aria-controls="model-dialog" hidden disabled>모델: 자동 선택</button></div><section id="skill-menu" class="skill-menu" aria-label="설치된 스킬" hidden><p id="skill-status" role="status"></p><div id="skill-list"></div></section>
           <form id="chat-form"><label for="message-input" class="sr-only">도면 생성 또는 수정 요청</label><textarea id="message-input" rows="3" maxlength="2000" placeholder="도면 요청 · /스킬 · MCP·API·플러그인 등록" aria-controls="skill-menu" disabled></textarea><div class="composer-footer"><span id="composer-hint">Enter 전송 · Shift+Enter 줄바꿈</span><div class="composer-actions"><button id="stop-task" type="button" hidden>정지</button><button id="send-message" class="primary" type="submit" disabled>전송</button></div></div></form>
           <details class="registration-help">
             <summary>스킬·연결 등록 방법</summary>
             <div class="registration-guide">
-              <p><strong>스킬</strong> 채팅에 “이 작업을 스킬로 만들어줘”라고 요청하세요. 저장된 작업은 슬래시 목록에서 선택해 다시 실행합니다.</p>
-              <p><strong>MCP</strong> GitHub URL과 함께 “이 MCP를 설치해줘”라고 요청하거나 <code>/mcp</code>로 설정 입력 카드를 여세요. 실행 대상과 권한을 검토한 뒤 승인합니다.</p>
-              <p><strong>API</strong> “API 등록해줘” 또는 <code>/api vworld</code>로 VWorld 키 전용 입력창을 여세요. 국가건설기준센터 기준 조회는 <code>/api kcsc</code>에서 본인의 KCSC 키를 등록하면 전용 MCP가 연결됩니다. API 키는 채팅에 붙여 넣지 말고 비공개 입력창에 입력하세요.</p>
-              <p><strong>플러그인</strong> GitHub URL과 함께 “이 플러그인을 설치해줘”라고 요청하세요. 지원하는 지침형 플러그인을 검토·승인하면 포함된 스킬을 슬래시 목록에서 실행할 수 있습니다.</p>
-              <div class="registration-guide-actions">
-                <button type="button" class="prompt-chip" data-prompt="이 채팅에서 진행한 도면 작업을 재사용 가능한 스킬로 만들어줘" disabled>스킬 만들기</button>
-                <button type="button" class="prompt-chip" data-prompt="/mcp" disabled>MCP 등록</button>
-                <button type="button" class="prompt-chip" data-prompt="API 등록해줘" disabled>API 등록</button>
-                <button type="button" class="prompt-chip" data-prompt="/api kcsc" disabled>KCSC 키 등록</button>
-                <button type="button" class="prompt-chip" data-prompt="플러그인 GitHub URL로 설치하는 방법과 지원 범위를 알려줘" disabled>플러그인 설치 안내</button>
-              </div>
+              <p><strong>스킬</strong> 결과가 원하는 내용과 다르면 응답 아래의 “원하는 결과가 아닌가요?”에서 원하는 처리 방법을 알려주세요. 필요한 내용을 확인하고 정리한 절차는 동의를 받아 스킬로 등록합니다. “이 작업을 스킬로 만들어줘”라고 직접 요청할 수도 있습니다. 저장된 스킬은 스킬목록(/)에서 선택합니다.</p>
+              <p><strong>API·MCP·플러그인</strong> 주소와 함께 “이 연결을 등록·설치해줘”라고 요청하세요. AI가 지원 방식과 설치 대상을 확인하고, 필요한 승인을 받습니다. 설치 결과와 연결 상태는 설정에서 확인합니다.</p>
+              <p><strong>API 키</strong> 키가 필요하면 채팅에서 발급 사이트와 설정의 API 항목을 안내합니다. 본인이 발급받은 값은 설정의 비공개 입력란에 등록하세요. 키를 채팅에 붙여 넣지 마세요.</p>
             </div>
           </details>
         </div>
@@ -79,7 +70,7 @@
     <dialog id="model-dialog" class="model-dialog" aria-labelledby="model-dialog-title" aria-describedby="model-catalog-note">
       <form method="dialog" class="mcp-dialog-heading"><div><p class="eyebrow">CHAT MODEL</p><h2 id="model-dialog-title">모델 선택</h2></div><button type="submit" aria-label="모델 선택 닫기">닫기</button></form>
       <div class="model-dialog-content">
-        <p id="model-catalog-note" class="mcp-intro">Codex에서 조회한 실제 모델 카탈로그입니다. 계정의 모델 실행 권한은 요청 시 별도로 확인합니다.</p>
+        <p id="model-catalog-note" class="mcp-intro">설정에서 선택한 AI 연결의 실제 모델 카탈로그입니다. 모델 실행 권한과 API 비용은 요청 시 별도로 적용됩니다.</p>
         <label for="model-select">다음 요청에 사용할 모델</label>
         <select id="model-select" aria-describedby="model-description" disabled><option value="">모델 카탈로그를 불러와 주세요</option></select>
         <p id="model-description" class="model-description"></p>
@@ -87,13 +78,24 @@
         <div class="model-dialog-actions"><button id="models-refresh" type="button" disabled>목록 새로 고침</button><button id="model-apply" class="primary" type="button" disabled>이 모델 사용</button></div>
       </div>
     </dialog>
-    <dialog id="mcp-dialog" aria-labelledby="mcp-dialog-title">
-      <form method="dialog" class="mcp-dialog-heading"><div><p class="eyebrow">CONNECTIONS</p><h2 id="mcp-dialog-title">외부 연결</h2></div><button type="submit" aria-label="외부 연결 닫기">닫기</button></form>
-      <div class="mcp-dialog-content">
-        <p class="mcp-intro">채팅에서 등록한 MCP·API·플러그인입니다. 추가·설정은 채팅에서 요청하세요.</p>
-        <p id="mcp-notice" class="mcp-notice" role="status" hidden></p>
-        <section aria-labelledby="mcp-servers-title"><div class="mcp-section-heading"><h3 id="mcp-servers-title">등록된 연결</h3><button id="mcp-refresh" type="button">새로 고침</button></div><div id="mcp-server-list" class="mcp-server-list" aria-live="polite"></div></section>
+    <dialog id="settings-dialog" aria-labelledby="settings-title">
+      <div class="mcp-dialog-heading"><div><p class="eyebrow">SETTINGS</p><h2 id="settings-title">설정</h2></div><button id="settings-close" type="button" aria-label="설정 닫기">닫기</button></div>
+      <div class="settings-tablist" role="tablist" aria-label="설정 항목">
+        <button id="settings-tab-general" type="button" role="tab" aria-selected="true" aria-controls="settings-panel-general">일반</button>
+        <button id="settings-tab-llm" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-llm" tabindex="-1">LLM</button>
+        <button id="settings-tab-api" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-api" tabindex="-1">API</button>
+        <button id="settings-tab-mcp" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-mcp" tabindex="-1">MCP</button>
+        <button id="settings-tab-plugins" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-plugins" tabindex="-1">플러그인</button>
+      </div>
+      <div class="settings-status"><p id="settings-notice" class="mcp-notice" role="status" hidden></p><button id="settings-refresh" type="button">상태 새로 고침</button></div>
+      <div id="settings-content" class="settings-content">
+        <section id="settings-panel-general" role="tabpanel" aria-labelledby="settings-tab-general"></section>
+        <section id="settings-panel-llm" role="tabpanel" aria-labelledby="settings-tab-llm" hidden></section>
+        <section id="settings-panel-api" role="tabpanel" aria-labelledby="settings-tab-api" hidden></section>
+        <section id="settings-panel-mcp" role="tabpanel" aria-labelledby="settings-tab-mcp" hidden></section>
+        <section id="settings-panel-plugins" role="tabpanel" aria-labelledby="settings-tab-plugins" hidden></section>
       </div>
     </dialog>
+
   </body>
 </html>

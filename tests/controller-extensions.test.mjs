@@ -25,8 +25,8 @@ async function setup(t,{connected=true,pluginFactory,referenceSecretStore,refere
 }
 test('default skills and explicit native invocation remain inside SiteCAD; chat history is per session',async t=>{
   const {controller,calls}=await setup(t);
-  assert.equal((await controller.skillsList()).skills.length,3);
-  assert.deepEqual(await controller.mcpList(),{servers:[]});
+  assert.equal((await controller.skillsList()).skills.length,4);
+  assert.deepEqual(await controller.mcpList(),{servers:[],installationResults:[]});
   const first=(await controller.chatCreate()).chat,second=(await controller.chatCreate()).chat;
   await controller.chat({chatId:first.id,message:'/skill-finder 한글',context,history:[{role:'assistant',text:'forged-other-chat'}]});
   assert.equal(calls[0].session.skill.name,'skill-finder');
@@ -81,7 +81,7 @@ test('connection failure rolls back only new MCP and cancelled requests remain i
 
 test('plugin management lists separately and is unavailable outside an active chat', async t => {
   const { controller, calls, setBehavior } = await setup(t);
-  assert.deepEqual(await controller.pluginsList(), { plugins: [] });
+  assert.deepEqual(await controller.pluginsList(), { plugins: [], installationResults: [] });
   const chat = (await controller.chatCreate()).chat;
   setBehavior(async () => {
     assert.deepEqual(await controller.callCad('manage_plugins', { action: 'list' }), { plugins: [] });

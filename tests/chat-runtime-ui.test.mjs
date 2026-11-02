@@ -5,7 +5,9 @@ import { createChatRuntime, readChatStream } from '../public/chat-runtime.js';
 const TEST_PRIVATE_TOKEN = 'private-token';
 
 class Element {
-  constructor(tag = 'div') { Object.assign(this, { tagName: tag, children: [], listeners: {}, value: '', textContent: '', hidden: false, disabled: false, open: false }); }
+  constructor(tag = 'div') { Object.assign(this, { tagName: tag, children: [], style: {}, listeners: {}, value: '', textContent: '', hidden: false, disabled: false, open: false }); }
+  set textContent(value) { this.text = value; this.children = []; }
+  get textContent() { return (this.text ?? '') + this.children.map(child => child.textContent).join(''); }
   append(...items) { this.children.push(...items); }
   replaceChildren(...items) { this.children = [...items]; }
   addEventListener(name, listener) { this.listeners[name] = listener; }
@@ -41,6 +43,14 @@ function responseFor(text, chunkSize = 7) {
     controller.close();
   } }), { headers: { 'Content-Type': 'application/x-ndjson' } });
 }
+test('streamed table fragments become a safe actual table as rows arrive', t => {
+  const {ui,ids}=fixture(t); ui.begin();
+  for(const text of ['| 항목 | 값 |\n','| --- | --- |\n','| H1 | **8** |']) ui.event({type:'delta',text});
+  const all = element => [element,...element.children.flatMap(all)];
+  const nodes=all(ids['chat-live-text']);
+  assert.equal(nodes.filter(item=>item.tagName==='table').length,1);
+  assert.equal(nodes.find(item=>item.tagName==='strong').textContent,'8');
+});
 const encode = records => records.map(value => JSON.stringify(value)).join('\n') + '\n';
 
 test('model catalog loads only on request and applying a safe entry affects subsequent chat selection', async t => {
@@ -71,6 +81,26 @@ test('model controls respect authentication and busy state without changing the 
   ids['model-select'].value = 'other-model'; busy(true);
   await ids['model-apply'].listeners.click(); assert.equal(ui.selectedModel(), undefined);
   busy(false); await ids['model-apply'].listeners.click(); assert.equal(ui.selectedModel(), 'other-model');
+});
+
+test('provider changes discard the previous model and settings can apply a current provider model',async t=>{
+  const {ui,ids}=fixture(t);
+  ui.update({desktop:true,llm:{active:'openai-api',connected:true}});
+  ui.selectModel({id:'openai-model',displayName:'OpenAI 모델'});assert.equal(ui.selectedModel(),'openai-model');
+  ui.update({desktop:true,llm:{active:'anthropic-api',connected:true}});assert.equal(ui.selectedModel(),undefined);
+  assert.match(ids['model-choice'].textContent,/자동 선택/);
+  ui.selectModel({id:'claude-model',displayName:'Claude 모델'});assert.equal(ui.selectedModel(),'claude-model');
+  ui.resetModels();assert.equal(ui.selectedModel(),undefined);
+});
+
+test('a catalog response from the previous provider cannot populate the new connection',async t=>{
+  const {ui,ids}=fixture(t);ui.update({desktop:true,llm:{active:'openai-api',connected:true}});
+  let release;globalThis.fetch=()=>new Promise(resolve=>{release=resolve;});
+  const pending=ids['model-choice'].listeners.click();
+  ui.update({desktop:true,llm:{active:'anthropic-api',connected:true}});
+  release(Response.json({ok:true,data:{models:[{id:'old-provider-model'}]}}));await pending;
+  assert.equal(ids['model-select'].children.length,0);assert.equal(ids['model-apply'].disabled,true);
+  await ids['model-apply'].listeners.click();assert.equal(ui.selectedModel(),undefined);
 });
 
 test('catalog refresh failures and removed models never silently choose a replacement', async t => {
@@ -111,20 +141,27 @@ test('live rendering appends public text and tracks parallel tools by id without
   ui.event({ type: 'tool', id: 'call-2', server: 'sitecad', name: 'cad_query', status: 'running' });
   ui.event({ type: 'tool', id: 'call-1', server: 'sitecad', name: 'cad_query', status: 'completed' });
   assert.equal(ids['chat-live-text'].textContent, '한글 <script>한 줄</script>');
-  assert.equal(ids['chat-live-tools'].children.length, 2);
-  assert.match(ids['chat-live-tools'].children[0].textContent, /sitecad.*cad_query.*완료/);
-  assert.match(ids['chat-live-tools'].children[1].textContent, /실행 중/);
+  assert.equal(ids['chat-live-tools'].children.length, 1);
+  const group = ids['chat-live-tools'].children[0];
+  assert.equal(group.tagName, 'details'); assert.equal(group.open, false);
+  assert.match(group.children[0].textContent, /도면 확인.*2/);
+  assert.match(group.children[1].textContent, /sitecad.*cad_query.*완료/);
+  assert.match(group.children[2].textContent, /실행 중/);
   assert.doesNotMatch(JSON.stringify(ids['chat-live-tools']), /private-key|reasoning/);
   ui.event({ type: 'tool', id: 'call-2', server: 'sitecad', name: 'cad_query', status: 'failed' });
-  assert.match(ids['chat-live-tools'].children[1].textContent, /실패/);
-  ui.finish(); assert.equal(ids['chat-live'].hidden, true);
+  assert.match(group.children[2].textContent, /실패/);
+  const archived = ui.finish(true); assert.equal(ids['chat-live'].hidden, true);
+  assert.equal(archived.tagName, 'details'); assert.equal(archived.open, false);
+  assert.match(archived.children[0].textContent, /처리 과정.*2/);
+  assert.equal(archived.children[1], group);
   ui.event({ type: 'delta', text: 'late' }); assert.equal(ids['chat-live-text'].textContent.includes('late'), false);
 });
 
 test('failed streams keep partial visible output and bounded tool display until a new request begins', t => {
   const { ui, ids } = fixture(t); ui.begin(); ui.event({ type: 'delta', text: '부분 답변' });
   for (let i = 0; i < 129; i++) ui.event({ type: 'tool', id: `call-${i}`, name: 'cad_query', status: 'running' });
-  assert.equal(ids['chat-live-tools'].children.length, 128);
+  assert.equal(ids['chat-live-tools'].children.length, 1);
+  assert.equal(ids['chat-live-tools'].children[0].children.length, 129);
   ui.fail('연결 중단');
   assert.equal(ids['chat-live'].hidden, false); assert.equal(ids['chat-live-text'].textContent, '부분 답변');
   assert.match(ids['chat-live-status'].textContent, /연결 중단/);

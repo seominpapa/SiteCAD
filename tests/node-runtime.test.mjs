@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { lstat, mkdtemp, readFile, readdir, writeFile, stat, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -10,6 +11,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createNodeSecretStores } from '../lib/node-secret-store.mjs';
 import { startLocalWeb } from '../local-web.mjs';
 import { defaultDataDir, privateDirectory } from '../lib/local-platform.mjs';
+
+const TEST_LLM_KEY = 'llm-private-key';
+const TEST_API_KEY = 'private-api-value';
 
 async function directory(t) {
   const path = await mkdtemp(join(tmpdir(), 'sitecad-node-'));
@@ -28,6 +32,8 @@ test('Node credentials share one keychain access and authenticated ciphertext su
   assert.equal(await stores.auth.read(), null);
   await stores.auth.write({ refresh_token: 'private-refresh-token' });
   await stores.mcp.write({ API_KEY: apiKey });
+  await stores.llm.write({ keys: { 'openai-api': { apiKey } } });
+  await stores.apis.write({ version: 1, keys: { weather: apiKey } });
   assert.equal(entry.reads, 1); assert.equal(entry.writes, 1);
   const bytes = await readFile(join(dataDir, 'credentials.enc'));
   assert.equal(bytes.includes('private-refresh-token'), false);
@@ -37,6 +43,10 @@ test('Node credentials share one keychain access and authenticated ciphertext su
   await restarted.auth.remove();
   assert.equal(await restarted.auth.read(), null);
   assert.deepEqual(await restarted.mcp.read(), { API_KEY: apiKey });
+  assert.deepEqual(await restarted.llm.read(), { keys: { 'openai-api': { apiKey } } });
+  assert.deepEqual(await restarted.apis.read(), { version: 1, keys: { weather: apiKey } });
+  assert.equal((await readFile(join(dataDir, 'api-secrets.enc'))).includes(apiKey), false);
+  assert.equal((await readFile(join(dataDir, 'llm-secrets.enc'))).includes(apiKey), false);
 });
 test('tampered, substituted and legacy Electron credentials fail closed without overwriting', async t => {
   const dataDir = await directory(t); const entry = keyring();
@@ -49,6 +59,10 @@ test('tampered, substituted and legacy Electron credentials fail closed without 
   await assert.rejects(stores.auth.write({ secret: 'overwrite' }), /암호화/);
   await writeFile(join(dataDir, 'mcp-secrets.enc'), original);
   await assert.rejects(stores.mcp.read(), /암호화/);
+  await writeFile(join(dataDir, 'llm-secrets.enc'), original);
+  await assert.rejects(stores.llm.read(), /암호화/);
+  await writeFile(join(dataDir, 'api-secrets.enc'), original);
+  await assert.rejects(stores.apis.read(), /암호화/);
   await writeFile(file, 'v10-Electron-private');
   await assert.rejects(stores.auth.read(), /기존|형식/);
   await assert.rejects(stores.auth.write({ secret: true }), /기존|형식/);
@@ -64,12 +78,24 @@ test('missing or denied keychain never recreates an existing key and denied acce
   await rm(join(dataDir, 'credentials.enc'));
   await assert.rejects(createNodeSecretStores({ dataDir, entry: absent }).auth.write({ login: true }), /키체인|자격 증명/);
   assert.equal(absent.writes, 0);
-  await writeFile(join(dataDir, 'credentials.enc'), await readFile(join(dataDir, 'mcp-secrets.enc')));
+  await createNodeSecretStores({ dataDir, entry }).llm.write({ apiKey: TEST_LLM_KEY });
+  await rm(join(dataDir, 'mcp-secrets.enc'));
+  await assert.rejects(createNodeSecretStores({ dataDir, entry: absent }).auth.write({ login: true }), /키체인|자격 증명/);
+  assert.equal(absent.writes, 0);
+  await writeFile(join(dataDir, 'credentials.enc'), await readFile(join(dataDir, 'llm-secrets.enc')));
   let reads = 0;
   const denied = createNodeSecretStores({ dataDir, entry: { getPassword() { reads++; throw Error('secret system detail'); } } });
   await assert.rejects(denied.auth.read(), /키체인|자격 증명/);
   await assert.rejects(denied.mcp.write({ token: true }), /키체인|자격 증명/);
   assert.equal(reads, 1);
+});
+test('an existing API secret file prevents replacing a lost master key', async t => {
+  const dataDir = await directory(t), entry = keyring();
+  await createNodeSecretStores({ dataDir, entry }).apis.write({ version: 1, keys: { weather: TEST_API_KEY } });
+  const absent = keyring();
+  await assert.rejects(createNodeSecretStores({ dataDir, entry: absent }).auth.write({ token: 'new' }), /키체인|자격 증명/);
+  assert.equal(absent.writes, 0);
+  assert.deepEqual(await createNodeSecretStores({ dataDir, entry }).apis.read(), { version: 1, keys: { weather: TEST_API_KEY } });
 });
 test('Node web launcher starts the whole controller, authenticates the browser, reuses a running instance and closes', async t => {
   const dataDir = await directory(t); const opened = []; const calls = []; let options;
@@ -80,6 +106,10 @@ test('Node web launcher starts the whole controller, authenticates the browser, 
     installSignalHandlers: false });
   t.after(() => first.close());
   assert.equal(first.reused, false); assert.equal(options.nodePath, process.execPath); assert.deepEqual(options.nodeEnv, {});
+  assert.equal(options.defaultDrawingsPath, join(dirname(fileURLToPath(new URL('../local-web.mjs', import.meta.url))), 'drawings'));
+  assert.equal(typeof options.selectDrawingsFolder, 'function');
+  assert.equal(typeof options.apiSecretStore.read, 'function');
+  assert.equal(typeof options.apiSecretStore.write, 'function');
   const entry=await fetch(first.baseUrl); assert.equal(entry.status,200); assert.match(await entry.text(),/이 브라우저로 연결/);
   const launch = await fetch(opened[0], { redirect: 'manual' });
   const cookie = launch.headers.get('set-cookie').split(';')[0];

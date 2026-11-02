@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -14,7 +14,7 @@ const result = { version: 'AC1032', dataBase64: bytes.toString('base64'), contex
 async function setup(t) {
   const dataDir = await mkdtemp(join(tmpdir(), 'sitecad-browser-files-'));
   const controller = await createDesktopController({ dataDir, codexPath: '/app/codex', nodePath: '/app/node', secureStore: {},
-    authFactory: async () => ({ status: async () => ({}), close: async () => {} }) });
+    authFactory: async () => ({ status: async () => ({}), getAccessToken: async () => 'fixture-token', close: async () => {} }) });
   const access = createBrowserAccess();
   const server = createApp({ desktop: controller, browserAccess: access });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -55,6 +55,22 @@ test('manual browser save rejects changed geometry, pending commands, bad audit 
   await symlink(join(s.dataDir, 'outside.dwg'), join(s.dataDir, 'Drawings', 'linked.dwg'));
   await assert.rejects(s.controller.readDrawing('linked.dwg'));
   assert.equal((await s.request('/api/local/drawings/save', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://evil.test' }, body: '{}' })).status, 403);
+});
+
+test('selected folder applies to authenticated saves, downloads and folder opening without moving old drawings', async t => {
+  const s = await setup(t), chosen = join(s.dataDir, '새 도면 폴더'); await mkdir(chosen);
+  const old = await s.controller.saveDrawing(result, 'original.dwg', context);
+  const body = JSON.stringify({ path: chosen }), headers = { 'Content-Type': 'application/json' };
+  assert.equal((await fetch(s.base + '/api/desktop/storage/save', { method: 'POST', headers: { ...headers, Origin: s.base }, body })).status, 403);
+  assert.equal((await fetch(s.base + '/api/desktop/storage/select', { method: 'POST', headers: { ...headers, Origin: s.base }, body: '{}' })).status, 403);
+  assert.equal((await s.request('/api/desktop/storage/save', { method: 'POST', headers, body })).status, 200);
+  assert.equal((await (await s.request('/api/desktop/storage')).json()).data.path, chosen);
+  assert.equal(await s.controller.drawingDirectory(), chosen);
+  const saved = await s.request('/api/local/drawings/save', { method: 'POST', headers, body: JSON.stringify({ name: 'new.dwg', result, expectedContext: context }) });
+  assert.equal(saved.status, 200);
+  const { data } = await saved.json(); assert.equal(data.path, join(chosen, 'new.dwg'));
+  assert.deepEqual(Buffer.from(await (await s.request(data.downloadUrl)).arrayBuffer()), bytes);
+  assert.deepEqual(await readFile(old.path), bytes);
 });
 
 test('terrain browser upload accepts multipart files only behind the session and exact local origin', async t => {

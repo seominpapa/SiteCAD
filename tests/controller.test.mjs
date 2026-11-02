@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDesktopController } from '../lib/desktop-controller.mjs';
@@ -137,6 +137,58 @@ test('timeouts and cancellation reject pending work instead of leaving hanging M
     const rejected = assert.rejects(pending, /취소/);
     await t.controller.cancel(); await rejected;
     assert.equal(await t.controller.pollCad({ waitMs: 1 }), null);
+  } finally { await t.close(); }
+});
+
+test('drawing folder setting controls saves and reads, persists, and refuses changes during a turn', async () => {
+  const t = await setup();
+  const chosen = join(t.dataDir, '사용자 도면'); await mkdir(chosen);
+  const bytes = Buffer.from('AC1032stored-dwg');
+  const result = { dataBase64: bytes.toString('base64'), version: 'AC1032', audit: { errors: 0, droppedOnSave: 0 }, context };
+  try {
+    const old = await t.controller.saveDrawing(result, 'old.dwg', context);
+    assert.equal(old.path, join(t.dataDir, 'Drawings', 'old.dwg'));
+    assert.equal((await t.controller.storageSave({ path: chosen })).path, chosen);
+    assert.equal((await t.controller.status()).drawingsPath, chosen);
+    const saved = await t.controller.saveDrawing(result, 'chosen.dwg', context);
+    assert.equal(saved.path, join(chosen, 'chosen.dwg'));
+    assert.deepEqual((await t.controller.readDrawing(saved.name)).bytes, bytes);
+    assert.deepEqual(await readFile(old.path), bytes);
+    await assert.rejects(t.controller.readDrawing('../old.dwg'));
+    if (process.platform !== 'win32') {
+      await symlink(old.path, join(chosen, 'link.dwg'));
+      await assert.rejects(t.controller.readDrawing('link.dwg'));
+    }
+    await duringTurn(t, async () => {
+      await assert.rejects(t.controller.storageSave({ path: '' }), /작업/);
+      assert.equal((await t.controller.storageStatus()).path, chosen);
+    });
+  } finally { await t.close(); }
+});
+
+test('native folder selection saves validated results, cancellation preserves settings, and close rejects late picks', async () => {
+  let resolvePick, calls = 0, options;
+  const t = await setup({ selectDrawingsFolder: input => { calls++; options = input; return new Promise(resolve => { resolvePick = resolve; }); } });
+  const chosen = join(t.dataDir, '선택 폴더'); await mkdir(chosen);
+  try {
+    for (const value of [null, [], { path: chosen }]) await assert.rejects(t.controller.storageSelect(value));
+    assert.equal(calls, 0);
+    const initial = t.controller.storageStatus();
+    const cancelled = t.controller.storageSelect({});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(options.defaultPath, initial.path);
+    await assert.rejects(t.controller.storageSave({ path: chosen }), /작업/);
+    resolvePick(null); assert.deepEqual(await cancelled, { cancelled: true });
+    assert.deepEqual(t.controller.storageStatus(), initial);
+    const selected = t.controller.storageSelect({}); await new Promise(resolve => setImmediate(resolve));
+    resolvePick(chosen); assert.equal((await selected).path, chosen);
+    const invalid = t.controller.storageSelect({}); await new Promise(resolve => setImmediate(resolve));
+    resolvePick('relative'); await assert.rejects(invalid); assert.equal(t.controller.storageStatus().path, chosen);
+    await duringTurn(t, async () => { await assert.rejects(t.controller.storageSelect({}), /작업/); });
+    const pending = t.controller.storageSelect({}); await new Promise(resolve => setImmediate(resolve));
+    await t.controller.close(); assert.equal(options.signal.aborted, true);
+    resolvePick(initial.path); await assert.rejects(pending, /취소/);
+    assert.equal(t.controller.storageStatus().path, chosen);
   } finally { await t.close(); }
 });
 

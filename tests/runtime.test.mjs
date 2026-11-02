@@ -234,6 +234,14 @@ test('isolated runtime verifies MCP invocation, completes real event flow and ke
     assert.match(threadParams.baseInstructions,/tessellat.*approximat|approximat.*tessellat/i);
     assert.match(threadParams.baseInstructions,/reopen.*(?:change|differ)|(?:change|differ).*reopen/i);
     assert.match(threadParams.baseInstructions,/zero.*bounds.*(?:unknown|unsupported|unavailable).*not.*point/i);
+    assert.match(threadParams.baseInstructions,/quantity-review/);
+    assert.match(threadParams.baseInstructions,/mmPerDrawingUnit.*null/);
+    assert.match(threadParams.baseInstructions,/tag.*diameter.*length.*count.*schedule/i);
+    assert.match(threadParams.baseInstructions,/review results.*GFM table.*not.*code fence/i);
+    assert.match(threadParams.baseInstructions,/cannot produce.*ask.*wanted.*handling rules/i);
+    assert.match(threadParams.baseInstructions,/failed request.*never.*permission.*save/i);
+    assert.match(threadParams.baseInstructions,/accepted procedure.*skill-creator.*registration/i);
+    assert.match(threadParams.baseInstructions,/quantity_review.*not.*rebar/i);
   } finally { await runtime.stop(); await rm(directory, { recursive: true, force: true }); }
   assert.equal(child.killed, true);
 });

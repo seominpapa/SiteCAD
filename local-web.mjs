@@ -4,7 +4,7 @@ import { createConnection, createServer as createIpcServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { defaultDataDir, openLocal, privateDirectory } from './lib/local-platform.mjs';
+import { defaultDataDir, openLocal, privateDirectory, selectLocalFolder } from './lib/local-platform.mjs';
 import { createApp } from './server.mjs';
 import { createDesktopController } from './lib/desktop-controller.mjs';
 import { createBrowserAccess } from './lib/browser-access.mjs';
@@ -154,15 +154,15 @@ export async function startLocalWeb({ dataDir = defaultDataDir(), codexPath, ent
     for (const directory of [paths.codexHome, paths.workspace, paths.runtime]) await mkdir(directory, { recursive: true, mode: 0o700 });
     codexPath ??= await installBundledCodex({ sourceDir: join(appRoot, 'runtime'), destination: join(paths.runtime, process.platform === 'win32' ? 'codex.exe' : 'codex') });
     const stores = createNodeSecretStores({ dataDir, entry });
-    controller = await controllerFactory({ dataDir, codexPath, nodePath: process.execPath, nodeEnv: {},
-      secureStore: stores.auth, mcpSecretStore: stores.mcp, referenceSecretStore: stores.references,
+    controller = await controllerFactory({ dataDir, defaultDrawingsPath: join(appRoot, 'drawings'), selectDrawingsFolder: selectLocalFolder, codexPath, nodePath: process.execPath, nodeEnv: {},
+      secureStore: stores.auth, mcpSecretStore: stores.mcp, referenceSecretStore: stores.references, llmSecretStore: stores.llm, apiSecretStore: stores.apis,
       modelCatalogPath: join(appRoot, 'codex-models.json'),
       openExternal: async url => { if (!isAllowedAuthUrl(url)) throw Error('허용되지 않은 로그인 주소입니다.'); await openBrowser(url); } });
     const fixture = join(appRoot, 'fixtures', 'retaining-wall.dwg');
     const fixturePath = await stat(fixture).then(value => value.isFile()).catch(() => false) ? fixture
       : join(appRoot, '../rhino-experiments/retaining-wall-20261020/retaining-wall-drawing-2d.dwg');
     server = serverFactory({ desktop: controller, browserAccess, fixturePath, browserActions: {
-      openDrawings: async () => { const path = join(dataDir, 'Drawings'); await mkdir(path, { recursive: true, mode: 0o700 }); await openLocal(path); },
+      openDrawings: async () => openLocal(await controller.drawingDirectory()),
       quit: async () => { setTimeout(() => { void close().catch(() => { process.exitCode = 1; }); }, 100); },
     } });
     await new Promise((resolveListen, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolveListen); });

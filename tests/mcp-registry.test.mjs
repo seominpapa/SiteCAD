@@ -150,3 +150,48 @@ test('invalid persisted names, metadata and encrypted records cannot become runt
   const { registry: unavailable } = await setup(t);
   await assert.rejects(unavailable.upsert({ name: 'rea', preset: 'rea' }), /MCP/);
 });
+
+test('credential requirements persist without values, disable pending servers and privately enable exact keys', async t => {
+  const { registry, dataDir, config, secrets } = await setup(t);
+  const credentialRequirements = { envKeys: ['WEATHER_API_KEY'], issuanceUrl: 'https://example.org/keys' };
+  await registry.upsert({ ...stdio, credentialRequirements });
+  let server = (await registry.list())[0];
+  assert.equal(server.credentialsRequired, true); assert.equal(server.enabled, false);
+  assert.equal(server.status, 'key_required');
+  assert.deepEqual(server.credentialRequirements.envKeys, ['WEATHER_API_KEY']);
+  assert.deepEqual(await registry.runtimeServers(), []);
+  const restored = await createMcpRegistry(config);
+  assert.equal((await restored.list())[0].credentialsRequired, true);
+  for (const input of [{ name: 'example', env: { WEATHER_API_KEY: 'test-key' } }, { name: 'example', env: { OTHER_KEY: 'test-key' }, trusted: true }, { name: 'example', bearerToken: 'test-key', trusted: true }, { name: 'example', env: { WEATHER_API_KEY: 'test-key', NODE_OPTIONS: '--bad' }, trusted: true }]) await assert.rejects(registry.saveCredentials(input));
+  await registry.saveCredentials({ name: 'example', env: { WEATHER_API_KEY: 'private-weather-key' }, trusted: true });
+  server = (await registry.list())[0];
+  assert.equal(server.credentialsRequired, false); assert.equal(server.enabled, true);
+  assert.deepEqual((await registry.runtimeServers())[0].env, { WEATHER_API_KEY: 'private-weather-key' });
+  assert.equal(JSON.stringify(secrets()).includes('private-weather-key'), true);
+  assert.equal((await readFile(join(dataDir, 'external-mcp.json'), 'utf8')).includes('private-weather-key'), false);
+  assert.equal(JSON.stringify(await registry.list()).includes('private-weather-key'), false);
+  assert.equal(Object.hasOwn((await registry.runtimeServers())[0], 'credentialRequirements'), false);
+});
+
+test('HTTP bearer requirements reject other transports, secret metadata and reserved environment requirements', async t => {
+  const { registry } = await setup(t);
+  const http = { name: 'remote', transport: 'http', url: 'https://example.org/mcp' };
+  for (const [config, credentialRequirements] of [[stdio, { envKeys: ['NODE_OPTIONS'] }], [stdio, { envKeys: ['KEY', 'KEY'] }], [stdio, { bearerToken: true }], [http, { envKeys: ['KEY'] }], [http, { bearerToken: 'private-key' }], [http, { bearerToken: true, apiKey: 'secret' }], [http, { bearerToken: true, issuanceUrl: 'http://example.org/' }], [http, { bearerToken: true, issuanceUrl: 'https://example.org/?token=secret' }], [http, { bearerToken: true, issuanceUrl: 'https://127.0.0.1/' }]]) await assert.rejects(registry.upsert({ ...config, credentialRequirements }));
+  await registry.upsert({ ...http, credentialRequirements: { bearerToken: true } });
+  assert.equal((await registry.list())[0].credentialsRequired, true);
+  await assert.rejects(registry.saveCredentials({ name: 'remote', bearerToken: 'key\nspoof', trusted: true }));
+  await registry.saveCredentials({ name: 'remote', bearerToken: 'private-http-key', trusted: true });
+  assert.equal((await registry.runtimeServers())[0].bearerToken, 'private-http-key');
+  await registry.upsert({ ...http, enabled: false });
+  assert.equal((await registry.list())[0].credentialRequirements.bearerToken, true);
+  assert.equal((await registry.list())[0].enabled, false);
+});
+
+test('unavailable encrypted storage preserves a disabled credential-required registration', async t => {
+  const { registry } = await setup(t, { secretStore: undefined });
+  await registry.upsert({ ...stdio, credentialRequirements: { envKeys: ['SERVICE_KEY'] } });
+  await assert.rejects(registry.saveCredentials({ name: 'example', env: { SERVICE_KEY: 'private-must-not-leak' }, trusted: true }), error => /MCP/.test(error.message) && !error.message.includes('private-must-not-leak'));
+  assert.equal((await registry.list())[0].credentialsRequired, true);
+  assert.equal((await registry.list())[0].enabled, false);
+  assert.deepEqual(await registry.runtimeServers(), []);
+});

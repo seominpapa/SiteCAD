@@ -92,7 +92,7 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
     try {
       if (desktop) {
         const status = await desktop.status();
-        if (!status.oauth?.connected) throw error('SiteCAD의 ChatGPT 로그인 버튼으로 로그인해 주세요.', 503);
+        if (!status.oauth?.connected) throw error('설정에서 LLM에 로그인하거나 API 키를 등록해 주세요.', 503);
         const request = {...input,...(chatId ? {chatId} : {}),...(model ? {model} : {})};
         if (req.headers.accept?.split(',').some(value => value.trim() === 'application/x-ndjson')) {
           res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
@@ -130,10 +130,13 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
       return respond(res, 200, { ok: true, data: await desktop.callCad(method, payload) });
     }
     if (path === '/api/desktop/status' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.status() });
+    if (path === '/api/desktop/storage' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.storageStatus() });
     if (path === '/api/desktop/mcp' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.mcpList() });
     if (path === '/api/desktop/skills' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.skillsList() });
     if (path === '/api/desktop/plugins' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.pluginsList() });
     if (path === '/api/desktop/models' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.modelsList() });
+    if (path === '/api/desktop/llm' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.llmStatus() });
+    if (path === '/api/desktop/apis' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.apisList() });
     if (path === '/api/desktop/chats' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.chatList() });
     if (/^\/api\/desktop\/chats\/[a-f0-9-]{36}$/.test(path) && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.chatRead(path.split('/').at(-1)) });
     if (path === '/api/desktop/references' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.referencesStatus() });
@@ -145,6 +148,21 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
     browserAccess?.assertOwner(req);
     let data;
     if (path === '/api/desktop/login') data = await desktop.login();
+    else if (path === '/api/desktop/storage/save') data = await desktop.storageSave(body);
+    else if (path === '/api/desktop/storage/select') data = await desktop.storageSelect(body);
+    else if (path === '/api/desktop/apis/save') data = await desktop.apisSave(body);
+    else if (path === '/api/desktop/apis/remove') data = await desktop.apisRemove(body);
+    else if (path === '/api/desktop/chats/delete') data = await desktop.chatDelete(body);
+    else if (path === '/api/desktop/llm/save') data = await desktop.llmSave(body);
+    else if (path === '/api/desktop/llm/select') data = await desktop.llmSelect(body);
+    else if (path === '/api/desktop/llm/remove') data = await desktop.llmRemove(body);
+    else if (path === '/api/desktop/llm/test') data = await desktop.llmTest(body);
+    else if (path === '/api/desktop/llm/login') data = await desktop.llmLogin(body);
+    else if (path === '/api/desktop/plugins/inspect') data = await desktop.pluginsInspect(body);
+    else if (path === '/api/desktop/plugins/install') data = await desktop.pluginsInstall(body);
+    else if (path === '/api/desktop/plugins/remove') data = await desktop.pluginsRemove(body);
+    else if (path === '/api/desktop/mcp/inspect') data = await desktop.mcpInspect(body);
+    else if (path === '/api/desktop/mcp/install') data = await desktop.mcpInstall(body);
     else if (path === '/api/desktop/chats/new') {
       if (!body || Array.isArray(body) || Object.keys(body).length) throw error('새 채팅 요청을 확인해 주세요.');
       data = await desktop.chatCreate();
@@ -156,6 +174,7 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
     else if (path === '/api/desktop/cad/claim') data = desktop.claimCad(body.id);
     else if (path === '/api/desktop/cad/result') data = desktop.completeCad(body.id, body.result, body.error);
     else if (path === '/api/desktop/mcp/save') data = await desktop.mcpSave(body);
+    else if (path === '/api/desktop/mcp/credentials') data = await desktop.mcpCredentials(body);
     else if (path === '/api/desktop/mcp/toggle') data = await desktop.mcpToggle(body);
     else if (path === '/api/desktop/mcp/remove') data = await desktop.mcpRemove(body);
     else if (path === '/api/desktop/mcp/test') data = await desktop.mcpTest(body);

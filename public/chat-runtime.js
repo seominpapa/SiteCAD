@@ -1,3 +1,5 @@
+import { renderChatContent } from './chat-content.js';
+
 const MAX_REPLY_BYTES = 256 * 1024;
 const encoder = new TextEncoder();
 const bounded = (value, max) => typeof value === 'string' ? value.slice(0, max) : '';
@@ -52,7 +54,7 @@ export async function readChatStream(response, onEvent) {
 export function createChatRuntime({ isBusy, onError = () => {}, onChange = () => {} }) {
   const $ = id => document.getElementById(id);
   let supported = false, connected = false, loading = false, models = [], selected, selectedName, actualModel;
-  let streaming = false, replyBytes = 0, tools = new Map();
+  let streaming = false, replyBytes = 0, replyText = '', tools = new Map(), groups = new Map(), provider, catalogGeneration = 0;
   const available = () => supported && connected && !isBusy();
   const describe = () => { $('model-description').textContent = models.find(item => item.id === $('model-select').value)?.description ?? ''; };
 
@@ -67,10 +69,12 @@ export function createChatRuntime({ isBusy, onError = () => {}, onChange = () =>
 
   async function refresh() {
     if (!available() || loading) return;
+    const generation = catalogGeneration;
     loading = true; $('model-notice').textContent = '모델 카탈로그를 확인하고 있습니다.'; sync();
     try {
       const response = await fetch('/api/desktop/models', { method: 'GET', cache: 'no-store' });
       const result = await response.json();
+      if(generation!==catalogGeneration)return;
       if (!response.ok || !result.ok || !Array.isArray(result.data?.models)) throw Error();
       const names = new Set();
       const next = result.data.models.slice(0, 500).filter(item => {
@@ -85,9 +89,9 @@ export function createChatRuntime({ isBusy, onError = () => {}, onChange = () =>
       const defaultId = models.find(item => item.id === result.data.defaultModel)?.id ?? models.find(item => item.isDefault)?.id ?? models[0].id;
       const missing = selected !== undefined && !models.some(item => item.id === selected);
       $('model-select').value = missing ? '' : selected ?? defaultId;
-      $('model-notice').textContent = missing ? '선택한 모델이 현재 카탈로그에 없습니다. 사용할 모델을 다시 선택해 주세요.' : 'Codex 모델 카탈로그입니다. 선택한 모델은 다음 요청부터 사용하며, 계정의 실행 권한은 요청 시 확인됩니다.';
+      $('model-notice').textContent = missing ? '선택한 모델이 현재 카탈로그에 없습니다. 사용할 모델을 다시 선택해 주세요.' : '사용 중인 AI 연결의 모델 목록입니다. 선택한 모델은 다음 요청부터 사용하며, 계정의 실행 권한과 비용은 요청 시 적용됩니다.';
       describe();
-    } catch { $('model-notice').textContent = '모델 카탈로그를 불러오지 못했습니다. 기존 선택은 유지됩니다. 다시 시도해 주세요.'; }
+    } catch { if(generation===catalogGeneration)$('model-notice').textContent = '모델 카탈로그를 불러오지 못했습니다. 기존 선택은 유지됩니다. 다시 시도해 주세요.'; }
     finally { loading = false; sync(); }
   }
 
@@ -107,16 +111,33 @@ export function createChatRuntime({ isBusy, onError = () => {}, onChange = () =>
   });
 
   const toolText = item => `${item.server ? `${item.server} · ` : ''}${item.name} · ${{ running: '실행 중', completed: '완료', failed: '실패', unknown: '실행 상태 확인 필요' }[item.status]}`;
+  const toolGroup = name => /^cad_(context|discover|query|calculate)$/.test(name) ? '도면 확인·분석' : /^cad_(control|create|save|open|undo)/.test(name) ? '도면 작업' : '자료 조회·연결 관리';
+  function updateGroups() {
+    for (const [name, group] of groups) {
+      const items = [...tools.values()].filter(item => item.group === name);
+      const active = items.filter(item => item.status === 'running').length;
+      const failed = items.filter(item => item.status === 'failed' || item.status === 'unknown').length;
+      group.summary.textContent = `${name} · ${items.length}건${active ? ` · 실행 중 ${active}` : ''}${failed ? ` · 확인 필요 ${failed}` : ''}`;
+    }
+  }
   return {
     update(status) {
-      supported = status.desktop === true; connected = status.oauth?.connected === true;
+      const nextProvider=status.llm?.active;
+      if(provider!==nextProvider){selected=undefined;selectedName=undefined;actualModel=undefined;models=[];provider=nextProvider;catalogGeneration++;$('model-select').replaceChildren();$('model-description').textContent='';}
+      supported = status.desktop === true; connected = (status.llm?.connected ?? status.oauth?.connected) === true;
       if (typeof status.runtime?.model === 'string') actualModel = bounded(status.runtime.model, 160);
       sync();
     },
     sync,
+    resetModels() { selected=undefined;selectedName=undefined;actualModel=undefined;models=[];catalogGeneration++;$('model-select').replaceChildren();$('model-description').textContent='';sync(); },
+    selectModel(model) {
+      if(!available()||!model||typeof model.id!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(model.id))return;
+      selected=model.id;selectedName=bounded(model.displayName,160)||model.id;sync();onChange();
+    },
     selectedModel: () => selected,
     begin() {
-      streaming = true; replyBytes = 0; tools = new Map();
+      streaming = true; replyBytes = 0; replyText = ''; tools = new Map(); groups = new Map();
+      $('chat-live').open = false;
       $('chat-live-text').textContent = ''; $('chat-live-tools').replaceChildren();
       $('chat-live-status').textContent = '답변을 준비하고 있습니다.'; $('chat-live').hidden = false;
     },
@@ -125,23 +146,40 @@ export function createChatRuntime({ isBusy, onError = () => {}, onChange = () =>
       if (value?.type === 'delta' && typeof value.text === 'string') {
         replyBytes += encoder.encode(value.text).byteLength;
         if (replyBytes > MAX_REPLY_BYTES) throw Error('답변 크기를 초과했습니다.');
-        $('chat-live-text').textContent += value.text; $('chat-live-status').textContent = '답변 중';
+        replyText += value.text; renderChatContent($('chat-live-text'), replyText); $('chat-live-status').textContent = '답변 중';
       } else if (value?.type === 'connected') $('chat-live-status').textContent = '모델과 도구가 연결됐습니다.';
       else if (value?.type === 'tool' && typeof value.name === 'string' && ['running', 'completed', 'failed'].includes(value.status)) {
         const server = bounded(value.server, 100), name = bounded(value.name, 150), id = bounded(value.id, 160) || `${server}:${name}`;
         const previous = tools.get(id);
         if (!previous && tools.size >= 128) return;
+        const groupName = previous?.group ?? toolGroup(name);
+        if (!groups.has(groupName)) {
+          const element = document.createElement('details'), summary = document.createElement('summary');
+          element.className = 'chat-tool-group'; element.append(summary);
+          groups = new Map([...groups, [groupName, { element, summary }]]); $('chat-live-tools').append(element);
+        }
         const row = previous?.row ?? document.createElement('p'); row.className = 'chat-live-tool';
-        const item = { row, server, name, status: value.status };
-        row.textContent = toolText(item); if (!previous) $('chat-live-tools').append(row);
+        const item = { row, server, name, group: groupName, status: value.status };
+        row.textContent = toolText(item); if (!previous) groups.get(groupName).element.append(row);
         tools = new Map([...tools, [id, item]]);
-        $('chat-live-status').textContent = value.status === 'running' ? `${name} 실행 중` : '다음 응답을 확인하고 있습니다.';
+        updateGroups();
+        $('chat-live-status').textContent = `처리 과정 · ${tools.size}건 · ${value.status === 'running' ? groupName : '다음 응답 확인 중'}`;
       }
     },
-    finish() { streaming = false; $('chat-live').hidden = true; },
+    finish(capture = false) {
+      streaming = false; $('chat-live').hidden = true;
+      if (!capture || !tools.size) return;
+      const details = document.createElement('details'), summary = document.createElement('summary');
+      details.className = 'chat-process'; summary.textContent = `처리 과정 · ${tools.size}건`;
+      details.append(summary, ...[...groups.values()].map(group => group.element));
+      $('chat-live-tools').replaceChildren();
+      return details;
+    },
     fail(message) {
       streaming = false; $('chat-live-status').textContent = bounded(message, 1000) || '응답이 중단됐습니다. 도면 상태를 확인해 주세요.';
-      for (const item of tools.values()) if (item.status === 'running') item.row.textContent = toolText({ ...item, status: 'unknown' });
+      tools = new Map([...tools].map(([id, item]) => [id, item.status === 'running' ? { ...item, status: 'unknown' } : item]));
+      for (const item of tools.values()) item.row.textContent = toolText(item);
+      updateGroups();
     },
   };
 }

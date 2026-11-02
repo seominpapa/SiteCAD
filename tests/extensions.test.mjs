@@ -68,3 +68,53 @@ test('plugins use a separate approved installer and never stage an external MCP'
   await assert.rejects(api.call('manage_plugins', { action: 'unknown' }), /입력/);
   current = false; await assert.rejects(api.call('manage_plugins', { action: 'install', planId: 'plugin-plan' }), /승인/);
 });
+
+test('API registration reviews metadata, persists only after consent and never takes credentials', async () => {
+  const approvals = [], registered = [];
+  let current = true, decision = 'approve';
+  const input = { action: 'register', id: 'weather', name: 'Weather', url: 'https://example.org/docs', issuanceUrl: 'https://example.org/keys' };
+  const apis = { list: async () => ({ apis: [] }), register: async proposal => { registered.push(proposal); return { status: 'key_required', apiId: proposal.id }; } };
+  const api = createSitecadExtensions({ apis, onApproval: async proposal => { approvals.push(proposal); return decision; }, isCurrent: () => current, getSignal: () => undefined });
+  assert.deepEqual(await api.call('manage_apis', { action: 'list' }), { apis: [] });
+  assert.equal((await api.call('manage_apis', { action: 'request', id: 'kcsc' })).settingsTarget, 'api');
+  assert.equal((await api.call('manage_apis', input)).apiId, 'weather');
+  assert.equal(approvals[0].kind, 'api-register');
+  assert.deepEqual(registered[0], { id: 'weather', name: 'Weather', url: 'https://example.org/docs', issuanceUrl: 'https://example.org/keys' });
+  for (const value of [{ ...input, apiKey: 'test-key' }, { ...input, issuanceUrl: 'https://evil.example/keys' }, { action: 'save', id: 'weather', apiKey: 'secret' }, { action: 'remove', id: 'weather' }]) await assert.rejects(api.call('manage_apis', value));
+  assert.equal(approvals.length, 1);
+  decision = 'deny'; await assert.rejects(api.call('manage_apis', input), /승인/);
+  assert.equal(registered.length, 1);
+  decision = 'approve'; current = false; await assert.rejects(api.call('manage_apis', input), /취소/);
+  assert.equal(registered.length, 1);
+});
+
+test('chat MCP credential requirements are reviewed as metadata and retain an installed pending server', async () => {
+  const t = fixture();
+  const credentials = { envKeys: ['WEATHER_API_KEY'], issuanceUrl: 'https://example.org/keys' };
+  const result = await t.api.call('manage_mcp', { action: 'install', planId: 'plan', name: 'weather', credentials });
+  assert.equal(result.status, 'key_required');
+  assert.equal(result.apiId, 'weather');
+  assert.deepEqual(t.api.pending()[0].config.credentialRequirements.envKeys, ['WEATHER_API_KEY']);
+  assert.equal(t.api.pending()[0].config.enabled, false);
+  assert.deepEqual(t.approvals[0].arguments.credentials.envKeys, ['WEATHER_API_KEY']);
+  assert.equal(t.installed.length, 1);
+  const remote = await t.api.call('manage_mcp', { action: 'add', name: 'remote', url: 'https://example.org/mcp', credentials: { bearerToken: true } });
+  assert.equal(remote.status, 'key_required');
+  assert.equal(t.api.pending()[1].config.credentialRequirements.bearerToken, true);
+  for (const input of [{ action: 'add', name: 'bad', url: 'https://example.org/mcp', credentials: { bearerToken: 'secret-value' } }, { action: 'install', name: 'bad', planId: 'plan', credentials: { envKeys: ['NODE_OPTIONS'] } }, { action: 'install', name: 'bad', planId: 'plan', credentials: { env: { KEY: 'secret-value' } } }]) await assert.rejects(t.api.call('manage_mcp', input));
+  assert.equal(t.installed.length, 1);
+  assert.equal(t.approvals.length, 2);
+});
+
+test('an approved package download or integrity rejection records one failed installation before registration', async () => {
+  const outcomes = [];
+  const api = createSitecadExtensions({
+    installer: { install: async (_, { approve }) => { await approve({ packageName: 'example-mcp' }); throw Error('npm download integrity rejected'); } },
+    registry: { list: async () => [] },
+    onInstallationResult: async outcome => outcomes.push(outcome),
+    onApproval: async () => 'approve', isCurrent: () => true, getSignal: () => undefined,
+  });
+  await assert.rejects(api.call('manage_mcp', { action: 'install', planId: 'plan', name: 'example' }), /integrity/);
+  assert.deepEqual(outcomes, [{ kind: 'mcp', name: 'example', status: 'failed' }]);
+  assert.deepEqual(api.pending(), []);
+});

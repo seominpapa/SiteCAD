@@ -89,14 +89,7 @@ export function appendProvenance(article, { sources = [], design } = {}) {
 
 export function createMcpSettings({ isBusy, notify }) {
   const $ = id => document.getElementById(id);
-  const dialog = $('mcp-dialog');
   const approvals = new Map();
-  let supported = false;
-  let pending = false;
-  let servers = [];
-  let references = {};
-  let plugins = [];
-  let kcsc = {};
 
   async function request(path, body) {
     const response = await fetch(`/api/desktop/${path}`, body === undefined ? { cache: 'no-store' } : {
@@ -107,99 +100,6 @@ export function createMcpSettings({ isBusy, notify }) {
     return result.data;
   }
 
-  function notice(message = '', error = false) {
-    $('mcp-notice').textContent = text(message);
-    $('mcp-notice').hidden = !message;
-    $('mcp-notice').classList.toggle('error', error);
-  }
-
-  function controls() {
-    $('manage-mcp').hidden = !supported;
-    $('manage-mcp').disabled = pending || isBusy();
-    $('mcp-refresh').disabled = !supported || pending || isBusy();
-  }
-
-  async function action(task) {
-    if (!supported || pending || isBusy()) return;
-    pending = true; controls(); notice();
-    try { await task(); }
-    catch (error) { notice(error.message, true); }
-    finally { pending = false; controls(); }
-  }
-
-  function connectionCard(name, status, metadata, connected = false) {
-    const card = document.createElement('article'); card.className = 'mcp-server';
-    const heading = document.createElement('div'); heading.className = 'mcp-server-heading';
-    const label = document.createElement('strong'); label.textContent = text(name, 100);
-    const state = document.createElement('span'); state.className = `mcp-server-state${connected ? ' connected' : ''}`;
-    state.textContent = status;
-    heading.append(label, state);
-    const meta = document.createElement('p'); meta.className = 'source-meta'; meta.textContent = metadata;
-    card.append(heading, meta);
-    return card;
-  }
-
-  function renderConnections() {
-    const list = $('mcp-server-list');
-    list.replaceChildren();
-    const configuredApi = references?.vworld?.configured === true;
-    const apiPresent = configuredApi || references.catalog?.some(item => item.id === 'vworld' && item.kind === 'api');
-    $('external-mcp-status').hidden = !supported;
-    $('external-mcp-status').textContent = !servers.length && !apiPresent && !plugins.length
-      ? '등록된 연결 없음' : `MCP ${servers.length} · API ${apiPresent ? 1 : 0} · 플러그인 ${plugins.length}`;
-    if (!servers.length && !apiPresent && !plugins.length) {
-      const empty = document.createElement('p'); empty.className = 'mcp-empty';
-      empty.textContent = '등록된 연결이 없습니다. MCP·API·플러그인 추가는 채팅에서 요청하세요.';
-      list.append(empty);
-    }
-    for (const server of servers) {
-      if (server.name === 'kcsc') {
-        const configured = kcsc.configured === true;
-        const connected = configured && server.enabled !== false && kcsc.connected === true;
-        const status = !configured ? '키 미등록' : server.enabled === false ? '키 등록됨 · 사용 안 함' : connected ? '키 등록됨 · 연결 확인됨' : kcsc.lastCheck?.ok === false ? '키 등록됨 · 연결 확인 실패' : '키 등록됨 · 연결 미확인';
-        const count = Number.isSafeInteger(kcsc.count) && kcsc.count >= 0 ? kcsc.count : Array.isArray(server.tools) ? server.tools.length : 0;
-        list.append(connectionCard('KCSC · 국가건설기준센터', status, `MCP · 기준 조회 도구 ${count}개${!configured ? ' · 채팅에 /api kcsc 를 입력해 본인의 키를 등록하세요.' : ''}`, connected));
-        continue;
-      }
-      const enabled = server.enabled !== false;
-      const connected = enabled && server.connected === true;
-      const status = !enabled ? '사용 안 함' : connected ? '연결됨'
-        : server.status === 'authenticationRequired' ? '인증 필요'
-        : server.status === 'failed' ? '연결 실패' : '연결 확인 필요';
-      const count = Array.isArray(server.tools) ? ` · 도구 ${server.tools.length}개` : '';
-      list.append(connectionCard(server.name, status, `MCP${server.transport ? ` · ${text(server.transport, 30)}` : ''}${count}`, connected));
-    }
-    if (apiPresent) {
-      const checked = references.vworld?.lastCheck?.ok;
-      const status = !configuredApi ? '키 미등록' : checked === true ? '키 등록됨 · 연결 확인됨' : checked === false ? '키 등록됨 · 연결 확인 실패' : '키 등록됨 · 연결 미확인';
-      list.append(connectionCard('VWorld', status, configuredApi ? 'API' : 'API · 채팅에 /api vworld 를 입력해 키를 등록하세요.', configuredApi && checked === true));
-    }
-    for (const plugin of plugins) {
-      const status = plugin.status === 'installed' ? '설치됨' : plugin.status === 'modified' ? '수정됨' : '확인 필요';
-      list.append(connectionCard(plugin.name, status, `플러그인${plugin.version ? ` · ${text(plugin.version, 50)}` : ''} · 스킬 ${Array.isArray(plugin.skills) ? plugin.skills.length : 0}개`));
-    }
-  }
-
-  async function refresh() {
-    if (!supported) return;
-    const [mcp, referenceState, pluginState, kcscState] = await Promise.all([request('mcp'), request('references'), request('plugins'), request('kcsc')]);
-    servers = Array.isArray(mcp?.servers) ? mcp.servers : [];
-    references = referenceState || {};
-    plugins = Array.isArray(pluginState?.plugins) ? pluginState.plugins : [];
-    kcsc = kcscState || {};
-    renderConnections();
-  }
-
-  async function open() {
-    if (!supported) {
-      notify?.('연결 관리는 SiteCAD 로컬 실행기로 시작한 앱에서 사용할 수 있습니다.', true);
-      return;
-    }
-    if (pending || isBusy()) return;
-    if (!dialog.open) dialog.showModal();
-    await action(refresh);
-  }
-
   function renderApprovals(items = []) {
     const current = new Set(items.map(item => item.id));
     for (const [id, card] of approvals) if (!current.has(id)) { card.remove(); approvals.delete(id); }
@@ -207,23 +107,24 @@ export function createMcpSettings({ isBusy, notify }) {
       if (approvals.has(item.id)) continue;
       const card = document.createElement('article'); card.className = 'tool-approval';
       const installing = item.kind === 'mcp-install';
+      const registeringApi = item.kind === 'api-register';
       const replacingSkill = item.kind === 'skill-overwrite';
       const pluginAction = ['plugin-install', 'plugin-remove'].includes(item.kind);
-      const title = document.createElement('strong'); title.textContent = pluginAction ? '플러그인 변경 승인' : installing ? 'MCP 설치·연결 승인' : replacingSkill ? '스킬 덮어쓰기 승인' : '외부 도구 실행 승인';
+      const title = document.createElement('strong'); title.textContent = registeringApi ? 'API 항목 등록 승인' : pluginAction ? '플러그인 변경 승인' : installing ? 'MCP 설치·연결 승인' : replacingSkill ? '스킬 덮어쓰기 승인' : '외부 도구 실행 승인';
       const name = document.createElement('p'); name.textContent = `${text(item.server, 100)} · ${text(item.tool, 150)}`;
       const argumentText = typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments ?? {}, null, 2);
       const reviewLimit = replacingSkill || pluginAction ? MAX_SKILL_REVIEW_TEXT : MAX_TEXT;
       const truncated = argumentText.length > reviewLimit;
       const args = document.createElement('pre'); args.textContent = text(argumentText, reviewLimit);
       const note = document.createElement('p'); note.className = 'source-meta';
-      note.textContent = pluginAction ? '표시된 플러그인과 포함된 지침을 SiteCAD 전용 공간에 설치하거나 제거합니다. 설치된 작업은 슬래시 명령으로 실행되며 기존 도구 승인과 도면 저장 검증은 유지됩니다.' : installing
+      note.textContent = registeringApi ? '표시된 서비스 이름과 공식 문서·키 발급 주소를 설정 → API에 보관합니다. 실제 API 호출 기능을 설치하는 것은 아닙니다. 발급받은 키는 이후 설정의 비공개 입력란에 등록하세요.' : pluginAction ? '표시된 플러그인과 포함된 지침을 SiteCAD 전용 공간에 설치하거나 제거합니다. 설치된 작업은 슬래시 명령으로 실행되며 기존 도구 승인과 도면 저장 검증은 유지됩니다.' : installing
         ? '표시한 패키지를 설치하고 이 SiteCAD 전용 설정에 연결합니다. 로컬 서버는 사용자 권한으로 실행되어 자신의 권한에 따라 파일을 읽거나 네트워크에 접근할 수 있습니다. 내용을 확인한 뒤 승인하거나 거절하세요.'
         : replacingSkill ? '표시된 내용으로 이 SiteCAD의 기존 스킬을 교체합니다. 이후 해당 슬래시 명령에도 변경된 지침이 적용됩니다.'
         : '표시된 입력으로 이 도구를 한 번 실행합니다. 내용을 확인한 뒤 승인하거나 거절하세요.';
       if (truncated) note.textContent = `입력이 길어 앞 ${reviewLimit.toLocaleString('ko-KR')}자만 표시합니다. 전체 입력을 확인할 수 없으므로 이 요청은 거절하고 범위를 줄여 다시 요청해 주세요.`;
       const error = document.createElement('p'); error.className = 'mcp-inline-error'; error.hidden = true;
       const actions = document.createElement('div'); actions.className = 'mcp-server-actions';
-      for (const [label, approved] of [[pluginAction ? '플러그인 변경 승인' : installing ? '설치·연결 승인' : replacingSkill ? '덮어쓰기 승인' : '1회 승인', true], ['거절', false]]) {
+      for (const [label, approved] of [[registeringApi ? 'API 항목 등록 승인' : pluginAction ? '플러그인 변경 승인' : installing ? '설치·연결 승인' : replacingSkill ? '덮어쓰기 승인' : '1회 승인', true], ['거절', false]]) {
         const button = document.createElement('button'); button.type = 'button'; button.textContent = label; if (approved) button.className = 'primary';
         if (approved && truncated) button.disabled = true;
         button.addEventListener('click', async () => {
@@ -239,21 +140,9 @@ export function createMcpSettings({ isBusy, notify }) {
     $('tool-approvals').hidden = !approvals.size;
   }
 
-  $('manage-mcp').addEventListener('click', open);
-  $('mcp-refresh').addEventListener('click', () => action(refresh));
-
   return {
-    update(status) {
-      supported = status.desktop === true;
-      if (Array.isArray(status.externalMcp?.servers)) servers = status.externalMcp.servers;
-      if (status.references) references = status.references;
-      if (Array.isArray(status.plugins)) plugins = status.plugins;
-      if (status.kcsc) kcsc = status.kcsc;
-      renderConnections();
-      renderApprovals(status.approvals || []);
-      controls();
-    },
-    sync: controls,
-    refresh,
+    update(status) { renderApprovals(status.approvals || []); },
+    sync() {},
+    async refresh() {},
   };
 }

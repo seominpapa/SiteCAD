@@ -104,20 +104,29 @@ test('failed skill lookup gives safe retry state instead of claiming installatio
 });
 
 
-test('slash control lists skills only and registration guidance is separate from drawing examples', async t => {
+test('skill label, chat registration guidance and three welcome requests share the intended flow', async t => {
   const { html } = await fixture(t);
-  assert.match(html, /id="skill-toggle"[^>]*>슬래시: 스킬<\/button>/);
+  assert.match(html, /id="skill-toggle"[^>]*>스킬목록\(\/\)<\/button>/);
   assert.match(html, /id="skill-menu"[^>]*aria-label="설치된 스킬"/);
   const guide = html.match(/<details[^>]*class="registration-help"[\s\S]*?<\/details>/)?.[0];
   assert.ok(guide, 'Registration help must be discoverable without sending a chat request.');
   assert.match(guide, /<summary>스킬·연결 등록 방법<\/summary>/);
-  for (const label of ['스킬', 'MCP', 'API', '플러그인']) assert.match(guide, new RegExp(`<strong>${label}<`));
-  assert.match(guide, /전용 입력|전용 카드/);
-  assert.match(guide, /GitHub/);
-  const examples = html.match(/<div class="example-prompts"[\s\S]*?<\/div>/)[0];
-  assert.doesNotMatch(examples, /스킬|MCP|API|플러그인/);
-  const popup = html.match(/<dialog id="mcp-dialog"[\s\S]*?<\/dialog>/)[0];
-  assert.doesNotMatch(popup, /registration-help|<input|<textarea/);
+  for (const label of ['스킬', 'MCP', 'API', '플러그인']) assert.match(guide, new RegExp(label));
+  assert.match(guide, /설정/);
+  assert.match(guide, /채팅/);
+  assert.doesNotMatch(guide,/전용 입력|전용 카드|JSON을 등록/);
+  assert.match(guide, /주소/);
+  const welcome=html.match(/<article id="chat-welcome"[\s\S]*?<\/article>/)?.[0];
+  assert.ok(welcome);
+  const examples=welcome.match(/<div class="example-prompts"[\s\S]*?<\/div>/)?.[0];
+  const requests=[...examples.matchAll(/<button[^>]*data-prompt="([^"]+)"[^>]*>([^<]+)<\/button>/g)];
+  const expected=['높이 2m 콘크리트 옹벽 도면 만들어줘','물량 검증해줘','설계기준 맞는지 확인해줘'];
+  assert.deepEqual(requests.map(([,prompt])=>prompt),expected);
+  assert.deepEqual(requests.map(([,,label])=>label),expected);
+  assert.doesNotMatch(welcome,/원하는 도면이나 현장 주소를 입력해 주세요/);
+  const composer=html.slice(html.indexOf('<div class="composer-area">'),html.indexOf('</aside>'));
+  assert.doesNotMatch(composer,/example-prompts/);
+  assert.doesNotMatch(html,/id="mcp-dialog"/);
 });
 
 test('skills provided by a plugin keep their real command without a separate plugin type or lookup', async t => {

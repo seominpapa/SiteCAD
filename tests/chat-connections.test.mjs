@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createChatConnections, parseConnectionCommand } from '../public/chat-connections.js';
 
-const TEST_API_KEY = 'a-private-key';
 
 class Element {
   constructor(tag = 'div') { Object.assign(this, { tagName: tag, children: [], listeners: {}, dataset: {}, value: '', checked: false, disabled: false, textContent: '' }); this.classList = { toggle() {} }; if (tag === 'textarea') Object.defineProperty(this, 'type', { get: () => 'textarea' }); }
@@ -23,7 +22,7 @@ const content = node => all(node).map(item => item.textContent).join(' ');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function setup(t, { browser = true, configured = false, kcsc = { configured: false, installed: false, connected: false } } = {}) {
   const previous = { document: globalThis.document, fetch: globalThis.fetch };
-  const root = new Element(), requests = [], pending = [], notices = [];
+  const root = new Element(), requests = [], pending = [], notices = [], opened = [];
   let busy = false, changed = 0;
   globalThis.document = { body: root, createElement: tag => new Element(tag), getElementById: () => root };
   globalThis.fetch = async (url, options = {}) => {
@@ -31,240 +30,52 @@ function setup(t, { browser = true, configured = false, kcsc = { configured: fal
     return { ok: true, json: async () => ({ ok: true, data: url.endsWith('/references') ? { vworld: { configured } } : url.endsWith('/kcsc') ? kcsc : url.endsWith('/test') ? { ok: true } : {} }) };
   };
   t.after(() => Object.assign(globalThis, previous));
-  const ui = createChatConnections({ isBusy: () => busy, onPending: value => pending.push(value), onChange: () => { changed++; }, notify: value => notices.push(value) });
+  const ui = createChatConnections({ isBusy: () => busy, onPending: value => pending.push(value), onChange: () => { changed++; }, notify: value => notices.push(value), onOpenSettings: (tab,id) => opened.push([tab,id]) });
   ui.update({ desktop: true, browser });
   const field = name => { const item = all(root).find(item => item.dataset.field === name); assert.ok(item, name); return item; };
   const click = name => field(name).listeners.click?.();
   const submit = () => all(root).find(item => item.tagName === 'form').listeners.submit({ preventDefault() {} });
-  return { ui, root, field, click, submit, requests, pending, notices, changed: () => changed, busy: value => { busy = value; ui.sync(); } };
+  return { ui, root, field, click, submit, requests, pending, notices, opened, changed: () => changed, busy: value => { busy = value; ui.sync(); } };
 }
 
-test('connection commands keep ordinary CAD, URLs, standards research and explicit REA installation on the agent path', () => {
-  for (const value of ['사각형을 그려줘', 'https://github.com/example/mcp 설치해줘', 'REA MCP 연결해줘', 'KDS 옹벽 기준을 검색해줘', '지형도 표고 삽입해줘']) assert.equal(parseConnectionCommand(value), null);
-  assert.deepEqual(parseConnectionCommand('/mcp'), { kind: 'mcp', config: '' });
-  assert.deepEqual(parseConnectionCommand('/mcp add {"url":"https://example.org"}'), { kind: 'mcp', config: '{"url":"https://example.org"}' });
-  for (const value of ['/api', '/api vworld', 'API 등록해줘', 'VWorld API 연결해줘', '브이월드 API를 추가해주세요']) assert.deepEqual(parseConnectionCommand(value), { kind: 'vworld' });
-  assert.deepEqual(parseConnectionCommand('지형 원본 등록해줘'), { kind: 'terrain' });
-  assert.deepEqual(parseConnectionCommand('설계 기준 연결해줘'), { kind: 'standards' });
-  assert.deepEqual(parseConnectionCommand('/mcp remove example'), { kind: 'manage', action: 'remove', name: 'example' });
-  assert.equal(parseConnectionCommand('/mcp remove ../../secret'), null);
+test('ordinary installation URLs and ambiguous API registration remain agent requests', () => {
+  for (const value of ['사각형을 그려줘','https://github.com/example/mcp 설치해줘','REA MCP 연결해줘','API 등록해줘','https://github.com/lhs1152-lgtm/kcsc-design-mcp 설치해줘','KDS 옹벽 기준을 검색해줘']) assert.equal(parseConnectionCommand(value),null);
+  assert.deepEqual(parseConnectionCommand('/api'),{kind:'api'});
+  assert.deepEqual(parseConnectionCommand('/mcp'),{kind:'mcp'});
+  assert.deepEqual(parseConnectionCommand('/api kcsc'),{kind:'kcsc'});
+  assert.deepEqual(parseConnectionCommand('/api vworld'),{kind:'vworld'});
+  assert.equal(parseConnectionCommand('/mcp remove ../../secret'),null);
 });
 
-test('KCSC registration commands open the private key route without intercepting standards research', () => {
-  for (const command of ['/api kcsc', '/mcp kcsc', 'KCSC API 등록해줘', 'KCSC API 키를 등록해주세요', '국가건설기준센터 MCP 연결해줘', 'KCSC MCP 설치해줘', '국가건설기준센터 MCP 설치해주세요', 'https://github.com/lhs1152-lgtm/kcsc-design-mcp', 'https://github.com/lhs1152-lgtm/kcsc-design-mcp 이 MCP를 설치해줘', 'https://github.com/lhs1152-lgtm/kcsc-design-mcp.git 설치해줘']) {
-    assert.deepEqual(parseConnectionCommand(command), { kind: 'kcsc' });
+test('known API guidance links to issuance and settings instead of another key popup',async t=>{
+  const {ui,root,click,requests,opened}=setup(t);
+  for(const [command,id,url] of [['/api kcsc','kcsc','https://kcsc.re.kr/support/api'],['VWorld API 연결해줘','vworld','https://www.vworld.kr/dev/v4dv_2ddataguide2_s001.do']]){
+    ui.handleCommand(command);assert.match(content(root),/채팅.*키.*입력하지/);
+    assert.ok(all(root).some(item=>item.href===url));
+    assert.ok(!all(root).some(item=>item.tagName==='dialog'||item.type==='password'||item.tagName==='textarea'));
+    await click('open-settings');assert.deepEqual(opened.at(-1),['api',id]);
   }
-  for (const command of ['KCSC에서 콘크리트 기준을 검색해줘', '국가건설기준센터 KDS를 참고해 도면을 그려줘', 'https://github.com/untrusted/kcsc-design-mcp 설치해줘', 'https://github.com/lhs1152-lgtm/kcsc-design-mcp-evil 설치해줘']) assert.equal(parseConnectionCommand(command), null);
+  assert.equal(requests.length,0);
 });
 
-test('KCSC private registration requires install and encrypted-key consent and clears the key before saving', async t => {
-  const { ui, root, field, submit, requests, changed } = setup(t);
-  ui.handleCommand('/api kcsc'); await flush();
-  assert.equal(all(root).find(item => item.tagName === 'dialog').open, true);
-  assert.equal(field('apiKey').type, 'password'); assert.equal(field('apiKey').autocomplete, 'off');
-  assert.match(content(root), /채팅 기록.*AI/); assert.match(content(root), /암호화/);
-  assert.match(content(root), /kcsc-design-mcp==0\.3\.1.*Python/);
-  assert.match(content(root), /조회 도구.*승인/);
-  const link = all(root).find(item => item.tagName === 'a');
-  assert.equal(link.href, 'https://kcsc.re.kr/support/api'); assert.match(link.rel, /noopener/);
-  assert.match(content(root), /로그인.*인증키 발급신청/);
-  assert.equal(field('test').disabled, true); assert.equal(field('remove').disabled, true);
-  field('apiKey').value = TEST_API_KEY; await submit();
-  assert.equal(requests.filter(item => item.method === 'POST').length, 0);
-  field('trusted').checked = true; field('trusted').listeners.change();
-  globalThis.fetch = async (url, options) => {
-    requests.push({ url, ...options }); assert.equal(field('apiKey').value, ''); assert.equal(field('trusted').checked, false);
-    return { ok: true, json: async () => ({ ok: true, data: { configured: true, installed: true, connected: true, tools: ['search'], count: 1, lastCheck: { ok: true } } }) };
-  };
-  await submit();
-  assert.deepEqual(JSON.parse(requests.at(-1).body), { apiKey: TEST_API_KEY, trusted: true });
-  assert.equal(requests.at(-1).url, '/api/desktop/kcsc/save');
-  assert.equal(changed(), 1); assert.match(content(root), /키 등록됨.*연결 확인됨/);
-  assert.equal(field('save').textContent, '키 변경·재연결');
-  assert.doesNotMatch(content(root), new RegExp(TEST_API_KEY));
-  assert.ok(requests.every(item => !item.url.includes('/api/chat')));
-  field('apiKey').value = TEST_API_KEY; field('trusted').checked = true; field('apiKey').listeners.input();
-  assert.equal(field('trusted').checked, false);
-  ui.clear(); assert.equal(fieldValue(root, 'apiKey'), undefined);
+test('MCP slash guidance never renders or forwards JSON credentials',async t=>{
+  const {ui,root,click,requests,opened}=setup(t);
+  ui.handleCommand('/mcp add {"env":{"TOKEN":"private-token"}}');
+  assert.doesNotMatch(content(root),/private-token/);
+  assert.match(content(root),/채팅.*주소/);
+  await click('open-settings');assert.deepEqual(opened.at(-1),['mcp',undefined]);
+  assert.equal(requests.length,0);
 });
 
-test('KCSC test and removal use saved credentials without sending the entered replacement key', async t => {
-  const { ui, root, field, click, requests } = setup(t, { kcsc: { configured: true, installed: true, connected: false } });
-  ui.handleCommand('/mcp kcsc'); await flush();
-  assert.match(content(root), /키 등록됨.*연결 미확인/);
-  field('apiKey').value = TEST_API_KEY;
-  globalThis.fetch = async (url, options) => {
-    requests.push({ url, ...options });
-    return { ok: true, json: async () => ({ ok: true, data: url.endsWith('/remove') ? { configured: false, installed: true, connected: false } : { configured: true, installed: true, connected: false, lastCheck: { ok: false } } }) };
-  };
-  await click('test');
-  assert.deepEqual(JSON.parse(requests.at(-1).body), {});
-  assert.match(content(root), /키.*권한.*확인/); assert.match(content(root), /연결 확인 실패/);
-  await click('remove');
-  assert.equal(field('apiKey').value, ''); assert.equal(requests.at(-1).url, '/api/desktop/kcsc/remove');
-  assert.deepEqual(JSON.parse(requests.at(-1).body), {});
-  assert.match(content(root), /키 미등록/); assert.equal(field('test').disabled, true);
-  assert.doesNotMatch(content(root), new RegExp(TEST_API_KEY));
-});
-
-test('KCSC loading, busy, validation and failures protect keys and keep failures actionable', async t => {
-  const { ui, root, field, submit, click, requests, busy } = setup(t);
-  let release;
-  globalThis.fetch = async () => new Promise(resolve => { release = resolve; });
-  ui.handleCommand('/api kcsc');
-  field('apiKey').value = TEST_API_KEY; field('trusted').checked = true;
-  assert.equal(field('apiKey').disabled, true); await submit(); await click('test'); assert.equal(requests.length, 0);
-  ui.handleCommand('/mcp');
-  release({ ok: true, json: async () => ({ ok: true, data: { configured: true, connected: true } }) });
-  await flush(); assert.equal(field('config').value, '');
-  globalThis.fetch = async () => ({ ok: true, json: async () => ({ ok: true, data: { configured: false } }) });
-  ui.handleCommand('/api kcsc'); await flush();
-  field('trusted').checked = true; field('apiKey').value = 'bad\nkey'; await submit();
-  assert.match(content(root), /키.*형식/);
-  field('apiKey').value = TEST_API_KEY; busy(true); await submit();
-  assert.equal(field('apiKey').value, TEST_API_KEY);
-  busy(false);
-  globalThis.fetch = async () => ({ ok: false, json: async () => ({ ok: false, error: `${TEST_API_KEY} /private/path` }) });
-  await submit(); assert.equal(field('apiKey').value, '');
-  assert.match(content(root), /실패.*키.*권한/);
-  assert.doesNotMatch(content(root), /a-private-key|private\/path/);
-});
-
-test('a failed KCSC recheck invalidates the earlier connected status', async t => {
-  const { ui, root, click } = setup(t, { kcsc: { configured: true, installed: true, connected: true } });
-  ui.handleCommand('/api kcsc'); await flush();
-  assert.match(content(root), /연결 확인됨/);
-  globalThis.fetch = async () => { throw Error('private upstream error'); };
-  await click('test');
-  assert.match(content(root), /연결 확인 실패/);
-  assert.doesNotMatch(content(root), /연결 확인됨|private upstream/);
-});
-
-test('private MCP registration stays in chat, requires current trust and clears config before POST', async t => {
-  const { ui, root, field, submit, requests, pending, changed } = setup(t);
-  const raw = '{"mcpServers":{"custom":{"command":"node","env":{"TOKEN":"private-token"}}}}';
-  assert.equal(ui.handleCommand(`/mcp add ${raw}`), true);
-  assert.equal(field('config').value, raw);
-  await submit(); assert.equal(requests.length, 0); assert.match(content(root), /신뢰/);
-  field('trusted').checked = true; field('trusted').listeners.change();
-  let release;
-  globalThis.fetch = async (url, options) => { requests.push({ url, ...options }); assert.equal(field('config').value, ''); return new Promise(resolve => { release = resolve; }); };
-  const saving = submit();
-  assert.equal(field('trusted').checked, false); assert.equal(field('save').disabled, true);
-  await submit(); assert.equal(requests.length, 1);
-  assert.equal(requests[0].url, '/api/desktop/mcp/save');
-  assert.deepEqual(JSON.parse(requests[0].body), { config: JSON.parse(raw), trusted: true });
-  release({ ok: true, json: async () => ({ ok: true, data: {} }) }); await saving;
-  assert.equal(changed(), 1); assert.deepEqual(pending, [true, false]);
-  assert.doesNotMatch(content(root), /private-token/);
-  assert.match(content(root), /등록.*연결.*확인/);
-});
-
-test('MCP edits revoke trust, invalid JSON and failed saves never echo config or server errors', async t => {
-  const { ui, root, field, submit, requests } = setup(t);
-  ui.handleCommand('/mcp'); field('trusted').checked = true;
-  field('config').listeners.input(); assert.equal(field('trusted').checked, false);
-  for (const value of ['{broken', '[]', 'null']) {
-    field('config').value = value; field('trusted').checked = true; await submit();
-    assert.equal(requests.length, 0); assert.match(content(root), /JSON 객체/);
-  }
-  field('config').value = '{"private-token":"secret"}'; field('trusted').checked = true;
-  globalThis.fetch = async () => ({ ok: false, json: async () => ({ ok: false, error: 'private-token secret /private/path' }) });
-  await submit(); assert.match(content(root), /실패/); assert.doesNotMatch(content(root), /private-token|private\/path/);
-});
-
-test('VWorld key and test have separate single-use consent and never go through AI requests', async t => {
-  const { ui, root, field, submit, click, requests } = setup(t, { configured: true });
-  ui.handleCommand('VWorld API 연결해줘'); await flush();
-  assert.equal(field('apiKey').type, 'password'); assert.equal(field('apiKey').autocomplete, 'off');
-  assert.match(content(root), /VWorld.*채팅 기록.*AI/);
-  assert.match(content(root), /연결 미확인/);
-  field('apiKey').value = TEST_API_KEY; await submit();
-  assert.equal(requests.filter(item => item.method === 'POST').length, 0);
-  field('saveConsent').checked = true; field('domain').value = 'https://example.org';
-  await submit(); assert.equal(field('apiKey').value, ''); assert.equal(field('saveConsent').checked, false);
-  const post = requests.find(item => item.url.endsWith('/save'));
-  assert.deepEqual(JSON.parse(post.body), { apiKey: TEST_API_KEY, domain: 'https://example.org' });
-  assert.match(content(root), /저장.*실제 연결/);
-  await click('test'); assert.equal(requests.filter(item => item.url.endsWith('/test')).length, 0);
-  field('testConsent').checked = true; field('testConsent').listeners.change(); await click('test');
-  assert.equal(field('testConsent').checked, false); assert.match(content(root), /실제 연결.*확인/);
-  assert.equal(requests.filter(item => item.url.endsWith('/test')).length, 1);
-  assert.ok(requests.every(item => !item.url.includes('/api/chat')));
-  assert.doesNotMatch(content(root), /a-private-key/);
-  field('apiKey').value = 'another-key'; field('saveConsent').checked = field('testConsent').checked = true;
-  field('apiKey').listeners.input(); assert.equal(field('saveConsent').checked, false); assert.equal(field('testConsent').checked, false);
-  ui.clear(); assert.equal(fieldValue(root, 'apiKey'), undefined);
-});
-const fieldValue = (root, name) => all(root).find(item => item.dataset.field === name)?.value;
-
-test('VWorld validation, busy and cancellation keep credentials private', async t => {
-  const { ui, root, field, submit, click, requests, busy } = setup(t);
-  ui.handleCommand('/api'); await flush();
-  assert.equal(field('test').disabled, true);
-  field('saveConsent').checked = true; field('apiKey').value = 'short'; await submit();
-  assert.match(content(root), /API 키/); assert.equal(requests.filter(item => item.method).length, 0);
-  field('apiKey').value = 'valid-key'; field('domain').value = 'https://bad domain'; await submit();
-  assert.equal(requests.filter(item => item.method).length, 0);
-  field('domain').value = ''; busy(true); await submit(); assert.equal(requests.filter(item => item.method).length, 0);
-  assert.equal(ui.handleCommand('/mcp'), true); assert.equal(field('apiKey').value, 'valid-key');
-  busy(false); await click('cancel'); assert.equal(root.children.length, 0); assert.equal(fieldValue(root, 'apiKey'), undefined);
-  ui.update({ desktop: false }); assert.equal(ui.handleCommand('/api'), true); assert.equal(root.children.length, 0);
-  assert.equal(ui.handleCommand('일반 도면 수정'), false);
-});
-
-test('VWorld backend failures are sanitized and failed status is not connected', async t => {
-  const { ui, root, field, submit, click } = setup(t, { configured: true });
-  ui.handleCommand('/api vworld'); await flush();
-  globalThis.fetch = async url => ({ ok: true, json: async () => ({ ok: true, data: url.endsWith('/test') ? { ok: false } : {} }) });
-  field('testConsent').checked = true; await click('test'); assert.match(content(root), /연결 확인 실패/);
-  globalThis.fetch = async () => { throw Error('private-key /private/path'); };
-  field('apiKey').value = TEST_API_KEY; field('saveConsent').checked = true; await submit();
-  assert.match(content(root), /실패/); assert.doesNotMatch(content(root), /private-key|private\/path/);
-  field('testConsent').checked = true; await click('test'); assert.match(content(root), /실패/);
-  await click('remove'); assert.match(content(root), /실패/);
-  ui.handleCommand('/api'); await flush(); assert.match(content(root), /실패/);
-});
-
-test('VWorld removal is an explicit chat-card operation', async t => {
-  const { ui, root, click, requests } = setup(t, { configured: true });
-  ui.handleCommand('/api'); await flush(); await click('remove');
-  assert.ok(requests.some(item => item.url.endsWith('/references/remove')));
-  assert.match(content(root), /해제/);
-});
-
-test('VWorld initial metadata blocks edits until it arrives and cannot overwrite a newer card', async t => {
-  const { ui, field, submit, click, requests } = setup(t);
-  let release;
-  globalThis.fetch = async () => new Promise(resolve => { release = resolve; });
-  ui.handleCommand('/api');
-  assert.equal(field('apiKey').disabled, true); assert.equal(field('domain').disabled, true);
-  field('apiKey').value = 'valid-key'; field('saveConsent').checked = true;
-  await submit(); await click('remove'); assert.equal(requests.length, 0);
-  ui.handleCommand('/mcp');
-  release({ ok: true, json: async () => ({ ok: true, data: { vworld: { configured: true, domain: 'old.example' } } }) });
-  await flush(); assert.equal(field('config').value, '');
-});
-
-test('missing VWorld credentials request a private popup once after the current task finishes', async t => {
-  const { ui, root, field, requests, busy } = setup(t);
-  busy(true);
-  ui.update({ desktop: true, credentialRequest: { id: 'request-1', provider: 'vworld' }, active: true });
-  assert.equal(all(root).filter(item => item.tagName === 'dialog').length, 0);
-  busy(false);
-  ui.update({ desktop: true, credentialRequest: { id: 'request-1', provider: 'vworld' }, active: false });
-  await flush();
-  const dialog = all(root).find(item => item.tagName === 'dialog');
-  assert.equal(dialog.open, true); assert.match(content(dialog), /VWorld API 등록/);
-  field('apiKey').value = 'unsaved-private-key';
-  dialog.listeners.cancel({ preventDefault() {} });
-  assert.equal(dialog.open, false); assert.equal(dialog.parent.children.includes(dialog), false);
-  ui.update({ desktop: true, credentialRequest: { id: 'request-1', provider: 'vworld' }, active: false });
-  assert.equal(all(root).filter(item => item.tagName === 'dialog').length, 0);
-  assert.equal(requests.filter(item => item.method === 'POST').length, 0);
-  ui.update({ desktop: true, credentialRequest: { id: 'request-2', provider: 'vworld' }, active: false });
-  assert.equal(all(root).find(item => item.tagName === 'dialog').open, true);
-  ui.clear();
+test('credentials wait until completion then offer the matching settings item once',async t=>{
+  const {ui,root,click,opened,busy}=setup(t);
+  busy(true);ui.update({desktop:true,active:true,credentialRequest:{id:'req1',provider:'vworld'}});assert.equal(root.children.length,0);
+  busy(false);ui.update({desktop:true,active:false,credentialRequest:{id:'req1',provider:'vworld'}});
+  await click('open-settings');assert.deepEqual(opened.at(-1),['api','vworld']);
+  ui.clear();ui.update({desktop:true,active:false,credentialRequest:{id:'req1',provider:'vworld'}});assert.equal(root.children.length,0);
+  ui.update({desktop:true,active:false,credentialRequest:{id:'req2',provider:'api',apiId:'weather',name:'날씨 API',issuanceUrl:'javascript:alert(1)'}});
+  await click('open-settings');assert.deepEqual(opened.at(-1),['api','weather']);
+  assert.ok(!all(root).some(item=>item.href?.startsWith('javascript:')));
 });
 
 test('MCP maintenance only executes after the chat confirmation button', async t => {
@@ -312,4 +123,12 @@ test('app intercepts private connection cards before chat/history and clears the
   assert.match(app, /chatConnections.update\(body.data\)/);
   assert.match(app, /chatConnections.clear\(\);[\s\S]*stopBridge\?\.\(\)/);
   assert.doesNotMatch(app, /mcpSettings.handleCommand/);
+});
+
+test('missing MCP credentials guide the same API tab with a private MCP target',async t=>{
+  const {ui,root,click,opened}=setup(t);
+  ui.update({desktop:true,active:false,credentialRequest:{id:'mcp-1',provider:'mcp',apiId:'weather',name:'날씨 MCP',issuanceUrl:'https://weather.example/keys'}});
+  assert.match(content(root),/날씨 MCP/);assert.match(content(root),/환경 변수.*Bearer/);
+  await click('open-settings');assert.deepEqual(opened.at(-1),['api','mcp-weather']);
+  assert.ok(!all(root).some(item=>item.type==='password'));
 });

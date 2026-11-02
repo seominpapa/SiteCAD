@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { request as httpRequest } from 'node:http';
 import { createApp, cadFont } from '../server.mjs';
 
+const TEST_API_KEY = 'private-api-value';
+
 const payload = { message: '사각형', context: { documentId: 2, revision: 0, units: 4, selection: [], entities: [] }, history: [] };
 async function setup(options = {}) {
   const root = await mkdtemp(join(tmpdir(), 'cad-http-test-'));
@@ -204,6 +206,48 @@ test('chat returns a quantity-review intent bound to the current drawing, never 
   } finally { await t.close(); }
 });
 
+test('desktop API and chat deletion routes preserve origin and JSON guards', async () => {
+  const calls = [], id = '12345678-1234-4123-8123-123456789abc';
+  const desktop = { apisList: async () => ({ apis: [{ id: 'weather', configured: false }] }),
+    apisSave: async body => { calls.push(['save', body]); return { api: { id: body.id, configured: true } }; },
+    apisRemove: async body => { calls.push(['remove', body]); return { removed: true, id: body.id }; },
+    chatDelete: async body => { calls.push(['delete', body]); return { deleted: true, id: body.id }; } };
+  const t = await setup({ desktop });
+  try {
+    assert.deepEqual((await (await t.request('/api/desktop/apis')).json()).data.apis, [{ id: 'weather', configured: false }]);
+    const request = (path, body, headers = {}) => t.request(path, { method: 'POST', body: JSON.stringify(body), headers });
+    for (const path of ['/api/desktop/apis/save', '/api/desktop/apis/remove', '/api/desktop/chats/delete']) {
+      assert.equal((await request(path, { id }, { Origin: 'https://evil.example' })).status, 403);
+      assert.equal((await request(path, { id }, { 'Content-Type': 'text/plain' })).status, 415);
+    }
+    assert.equal(calls.length, 0);
+    assert.equal((await (await request('/api/desktop/apis/save', { id: 'weather', apiKey: TEST_API_KEY })).json()).data.api.configured, true);
+    assert.equal((await (await request('/api/desktop/apis/remove', { id: 'weather' })).json()).data.removed, true);
+    assert.equal((await (await request('/api/desktop/chats/delete', { id })).json()).data.deleted, true);
+    assert.deepEqual(calls, [['save', { id: 'weather', apiKey: TEST_API_KEY }], ['remove', { id: 'weather' }], ['delete', { id }]]);
+  } finally { await t.close(); }
+});
+
+test('drawing storage settings use the authenticated settings routes and origin guards', async () => {
+  const calls = [], storage = { path: '/installed', defaultPath: '/installed', isDefault: true };
+  const t = await setup({ desktop: { storageStatus: () => storage, storageSave: async input => { calls.push(input); return { ...storage, path: input.path || storage.defaultPath }; }, storageSelect: async input => { calls.push(['select', input]); return { cancelled: true }; } } });
+  try {
+    assert.deepEqual((await (await t.request('/api/desktop/storage')).json()).data, storage);
+    const save = (headers = {}, body = { path: '/chosen' }) => t.request('/api/desktop/storage/save', { method: 'POST', headers, body: JSON.stringify(body) });
+    assert.equal((await save({ Origin: 'https://evil.example' })).status, 403);
+    assert.equal((await save({ 'Content-Type': 'text/plain' })).status, 415);
+    assert.deepEqual(calls, []);
+    assert.equal((await (await save()).json()).data.path, '/chosen');
+    assert.equal((await (await save({}, { path: '' })).json()).data.path, '/installed');
+    assert.deepEqual(calls, [{ path: '/chosen' }, { path: '' }]);
+    const select = headers => t.request('/api/desktop/storage/select', { method: 'POST', headers, body: '{}' });
+    assert.equal((await select({ Origin: 'https://evil.example' })).status, 403);
+    assert.equal((await select({ 'Content-Type': 'text/plain' })).status, 415);
+    assert.deepEqual((await (await select({})).json()).data, { cancelled: true });
+    assert.deepEqual(calls.at(-1), ['select', {}]);
+  } finally { await t.close(); }
+});
+
 test('desktop runtime routes require local origin or a private MCP token and return executed results', async () => {
   const calls = [];
   const desktop = { status: async () => ({ desktop: true, oauth: { connected: true }, auth: { loggedIn: true } }),
@@ -215,6 +259,8 @@ test('desktop runtime routes require local origin or a private MCP token and ret
     completeCad: (id, result) => { calls.push([id, result]); } };
   desktop.mcpList = async () => ({ servers: [{ name: 'rea' }] });
   desktop.pluginsList = async () => ({ plugins: [{ name: 'quantity-workflows', status: 'installed' }] });
+  desktop.llmStatus = async () => ({ active: 'anthropic-api', connections: [] });
+  for (const method of ['llmSave', 'llmSelect', 'llmRemove', 'llmTest', 'llmLogin', 'pluginsInspect', 'pluginsInstall', 'pluginsRemove', 'mcpInspect', 'mcpInstall']) desktop[method] = async body => ({ action: method, ...body });
   const chatId='12345678-1234-4123-8123-123456789abc';
   desktop.skillsList=async()=>({skills:[{name:'skill-creator'}]});
   desktop.chatList=async()=>({chats:[{id:chatId,title:'검증'}]});
@@ -239,6 +285,11 @@ test('desktop runtime routes require local origin or a private MCP token and ret
     assert.equal(calls.length, 2);
     assert.equal((await (await t.request('/api/desktop/mcp')).json()).data.servers[0].name, 'rea');
     assert.equal((await (await t.request('/api/desktop/plugins')).json()).data.plugins[0].name, 'quantity-workflows');
+    assert.equal((await (await t.request('/api/desktop/llm')).json()).data.active, 'anthropic-api');
+    for (const [path, method] of [['llm/save','llmSave'],['llm/select','llmSelect'],['llm/remove','llmRemove'],['llm/test','llmTest'],['llm/login','llmLogin'],['plugins/inspect','pluginsInspect'],['plugins/install','pluginsInstall'],['plugins/remove','pluginsRemove'],['mcp/inspect','mcpInspect'],['mcp/install','mcpInstall']]) {
+      assert.equal((await request(`/api/desktop/${path}`, {}, {Origin:'https://evil.example'})).status, 403);
+      assert.equal((await (await request(`/api/desktop/${path}`, {id:'anthropic-api'})).json()).data.action, method);
+    }
     assert.equal((await (await t.request('/api/desktop/skills')).json()).data.skills[0].name,'skill-creator');
     assert.equal((await (await t.request('/api/desktop/chats')).json()).data.chats[0].id,chatId);
     assert.equal((await (await t.request(`/api/desktop/chats/${chatId}`)).json()).data.chat.id,chatId);

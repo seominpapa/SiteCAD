@@ -39,6 +39,11 @@ test('inspection pins source, validates actual file hashes and never installs un
   assert.equal(plan.repository, 'https://github.com/example/cad-tools');
   assert.equal(plan.skills[0].name, 'plugin-cad-tools-review'); assert.match(plan.skills[0].sourceSha256, /^[a-f0-9]{64}$/);
   assert.equal(plan.skills[0].body, undefined); assert.equal((await skills.list()).length, 0); assert.deepEqual(await plugins.list(), []);
+  const reviewed = plugins.review(plan.planId);
+  assert.match(reviewed.skills[0].body, /Read real CAD/);
+  reviewed.skills[0].body = 'mutated';
+  assert.match(plugins.review(plan.planId).skills[0].body, /Read real CAD/);
+  assert.throws(() => plugins.review('invalid-plan'), /만료|다시/);
   assert.ok(requests.every(item => item.init.redirect === 'error' && item.init.signal));
   assert.ok(requests.filter(item => item.url.startsWith('https://raw.')).every(item => item.url.includes(`/${SHA}/`)));
   assert.ok(requests.some(item => item.url.includes('/commits/HEAD')));
@@ -64,6 +69,7 @@ test('approved skills-only plugin installs isolated named skills with actual has
   if (process.platform !== 'win32') assert.equal((await stat(join(dataDir, 'plugins.json'))).mode & 0o777, 0o600);
   assert.equal(JSON.stringify(installed).includes(dataDir), false);
   await assert.rejects(plugins.install({ planId: plan.planId }, { approve: async () => true }), /만료|다시/);
+  assert.throws(() => plugins.review(plan.planId), /만료|다시/);
 });
 
 test('tree URLs restrict plugin roots and arrays accept only self-contained skill directories', async t => {

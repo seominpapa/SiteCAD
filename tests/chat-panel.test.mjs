@@ -2,15 +2,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createChatPanel } from '../public/chat-panel.js';
 
-test('chat panel can collapse and restore while approvals stay visible', t => {
-  const before = globalThis.document;
+function fixture(t) {
+  const before = { document: globalThis.document, window: globalThis.window };
   const collapsed = new Set();
-  const element = () => ({ hidden: false, listeners: {}, addEventListener(name, listener) { this.listeners[name] = listener; }, setAttribute(name, value) { this[name] = value; }, focus() { this.focused = true; } });
-  const ids = Object.fromEntries(['workspace', 'sitecad-chat-panel', 'chat-collapse', 'chat-expand', 'message-input'].map(id => [id, element()]));
+  const element = () => ({ hidden: false, listeners: {}, addEventListener(name, listener) { this.listeners[name] = listener; }, setAttribute(name, value) { this[name] = value; }, focus() { this.focused = true; }, setPointerCapture(id) { this.captured = id; }, hasPointerCapture(id) { return this.captured === id; }, releasePointerCapture() { this.captured = null; } });
+  const ids = Object.fromEntries(['workspace', 'sitecad-chat-panel', 'chat-collapse', 'chat-expand', 'chat-resize', 'message-input'].map(id => [id, element()]));
   ids.workspace.classList = { toggle(name, enabled) { enabled ? collapsed.add(name) : collapsed.delete(name); } };
+  const styles = new Map();
+  ids.workspace.style = { setProperty: (name, value) => styles.set(name, value) };
+  ids['sitecad-chat-panel'].getBoundingClientRect = () => ({ width: Number.parseFloat(styles.get('--chat-width') ?? '440') });
   globalThis.document = { getElementById: id => ids[id] };
-  t.after(() => { globalThis.document = before; });
+  const viewport = { innerWidth: 1400, listeners: {}, addEventListener(name, listener) { this.listeners[name] = listener; } };
+  globalThis.window = viewport;
+  t.after(() => { globalThis.document = before.document; globalThis.window = before.window; });
   const panel = createChatPanel();
+  return { ids, panel, collapsed, styles, viewport };
+}
+
+test('chat panel can collapse and restore while approvals stay visible', t => {
+  const { ids, panel, collapsed } = fixture(t);
   ids['chat-collapse'].listeners.click();
   assert.equal(ids['sitecad-chat-panel'].hidden, true);
   assert.equal(ids['chat-expand'].hidden, false);
@@ -24,4 +34,74 @@ test('chat panel can collapse and restore while approvals stay visible', t => {
   panel.update({ approvals: [{ id: 'pending' }] });
   assert.equal(ids['sitecad-chat-panel'].hidden, false);
   assert.equal(collapsed.size, 0);
+});
+
+test('dragging chat boundary adjusts width, clamps limits and releases capture on end or cancellation', t => {
+  const { ids, styles, collapsed } = fixture(t);
+  const handle = ids['chat-resize'];
+  let prevented = 0;
+  const pointer = (clientX, pointerId = 1) => ({ button: 0, clientX, pointerId, preventDefault() { prevented++; } });
+  assert.equal(handle['aria-valuenow'], '440');
+  handle.listeners.pointerdown(pointer(900));
+  assert.equal(handle.captured, 1);
+  assert.equal(collapsed.has('chat-resizing'), true);
+  handle.listeners.pointermove(pointer(800, 2));
+  assert.equal(styles.has('--chat-width'), false, 'unrelated pointer cannot resize');
+  handle.listeners.pointermove(pointer(800));
+  assert.equal(styles.get('--chat-width'), '540px');
+  handle.listeners.pointermove(pointer(-1000));
+  assert.equal(styles.get('--chat-width'), '760px');
+  handle.listeners.pointermove(pointer(3000));
+  assert.equal(styles.get('--chat-width'), '320px');
+  handle.listeners.pointerup(pointer(3000));
+  assert.equal(handle.captured, null);
+  assert.equal(collapsed.has('chat-resizing'), false);
+  handle.listeners.pointermove(pointer(800));
+  assert.equal(styles.get('--chat-width'), '320px');
+  handle.listeners.pointerdown(pointer(900));
+  handle.listeners.pointercancel(pointer(900));
+  assert.equal(handle.captured, null);
+  assert.equal(collapsed.has('chat-resizing'), false);
+  assert.equal(prevented > 0, true);
+});
+
+test('keyboard resizing exposes accessible limits, follows viewport size, and stays inactive when collapsed or narrow', t => {
+  const { ids, styles, viewport } = fixture(t);
+  const handle = ids['chat-resize'];
+  const key = key => ({ key, preventDefault() {} });
+  handle.listeners.keydown(key('ArrowLeft'));
+  assert.equal(styles.get('--chat-width'), '460px');
+  handle.listeners.keydown(key('ArrowRight'));
+  assert.equal(styles.get('--chat-width'), '440px');
+  handle.listeners.keydown(key('Home'));
+  assert.equal(handle['aria-valuenow'], '320');
+  handle.listeners.keydown(key('End'));
+  assert.equal(handle['aria-valuenow'], '760');
+  assert.equal(handle['aria-valuemin'], '320');
+  assert.equal(handle['aria-valuemax'], '760');
+  assert.match(handle['aria-valuetext'], /760/);
+  viewport.innerWidth = 900; viewport.listeners.resize();
+  assert.equal(styles.get('--chat-width'), '540px');
+  assert.equal(handle['aria-valuemax'], '540');
+  handle.listeners.pointerdown({ button: 0, pointerId: 1, clientX: 500, preventDefault() {} });
+  ids['chat-collapse'].listeners.click();
+  assert.equal(handle.hidden, true);
+  assert.equal(handle.captured, null);
+  handle.listeners.keydown(key('Home'));
+  assert.equal(styles.get('--chat-width'), '540px');
+  ids['chat-expand'].listeners.click();
+  assert.equal(handle.hidden, false);
+  viewport.innerWidth = 700; viewport.listeners.resize();
+  const mobileWidth = styles.get('--chat-width');
+  assert.equal(handle['aria-disabled'], 'true');
+  handle.listeners.keydown(key('End'));
+  handle.listeners.pointerdown({ button: 0, pointerId: 2, clientX: 500, preventDefault() {} });
+  assert.equal(styles.get('--chat-width'), mobileWidth);
+  assert.equal(handle.captured, null);
+  viewport.innerWidth = 1000; viewport.listeners.resize();
+  handle.listeners.keydown(key('End'));
+  ids['chat-collapse'].listeners.click();
+  viewport.innerWidth = 800; viewport.listeners.resize();
+  ids['chat-expand'].listeners.click();
+  assert.equal(styles.get('--chat-width'), '440px', 'reopening reclamps after a viewport change while collapsed');
 });

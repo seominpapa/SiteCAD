@@ -14,11 +14,11 @@ async function setup(t) {
 
 const draft = { name: 'drawing-review', description: '도면의 레이어와 물량을 검토할 때 사용합니다.', body: '# 도면 검토\n\n도면 상태와 실제 객체를 조회하고 물량을 표로 정리합니다.' };
 
-test('default creator, finder and installer seed only into private Codex home and preserve existing files', async t => {
+test('default quantity review and skill management seed privately and preserve existing files', async t => {
   const { store, codexHome } = await setup(t);
   await store.seed();
   const skills = await store.list();
-  assert.deepEqual(skills.map(skill => skill.name), ['skill-creator', 'skill-finder', 'skill-installer']);
+  assert.deepEqual(skills.map(skill => skill.name), ['quantity-review', 'skill-creator', 'skill-finder', 'skill-installer']);
   for (const skill of skills) {
     assert.equal(skill.builtin, true);
     assert.equal(skill.path, join(codexHome, 'skills', skill.name, 'SKILL.md'));
@@ -31,6 +31,35 @@ test('default creator, finder and installer seed only into private Codex home an
   await store.seed();
   assert.equal(await readFile(skills[0].path, 'utf8'), changed);
   await assert.rejects(store.save({ ...draft, name: 'skill-creator' }), /기본 스킬/);
+});
+
+test('quantity review is discoverable and immutable while existing private workflows survive seeding', async t => {
+  const { store } = await setup(t);
+  const custom = await store.save(draft);
+  await store.seed();
+  const review = await store.read('quantity-review');
+  assert.equal(review.builtin, true);
+  assert.equal((await store.find('철근')).some(skill => skill.name === review.name), true);
+  const resolved = await store.resolve('/quantity-review 현재 도면 철근을 mm 기준으로 검증');
+  assert.equal(resolved.skill.name, review.name);
+  assert.equal(resolved.skill.path, review.path);
+  assert.equal((await store.read(draft.name)).hash, custom.hash);
+  await assert.rejects(store.save({ ...draft, name: review.name, expectedHash: review.hash }), /기본 스킬/);
+  await assert.rejects(store.remove(review.name, review.hash), /기본 스킬/);
+});
+
+test('bundled review recovery asks for handling rules before approved reusable skill registration', async t => {
+  const { store } = await setup(t);
+  await store.seed();
+  const creator = (await store.read('skill-creator')).body;
+  const review = (await store.read('quantity-review')).body;
+  assert.match(creator, /원하는 결과.*처리 방법.*질문/);
+  assert.match(creator, /사용자가 동의한 절차/);
+  assert.match(creator, /실패.*등록 동의.*아니/);
+  assert.match(creator, /문서 식별자.*객체 핸들/);
+  assert.match(review, /GFM.*코드 블록.*사용하지/);
+  assert.match(review, /원하는 결과.*처리 방법.*질문/);
+  assert.match(review, /skill-creator/);
 });
 
 test('skill creation is private, discoverable, immutable to callers and hash guarded on update', async t => {

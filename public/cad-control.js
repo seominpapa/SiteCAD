@@ -1,7 +1,7 @@
 import { validateControlRequest, validateQueryRequest, validateDiscoverRequest, controlSchemas } from './control-schema.js';
 import { commandName, commandAccess, validateAliases } from './command-policy.js';
 import { GEO_LAYER, METADATA_PREFIX } from './geo-reference.js';
-import { mmPerUnit } from './units.js';
+import { mmPerUnit, mmPerUnitOrNull } from './units.js';
 import { prepareText, prepareDimension, isCadFontResult } from './annotations.js';
 
 const selection = value => JSON.stringify([...(value || [])].sort());
@@ -75,7 +75,7 @@ async function objectProperties(cad, requested, state, units, signal) {
 }
 
 export async function queryDrawing(cad, { request: input, expectedContext }, { signal } = {}) {
-  const scale = mmPerUnit(expectedContext?.units);
+  const scale = mmPerUnitOrNull(expectedContext?.units);
   const checked = validateQueryRequest(input);
   const request = ['query', 'records', 'layers', 'history'].includes(checked.op) ? { limit: 200, ...checked } : checked;
   let state = await guarded(cad, expectedContext, signal);

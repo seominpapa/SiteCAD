@@ -4,10 +4,12 @@ import { PassThrough } from 'node:stream';
 import { createMcpHandler, createBridgeClient, mcpTools, serveMcp } from '../lib/sitecad-mcp.mjs';
 import { researchTools } from '../lib/research-mcp.mjs';
 
+const TEST_MCP_CREDENTIAL = 'private-value';
+
 test('research MCP schemas dispatch to the backend without requiring a CAD write context', async () => {
   const calls = [];
   const handle = createMcpHandler(async (method, args) => { calls.push([method, args]); return { source: true }; }, researchTools);
-  assert.equal((await handle('tools/list')).tools.length, 21);
+  assert.equal((await handle('tools/list')).tools.length, 22);
   assert.equal((await handle('tools/call', { name: 'cad_fetch', arguments: { url: 'https://example.org' } })).structuredContent.source, true);
   await handle('tools/call', { name: 'cad_design_note', arguments: { title: 'test' } });
   await handle('tools/call', { name: 'cad_vworld_geocode', arguments: { address: '서울 중구' } });
@@ -21,7 +23,7 @@ const context = { documentId: 1, revision: 2, units: 4, selection: [], entities:
 test('MCP exposes drawing tools and binds edits to fresh context', async () => {
   const calls = [];
   const handle = createMcpHandler(async (method, payload) => { calls.push({ method, payload }); return method === 'context' ? context : { success: true }; });
-  assert.deepEqual((await handle('tools/list', {})).tools.map(t => t.name), ['cad_context', 'cad_execute', 'cad_save', 'cad_insert_parcels', 'cad_insert_terrain','sitecad_mcp','sitecad_skills','sitecad_plugins', 'cad_prepare_site', 'cad_discover', 'cad_query', 'cad_control', 'cad_download', 'cad_calculate', 'cad_terrain_register']);
+  assert.deepEqual((await handle('tools/list', {})).tools.map(t => t.name), ['cad_context', 'cad_execute', 'cad_save', 'cad_insert_parcels', 'cad_insert_terrain','sitecad_mcp','sitecad_skills','sitecad_plugins','sitecad_apis', 'cad_prepare_site', 'cad_discover', 'cad_query', 'cad_control', 'cad_download', 'cad_calculate', 'cad_terrain_register']);
   const operations = [{ type: 'line', x1_mm: 0, y1_mm: 0, x2_mm: 10, y2_mm: 0 }];
   assert.equal((await handle('tools/call', { name: 'cad_execute', arguments: { operations } })).isError, undefined);
   assert.deepEqual(calls.map(c => c.method), ['context', 'execute']);
@@ -29,6 +31,32 @@ test('MCP exposes drawing tools and binds edits to fresh context', async () => {
   await handle('tools/call', { name: 'cad_save', arguments: { name: 'example.dwg' } });
   assert.deepEqual(calls.map(c => c.method), ['context', 'execute', 'context', 'save']);
   assert.equal(mcpTools[0].annotations.readOnlyHint, true);
+});
+
+test('API management tool forwards only metadata or settings guidance and refuses key arguments', async () => {
+  const calls = [];
+  const handle = createMcpHandler(async (method, args) => { calls.push({ method, args }); return { status: 'key_required', settingsTarget: 'api', apiId: 'weather' }; });
+  const tool = (await handle('tools/list')).tools.find(item => item.name === 'sitecad_apis');
+  assert.equal(tool.inputSchema.additionalProperties, false);
+  assert.equal(Object.hasOwn(tool.inputSchema.properties, 'apiKey'), false);
+  for (const args of [{ action: 'list' }, { action: 'request', id: 'kcsc' }, { action: 'register', id: 'weather', name: 'Weather', url: 'https://example.org/docs', issuanceUrl: 'https://example.org/keys' }]) {
+    assert.equal((await handle('tools/call', { name: 'sitecad_apis', arguments: args })).structuredContent.status, 'key_required');
+  }
+  assert.deepEqual(calls.map(item => item.method), ['manage_apis', 'manage_apis', 'manage_apis']);
+  for (const args of [{ action: 'register', apiKey: 'secret' }, { action: 'list', token: 'secret' }, { action: 'save', id: 'weather', apiKey: 'secret' }]) assert.equal((await handle('tools/call', { name: 'sitecad_apis', arguments: args })).isError, true);
+  assert.equal(calls.length, 3);
+});
+
+test('MCP installation tools expose public credential requirements while refusing values before the bridge', async () => {
+  const calls = [];
+  const handle = createMcpHandler(async (method, args) => { calls.push({ method, args }); return { status: 'key_required' }; });
+  const tool = (await handle('tools/list')).tools.find(item => item.name === 'sitecad_mcp');
+  assert.equal(tool.inputSchema.properties.credentials.additionalProperties, false);
+  const credentials = { envKeys: ['SERVICE_API_KEY'], issuanceUrl: 'https://example.org/keys' };
+  assert.equal((await handle('tools/call', { name: 'sitecad_mcp', arguments: { action: 'install', planId: 'plan', name: 'weather', credentials } })).structuredContent.status, 'key_required');
+  assert.deepEqual(calls[0].args.credentials, credentials);
+  for (const arguments_ of [{ action: 'add', name: 'remote', url: 'https://example.org/mcp', credentials: { bearerToken: TEST_MCP_CREDENTIAL } }, { action: 'install', name: 'weather', planId: 'plan', credentials: { envKeys: ['NODE_OPTIONS'] } }, { action: 'install', name: 'weather', planId: 'plan', apiKey: TEST_MCP_CREDENTIAL }]) assert.equal((await handle('tools/call', { name: 'sitecad_mcp', arguments: arguments_ })).isError, true);
+  assert.equal(calls.length, 1);
 });
 test('MCP refuses unsupported operations, oversized plans, path traversal and extra arguments', async () => {
   const handle = createMcpHandler(async () => { throw Error('must not reach bridge'); });

@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { appendProvenance, createMcpSettings, safeSourceUrl } from '../public/mcp-settings.js';
 
-const TEST_API_KEY = 'secret-key';
-
 class Element {
   constructor(tag = 'div') {
     Object.assign(this, { tagName: tag, children: [], listeners: {}, dataset: {}, value: '', textContent: '', hidden: false, checked: false, disabled: false, open: false });
@@ -36,166 +34,25 @@ async function fixture(t, referenceState = { configured: false }, servers = [], 
   return { ids, requests, html };
 }
 
-const descendants = node => [node, ...node.children.flatMap(descendants)];
-const content = node => descendants(node).map(item => item.textContent).join(' ');
-
 test('source links only allow absolute HTTPS addresses without credentials', () => {
   assert.equal(safeSourceUrl('https://example.org/reference'), 'https://example.org/reference');
   for (const url of ['javascript:alert(1)', 'data:text/html,attack', 'http://example.org', '/local', 'https://user:secret@example.org']) assert.equal(safeSourceUrl(url), null);
 });
 
-test('connection dialog has an accessible registered-only list with refresh and close', async t => {
-  const { html } = await fixture(t);
-  const dialog = html.match(/<dialog id="mcp-dialog"[\s\S]*?<\/dialog>/)[0];
-  assert.match(html, /id="manage-mcp"[^>]*>외부 연결<\/button>/);
-  assert.match(dialog, /aria-labelledby="mcp-dialog-title"/);
-  assert.match(dialog, /id="mcp-dialog-title">외부 연결<\/h2>/);
-  assert.match(dialog, /aria-label="외부 연결 닫기"/);
-  assert.match(dialog, /id="mcp-server-list"[^>]*aria-live="polite"/);
-  assert.equal((dialog.match(/<button/g) || []).length, 2);
-  assert.doesNotMatch(dialog, /<input|<textarea|reference-catalog|mcp-config|REA|KDS|지형 원본/);
+test('external connections are consolidated into the accessible settings tabs',async t=>{
+  const {html}=await fixture(t);
+  assert.doesNotMatch(html,/id="(?:mcp-dialog|manage-mcp|external-mcp-status)"/);
+  assert.match(html,/id="settings-dialog"[^>]*aria-labelledby="settings-title"/);
+  for(const tab of ['api','mcp','plugins'])assert.match(html,new RegExp(`id="settings-tab-${tab}"[^>]*role="tab"`));
 });
 
-test('empty connections show no presets or unconfigured APIs and guide registration through chat', async t => {
-  const { ids, requests } = await fixture(t);
-  const settings = createMcpSettings({ isBusy: () => false, notify: assert.fail });
-  settings.update({ desktop: true });
-  await settings.refresh();
-  assert.match(content(ids['mcp-server-list']), /등록된 연결이 없습니다.*채팅/);
-  assert.doesNotMatch(content(ids['mcp-server-list']), /REA|VWorld|OpenCAD|KDS/);
-  assert.equal(ids['external-mcp-status'].textContent, '등록된 연결 없음');
-  assert.equal(ids['mcp-dialog'].open, false);
-  assert.equal(settings.handleCommand, undefined);
-  assert.deepEqual(requests.map(item => item.url).sort(), ['/api/desktop/kcsc', '/api/desktop/mcp', '/api/desktop/plugins', '/api/desktop/references']);
-  assert.ok(requests.every(item => !item.method || item.method === 'GET'));
-});
-
-test('registered MCPs including REA are read-only and expose status without commands or secrets', async t => {
-  const servers = [
-    { name: 'rea', enabled: true, connected: true, transport: 'stdio', tools: ['inspect'], command: '/private/secret', args: ['credential'], envKeys: ['TOKEN'] },
-    { name: '<img onerror=attack()>', enabled: false, connected: true },
-    { name: 'oauth', enabled: true, status: 'authenticationRequired' },
-    { name: 'failed', enabled: true, status: 'failed', error: 'secret backend path' },
-    { name: 'waiting', enabled: true },
-  ];
-  const { ids } = await fixture(t, { configured: false }, servers);
-  const settings = createMcpSettings({ isBusy: () => false });
-  settings.update({ desktop: true }); await settings.refresh();
-  const cards = ids['mcp-server-list'].children;
-  assert.equal(cards.length, 5);
-  for (const [index, status] of ['연결됨', '사용 안 함', '인증 필요', '연결 실패', '연결 확인 필요'].entries()) assert.equal(cards[index].children[0].children[1].textContent, status);
-  assert.match(content(cards[0]), /rea.*MCP.*stdio.*도구 1개/);
-  assert.match(content(cards[1]), /<img onerror=attack\(\)>/);
-  assert.doesNotMatch(content(ids['mcp-server-list']), /private|credential|TOKEN|secret backend/);
-  assert.equal(descendants(ids['mcp-server-list']).filter(item => ['button', 'input', 'textarea'].includes(item.tagName)).length, 0);
-  assert.equal(ids['external-mcp-status'].textContent, 'MCP 5 · API 0 · 플러그인 0');
-});
-
-test('KCSC is one registered MCP row with private-key status and chat registration guidance', async t => {
-  const { ids, html } = await fixture(t, { configured: false }, [{ name: 'kcsc', enabled: true, connected: true, transport: 'stdio', tools: ['search'] }], { configured: false, connected: false });
-  const settings = createMcpSettings({ isBusy: () => false });
-  settings.update({ desktop: true }); await settings.refresh();
-  assert.equal(ids['mcp-server-list'].children.length, 1);
-  assert.match(content(ids['mcp-server-list']), /KCSC.*키 미등록.*MCP.*\/api kcsc/);
-  assert.equal(ids['external-mcp-status'].textContent, 'MCP 1 · API 0 · 플러그인 0');
-  settings.update({ desktop: true, kcsc: { configured: true, connected: true, count: 7, lastCheck: { ok: true } } });
-  assert.match(content(ids['mcp-server-list']), /키 등록됨.*연결 확인됨/);
-  assert.doesNotMatch(content(ids['mcp-server-list']), /키 미등록/);
-  settings.update({ desktop: true, kcsc: { configured: true, connected: false, lastCheck: { ok: false }, apiKey: TEST_API_KEY, path: '/private/user' } });
-  assert.match(content(ids['mcp-server-list']), /연결 확인 실패/);
-  assert.doesNotMatch(content(ids['mcp-server-list']), /secret-key|private\/user|연결 확인됨/);
-  settings.update({ desktop: true, externalMcp: { servers: [] } });
-  assert.doesNotMatch(content(ids['mcp-server-list']), /KCSC/);
-  assert.match(html, /data-prompt="\/api kcsc"/);
-});
-
-test('only a configured VWorld API is listed and unverified credentials are not called connected', async t => {
-  const { ids } = await fixture(t, { configured: true, domain: 'private.example', apiKey: 'secret-key' });
-  const settings = createMcpSettings({ isBusy: () => false });
-  settings.update({ desktop: true }); await settings.refresh();
-  assert.match(content(ids['mcp-server-list']), /VWorld.*등록됨 · 연결 미확인.*API/);
-  assert.doesNotMatch(content(ids['mcp-server-list']), /private.example|secret-key|연결됨/);
-  assert.equal(ids['external-mcp-status'].textContent, 'MCP 0 · API 1 · 플러그인 0');
-  settings.update({ desktop: true });
-  assert.match(content(ids['mcp-server-list']), /VWorld/);
-  settings.update({ desktop: true, references: { vworld: { configured: true, lastCheck: { ok: true } } } });
-  assert.match(content(ids['mcp-server-list']), /연결 확인됨/);
-  settings.update({ desktop: true, references: { vworld: { configured: true, lastCheck: { ok: false } } } });
-  assert.match(content(ids['mcp-server-list']), /연결 확인 실패/);
-  settings.update({ desktop: true, references: { vworld: { configured: false } } });
-  assert.doesNotMatch(content(ids['mcp-server-list']), /VWorld/);
-});
-
-test('a preconfigured API connector without its key shows registration guidance in the inventory', async t => {
-  const { ids } = await fixture(t);
-  const settings = createMcpSettings({ isBusy: () => false });
-  settings.update({ desktop: true, references: { catalog: [{ id: 'vworld', kind: 'api' }], vworld: { configured: false } } });
-  assert.match(content(ids['mcp-server-list']), /VWorld.*키 미등록.*\/api vworld/);
-  assert.equal(ids['external-mcp-status'].textContent, 'MCP 0 · API 1 · 플러그인 0');
-  settings.update({ desktop: true, references: { vworld: { configured: true } } });
-  assert.match(content(ids['mcp-server-list']), /키 등록됨/);
-  assert.doesNotMatch(content(ids['mcp-server-list']), /키 미등록/);
-});
-
-test('installed plugins appear separately without source code, private paths or install actions', async t => {
-  const { ids, html } = await fixture(t);
-  const settings = createMcpSettings({ isBusy: () => false });
-  settings.update({ desktop: true, plugins: [
-    { name: 'quantity-workflows', version: '1.0.0', skills: ['plugin-quantity-check'], status: 'installed', path: '/private/path', body: 'untrusted source' },
-    { name: 'changed', skills: [], status: 'modified' },
-    { name: 'missing', status: 'unavailable' },
-  ] });
-  assert.match(content(ids['mcp-server-list']), /quantity-workflows.*설치됨.*플러그인.*1.0.0.*스킬 1개/);
-  assert.match(content(ids['mcp-server-list']), /수정됨.*확인 필요/);
-  assert.doesNotMatch(content(ids['mcp-server-list']), /private\/path|untrusted source|연결됨/);
-  assert.equal(ids['external-mcp-status'].textContent, 'MCP 0 · API 0 · 플러그인 3');
-  assert.match(html, /data-prompt="API 등록해줘"[^>]*>API 등록/);
-  assert.match(html, /플러그인 설치 안내/);
-});
-
-test('opening and refreshing reads current connections without registration or test requests', async t => {
-  const { ids, requests } = await fixture(t, { configured: false }, [{ name: 'fresh', enabled: true, connected: true }]);
-  const settings = createMcpSettings({ isBusy: () => false });
-  settings.update({ desktop: true });
-  await ids['manage-mcp'].listeners.click();
-  assert.equal(ids['mcp-dialog'].open, true);
-  assert.match(content(ids['mcp-server-list']), /fresh/);
-  await ids['mcp-refresh'].listeners.click();
-  assert.equal(requests.length, 8);
-  assert.ok(requests.every(item => ['/api/desktop/mcp', '/api/desktop/references', '/api/desktop/plugins', '/api/desktop/kcsc'].includes(item.url) && !item.body));
-});
-
-test('failed refresh remains visible and retains the previous complete inventory', async t => {
-  const { ids } = await fixture(t, { configured: true }, [{ name: 'kept', enabled: true }]);
-  const settings = createMcpSettings({ isBusy: () => false });
-  settings.update({ desktop: true }); await settings.refresh();
-  globalThis.fetch = async url => ({ ok: !url.endsWith('/references'), json: async () => url.endsWith('/references') ? { ok: false, error: '상태 조회 실패' } : { ok: true, data: { servers: [{ name: 'partial-new' }] } } });
-  await ids['mcp-refresh'].listeners.click();
-  assert.equal(ids['mcp-notice'].hidden, false);
-  assert.match(ids['mcp-notice'].textContent, /상태 조회 실패/);
-  assert.match(content(ids['mcp-server-list']), /kept.*VWorld/);
-  assert.doesNotMatch(content(ids['mcp-server-list']), /partial-new/);
-  assert.equal(ids['mcp-refresh'].disabled, false);
-});
-
-test('busy or unsupported state blocks inventory actions while close remains available', async t => {
-  const { ids, requests, html } = await fixture(t);
-  let busy = true;
-  const settings = createMcpSettings({ isBusy: () => busy });
-  settings.update({ desktop: true });
-  assert.equal(ids['manage-mcp'].disabled, true);
-  assert.equal(ids['mcp-refresh'].disabled, true);
-  await ids['manage-mcp'].listeners.click(); await ids['mcp-refresh'].listeners.click();
-  assert.equal(requests.length, 0);
-  assert.equal(ids['mcp-dialog'].open, false);
-  assert.match(html, /<button type="submit" aria-label="외부 연결 닫기">/);
-  busy = false; settings.sync();
-  assert.equal(ids['mcp-refresh'].disabled, false);
-  settings.update({ desktop: false });
-  assert.equal(ids['manage-mcp'].hidden, true);
-  assert.equal(ids['external-mcp-status'].hidden, true);
-  await settings.refresh();
-  assert.equal(requests.length, 0);
+test('approval helper does not duplicate settings inventories or read credentials',async t=>{
+  const {ids,requests}=await fixture(t);
+  const settings=createMcpSettings({isBusy:()=>false,notify:assert.fail});
+  settings.update({desktop:true,externalMcp:{servers:[{name:'demo'}]},references:{vworld:{configured:true}}});
+  settings.sync();await settings.refresh();
+  assert.equal(requests.length,0);assert.equal(ids['tool-approvals'].hidden,true);
+  assert.equal(settings.handleCommand,undefined);
 });
 
 test('external tools show bounded inputs and do not approve hidden arguments', async t => {
@@ -310,7 +167,7 @@ test('downloaded terrain cards show original hash, download time and unverified 
   assert.ok(all.some(node => node.textContent.includes('원출처·표고 기준 미검증')));
 });
 
-test('persistent MCP installation and skill replacement approvals explain their scope', async t => {
+test('persistent MCP installation, API registration and skill replacement approvals explain their scope', async t => {
   const { ids, requests } = await fixture(t);
   const settings = createMcpSettings({ isBusy: () => true, notify: assert.fail });
   settings.update({ desktop: true, approvals: [{ id: 'install', kind: 'mcp-install', server: 'SiteCAD', tool: 'MCP 설치 및 연결', arguments: { package: '@example/mcp@1.0.0' } }] });
@@ -327,6 +184,12 @@ test('persistent MCP installation and skill replacement approvals explain their 
   assert.match(overwrite.children[0].textContent, /스킬 덮어쓰기/);
   assert.match(overwrite.children[3].textContent, /기존 스킬.*교체/);
   assert.equal(overwrite.children.at(-1).children[0].textContent, '덮어쓰기 승인');
+  settings.update({ desktop:true,approvals:[{id:'api',kind:'api-register',server:'SiteCAD',tool:'API 항목 등록',arguments:{name:'공식 API',url:'https://example.org/docs'}}] });
+  const api=ids['tool-approvals'].children[0];
+  assert.equal(api.children[0].textContent,'API 항목 등록 승인');
+  assert.match(api.children[3].textContent,/설정 → API.*보관/);
+  assert.match(api.children[3].textContent,/실제 API 호출.*아닙니다/);
+  assert.equal(api.children.at(-1).children[0].textContent,'API 항목 등록 승인');
 });
 
 test('large skill overwrite reviews show the whole bounded skill and remain approvable', async t => {

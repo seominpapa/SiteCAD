@@ -12,7 +12,7 @@ async function setup(t, action) {
   let controller;
   const runtime = { start: async () => {}, stop: async () => {}, status: () => ({}), chat: async () => action(controller) };
   controller = await createDesktopController({ dataDir, codexPath: '/app/codex', nodePath: '/app/node', secureStore: {}, bridgeTimeoutMs: 100,
-    authFactory: async () => ({ getAccessToken: async () => 'test', close: async () => {} }), runtimeFactory: async () => runtime });
+    authFactory: async () => ({ status: async () => ({ loggedIn: true }), getAccessToken: async () => 'test', close: async () => {} }), runtimeFactory: async () => runtime });
   await controller.start({ baseUrl: 'http://127.0.0.1:4317' });
   t.after(async () => { await controller.close(); await rm(dataDir, { recursive: true, force: true }); });
   return { controller, dataDir, turn: () => controller.chat({ message: '도면 작업', context: base, history: [] }) };

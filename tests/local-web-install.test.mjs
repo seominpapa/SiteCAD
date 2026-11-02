@@ -210,7 +210,7 @@ test('Windows release ZIP contains both launchers, verified bootstrap and no pri
   assert.match(entries, /SiteCAD\/Start SiteCAD\.cmd/);
   assert.match(entries, /SiteCAD\/Start SiteCAD\.command/);
   assert.match(entries, /SiteCAD\/scripts\/bootstrap-local-web\.ps1/);
-  for(const name of ['skill-creator','skill-finder','skill-installer']) assert.ok(entries.includes(`SiteCAD/skills/${name}/SKILL.md`));
+  for(const name of ['quantity-review','skill-creator','skill-finder','skill-installer']) assert.ok(entries.includes(`SiteCAD/skills/${name}/SKILL.md`));
   assert.doesNotMatch(entries, /secret|\.env|\.runtime/);
   await assert.rejects(buildLocalWeb({ sourceRoot, fixturePath, platform: '../private' }), /Unsupported SiteCAD release platform/);
 });

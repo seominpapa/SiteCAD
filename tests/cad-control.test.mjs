@@ -45,6 +45,64 @@ test('discovery and measurements preserve native drawing units', async () => {
   assert.ok(calls.some(call => call.op === 'measure'));
 });
 
+test('unitless CAD reads preserve text, attributes and raw measurements without assuming mm', async () => {
+  const requests = [
+    {op:'query',type:'Text',detail:'full'}, {op:'records',collection:'entities',type:'Insert'},
+    {op:'properties',handles:['A']}, {op:'measure',handles:['A']}, {op:'state'},
+    {op:'layers'}, {op:'header'}, {op:'history'}, {op:'sysvar',get:['INSUNITS']},
+  ];
+  for (const units of [0,24]) {
+    for (const request of requests) {
+      const value=engine({units});const native=value.cad.request;
+      const entities=[{handle:'A',type:'Text',properties:{value:'H1 D16',attributes:[{tag:'MARK',value:'H1'}]}}];
+      value.cad.request=async input=>input.op==='query' ? (value.calls.push(input),{ok:true,entities})
+        : input.op==='records' ? (value.calls.push(input),{ok:true,records:entities}) : native(input);
+      value.cad.iframe.contentWindow.ocsControl.request=async input=>{
+        value.calls.push(input);
+        const state=await value.cad.snapshot();value.setState({event_cursor:1});
+        return {ok:true,result:{insunits:units},state};
+      };
+      const before=structuredClone(value.base);
+      const result=await queryDrawing(value.cad,{request,expectedContext:value.base});
+      assert.equal(result.mmPerDrawingUnit,null);
+      assert.equal(result.units,units);
+      if (['query','properties'].includes(request.op)) assert.deepEqual(result.result.entities,entities);
+      if (request.op==='records') assert.deepEqual(result.result.records,entities);
+      if (request.op==='measure') assert.equal(result.result.measurements[0].curve.length,4);
+      assert.deepEqual(value.base,before);
+      assert.ok(value.calls.some(call=>call.op===(request.op==='properties'?'query':request.op)));
+      assert.equal(value.calls.some(call=>call.op==='sysvar'&&call.set),false);
+    }
+  }
+  const mm=engine();
+  assert.equal((await queryDrawing(mm.cad,{request:{op:'measure',handles:['A']},expectedContext:mm.base})).mmPerDrawingUnit,1);
+});
+
+test('unitless reads retain stale state, header, cancellation and input validation guards', async () => {
+  for (const units of [undefined,null,-1,25,4.5,'4',NaN]) {
+    const value=engine({units});
+    await assert.rejects(queryDrawing(value.cad,{request:{op:'query'},expectedContext:{...value.base,units}}),/단위/);
+    assert.equal(value.calls.length,0);
+  }
+  const stale=engine({units:0});stale.setState({revision:99});
+  await assert.rejects(queryDrawing(stale.cad,{request:{op:'query'},expectedContext:stale.base}),/변경/);
+  assert.equal(stale.calls.some(call=>call.op==='query'),false);
+  const changed=engine({units:0});const native=changed.cad.request;
+  changed.cad.request=async request=>request.op==='header'?{ok:true,insertion_units:4}:native(request);
+  await assert.rejects(queryDrawing(changed.cad,{request:{op:'query'},expectedContext:changed.base}),/단위.*변경/);
+  assert.equal(changed.calls.some(call=>call.op==='query'),false);
+  const after=engine({units:0});const read=after.cad.request;let queried=false;
+  after.cad.request=async request=>{
+    if(request.op==='query') queried=true;
+    if(request.op==='header'&&queried) return {ok:true,insertion_units:4};
+    return read(request);
+  };
+  await assert.rejects(queryDrawing(after.cad,{request:{op:'query'},expectedContext:after.base}),/변경/);
+  const cancelled=engine({units:0});
+  await assert.rejects(queryDrawing(cancelled.cad,{request:{op:'query'},expectedContext:cancelled.base},{signal:AbortSignal.abort()}),/취소/);
+  assert.equal(cancelled.calls.length,0);
+});
+
 test('3D native measurements preserve volume and surface area without converting raw values', async () => {
   const value=engine({units:6});const native=value.cad.request;
   value.cad.request=async request=>request.op==='measure'?{ok:true,measurements:[{handle:'A',mesh:{volume:24,surface_area:52}}]}:native(request);

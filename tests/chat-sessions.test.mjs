@@ -125,6 +125,36 @@ test('chat transcript limit preserves complete turns instead of silently discard
   assert.equal((await store.read(chat.id)).messages.length, 500);
 });
 
+test('deleting one persisted chat preserves other history and cannot be resurrected by later queued updates', async t => {
+  const { dataDir, store } = await fixture(t);
+  const first = await store.create(), second = await store.create();
+  await store.recordTurn(second.id, { message: '보존할 질문', reply: '보존할 답변' });
+  const writing = store.recordTurn(first.id, { message: '삭제할 질문', reply: '삭제할 답변' });
+  const deleting = store.delete(first.id);
+  const lateWrite = assert.rejects(store.recordTurn(first.id, { message: '늦은 질문', reply: '생성되면 안 됨' }), /기록/);
+  await writing;
+  assert.deepEqual(await deleting, { id: first.id, deleted: true });
+  await lateWrite;
+  const restarted = await createChatSessions({ dataDir });
+  assert.deepEqual((await restarted.list()).map(chat => chat.id), [second.id]);
+  assert.equal((await restarted.read(second.id)).messages[0].text, '보존할 질문');
+  await assert.rejects(restarted.read(first.id), /기록/);
+});
+
+test('chat deletion rejects unsafe IDs, symlink targets and a replaced session directory', async t => {
+  const { dataDir, store } = await fixture(t);
+  const chat = await store.create(), outside = join(dataDir, 'outside.json');
+  await writeFile(outside, 'private outside history');
+  for (const id of ['../outside', undefined, '00000000-0000-0000-0000-000000000000']) await assert.rejects(store.delete(id), /ID/);
+  await rm(join(dataDir, 'chat-sessions', `${chat.id}.json`));
+  await symlink(outside, join(dataDir, 'chat-sessions', `${chat.id}.json`));
+  await assert.rejects(store.delete(chat.id), /기록|폴더/);
+  assert.equal(await readFile(outside, 'utf8'), 'private outside history');
+  await rm(join(dataDir, 'chat-sessions'), { recursive: true });
+  await symlink(dataDir, join(dataDir, 'chat-sessions'));
+  await assert.rejects(store.delete(chat.id), /폴더/);
+});
+
 class Element {
   constructor() { this.value = ''; this.children = []; this.listeners = {}; this.disabled = false; this.textContent = ''; }
   addEventListener(event, listener) { this.listeners[event] = listener; }
@@ -137,7 +167,7 @@ test('chat selector restores only the selected ID, renders safe titles and keeps
   const previous = { document: globalThis.document, fetch: globalThis.fetch, localStorage: globalThis.localStorage };
   t.after(() => { for (const [key, value] of Object.entries(previous)) globalThis[key] = value; });
   const first = '00000000-0000-4000-8000-000000000001', second = '00000000-0000-4000-8000-000000000002';
-  const ids = Object.fromEntries(['chat-new', 'chat-select', 'chat-history-status'].map(id => [id, new Element()]));
+  const ids = Object.fromEntries(['chat-new', 'chat-select', 'chat-delete', 'chat-history-status'].map(id => [id, new Element()]));
   globalThis.document = { getElementById: id => ids[id], createElement: () => new Element() };
   const preferences = new Map([['sitecad.currentChatId', first]]);
   globalThis.localStorage = { getItem: key => preferences.get(key), setItem: (key, value) => preferences.set(key, value) };
@@ -176,7 +206,7 @@ test('failed chat selection preserves the current conversation and reports error
   const previous = { document: globalThis.document, fetch: globalThis.fetch, localStorage: globalThis.localStorage };
   t.after(() => { for (const [key, value] of Object.entries(previous)) globalThis[key] = value; });
   const first = '00000000-0000-4000-8000-000000000001', second = '00000000-0000-4000-8000-000000000002';
-  const ids = Object.fromEntries(['chat-new', 'chat-select', 'chat-history-status'].map(id => [id, new Element()]));
+  const ids = Object.fromEntries(['chat-new', 'chat-select', 'chat-delete', 'chat-history-status'].map(id => [id, new Element()]));
   globalThis.document = { getElementById: id => ids[id], createElement: () => new Element() };
   globalThis.localStorage = undefined;
   const errors = [];
@@ -194,7 +224,7 @@ test('empty chat storage creates one chat, refreshes title, and does not reiniti
   const previous = { document: globalThis.document, fetch: globalThis.fetch, localStorage: globalThis.localStorage };
   t.after(() => { for (const [key, value] of Object.entries(previous)) globalThis[key] = value; });
   const first = '00000000-0000-4000-8000-000000000001';
-  const ids = Object.fromEntries(['chat-new', 'chat-select', 'chat-history-status'].map(id => [id, new Element()]));
+  const ids = Object.fromEntries(['chat-new', 'chat-select', 'chat-delete', 'chat-history-status'].map(id => [id, new Element()]));
   globalThis.document = { getElementById: id => ids[id], createElement: () => new Element() };
   globalThis.localStorage = { getItem() { throw Error('blocked'); }, setItem() { throw Error('blocked'); } };
   let chat, selected = 0, available = false;
@@ -210,4 +240,85 @@ test('empty chat storage creates one chat, refreshes title, and does not reiniti
   await ui.refresh(); await ui.init();
   assert.equal(ids['chat-select'].children[0].textContent, '옹벽 단면');
   assert.equal(selected, 1);
+});
+
+test('confirmed deletion removes only the selected conversation, selects the next, and creates a blank after the last', async t => {
+  const previous = { document: globalThis.document, fetch: globalThis.fetch, localStorage: globalThis.localStorage };
+  t.after(() => { for (const [key, value] of Object.entries(previous)) globalThis[key] = value; });
+  const first = '00000000-0000-4000-8000-000000000001', second = '00000000-0000-4000-8000-000000000002', blank = '00000000-0000-4000-8000-000000000003';
+  const ids = Object.fromEntries(['chat-new', 'chat-select', 'chat-delete', 'chat-history-status'].map(id => [id, new Element()]));
+  globalThis.document = { getElementById: id => ids[id], createElement: () => new Element() };
+  const preferences = new Map();
+  globalThis.localStorage = { getItem: key => preferences.get(key), setItem: (key, value) => preferences.set(key, value), removeItem: key => preferences.delete(key) };
+  let chats = [{ id: first, title: '첫 채팅', messages: [] }, { id: second, title: '보존할 채팅', messages: [{ role: 'user', text: '기존 질문' }] }], busy = false;
+  const requests = [], selected = [], errors = [];
+  globalThis.fetch = async (url, options = {}) => {
+    requests.push({ url, options });
+    let data;
+    if (url.endsWith('/delete')) {
+      assert.equal(options.method, 'POST');
+      const { id } = JSON.parse(options.body);
+      chats = chats.filter(chat => chat.id !== id);
+      data = { id, deleted: true };
+    } else if (url.endsWith('/new')) {
+      const chat = { id: blank, title: '새 채팅', messages: [] };
+      chats = [...chats, chat]; data = { chat };
+    } else data = url.endsWith('/chats') ? { chats } : { chat: chats.find(chat => chat.id === url.split('/').at(-1)) };
+    return { ok: true, json: async () => ({ ok: true, data }) };
+  };
+  const ui = createChatSessionsUI({ isBusy: () => busy, onSelect: chat => selected.push(chat), onError: error => errors.push(error) });
+  await ui.init();
+  await ids['chat-delete'].listeners.click();
+  assert.equal(requests.some(request => request.url.endsWith('/delete')), false);
+  assert.equal(ids['chat-delete'].textContent, '삭제 확인');
+  assert.match(ids['chat-history-status'].textContent, /다시/);
+  busy = true; ui.sync();
+  assert.equal(ids['chat-delete'].disabled, true);
+  await ids['chat-delete'].listeners.click();
+  busy = false; ui.sync();
+  await ids['chat-delete'].listeners.click();
+  assert.equal(ui.currentId(), first, 'being busy cancels the previous confirmation');
+  await ids['chat-delete'].listeners.click();
+  assert.equal(ui.currentId(), second);
+  assert.equal(selected.at(-1).messages[0].text, '기존 질문');
+  assert.deepEqual(ids['chat-select'].children.map(item => item.value), [second]);
+  assert.equal(preferences.get('sitecad.currentChatId'), second);
+  await ids['chat-delete'].listeners.click();
+  await ids['chat-delete'].listeners.click();
+  assert.equal(ui.currentId(), blank);
+  assert.deepEqual(selected.at(-1).messages, []);
+  assert.equal(preferences.get('sitecad.currentChatId'), blank);
+  assert.deepEqual(requests.filter(request => request.url.endsWith('/delete')).map(request => JSON.parse(request.options.body)), [{ id: first }, { id: second }]);
+  assert.equal(errors.length, 0);
+});
+
+test('failed or pending deletion preserves selected history and does not send duplicate delete requests', async t => {
+  const previous = { document: globalThis.document, fetch: globalThis.fetch, localStorage: globalThis.localStorage };
+  t.after(() => { for (const [key, value] of Object.entries(previous)) globalThis[key] = value; });
+  const first = '00000000-0000-4000-8000-000000000001';
+  const ids = Object.fromEntries(['chat-new', 'chat-select', 'chat-delete', 'chat-history-status'].map(id => [id, new Element()]));
+  globalThis.document = { getElementById: id => ids[id], createElement: () => new Element() };
+  globalThis.localStorage = undefined;
+  let finish, requests = 0, selected = 0;
+  const errors = [];
+  globalThis.fetch = async url => {
+    if (url.endsWith('/delete')) { requests++; return new Promise(resolve => { finish = resolve; }); }
+    return { ok: true, json: async () => ({ ok: true, data: url.endsWith('/chats') ? { chats: [{ id: first, title: '원래 채팅' }] } : { chat: { id: first, messages: [] } } }) };
+  };
+  const ui = createChatSessionsUI({ onSelect: () => selected++, onError: error => errors.push(error) });
+  await ui.init();
+  await ids['chat-delete'].listeners.click();
+  const deleting = ids['chat-delete'].listeners.click();
+  assert.equal(ui.isPending(), true);
+  assert.equal(ids['chat-delete'].disabled, true);
+  await ids['chat-delete'].listeners.click();
+  assert.equal(requests, 1);
+  finish({ ok: false, json: async () => ({ ok: false, error: '채팅 삭제 실패' }) });
+  await deleting;
+  assert.equal(ui.currentId(), first);
+  assert.equal(ids['chat-select'].children.length, 1);
+  assert.equal(selected, 1);
+  assert.equal(ui.isPending(), false);
+  assert.equal(ids['chat-delete'].textContent, '삭제');
+  assert.match(errors[0].message, /삭제 실패/);
 });

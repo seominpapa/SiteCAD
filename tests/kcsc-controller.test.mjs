@@ -14,7 +14,7 @@ async function fixture(t, { save } = {}) {
   t.after(() => rm(dataDir, { recursive: true, force: true }));
   const calls = [];
   const controller = await createDesktopController({ dataDir, nodePath: process.execPath,
-    authFactory: async () => ({ status: async () => ({ loggedIn: true }), cancel: async () => {}, close: async () => {} }),
+    authFactory: async () => ({ status: async () => ({ loggedIn: true }), getAccessToken: async () => 'fixture-token', cancel: async () => {}, close: async () => {} }),
     kcscFactory: ({ registry }) => {
       assert.equal(typeof registry.revision, 'function');
       return { status: async () => structuredClone(safeStatus),
