@@ -54,4 +54,4 @@ export async function buildLocalWeb({ sourceRoot = root, platform = 'darwin', ou
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) console.log(await buildLocalWeb({ platform: process.argv.includes('--windows') ? 'win32' : 'darwin' }));
+if (import.meta.main) console.log(await buildLocalWeb({ platform: process.argv.includes('--windows') ? 'win32' : 'darwin' }));

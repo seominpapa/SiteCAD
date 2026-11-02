@@ -7,7 +7,6 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { fileURLToPath } from 'node:url';
 
 export const CODEX_VERSION = '0.163.0';
 const hashes = {
@@ -155,7 +154,7 @@ export async function installCodex({ destination, arch = process.arch, platform 
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (import.meta.main) {
   const destination = resolve(process.argv[2] || 'desktop/runtime');
   console.log(await installCodex({ destination, arch: process.argv[3] || process.arch, archivePath: process.argv[4] || undefined, platform: process.argv[5] || process.platform }));
 }

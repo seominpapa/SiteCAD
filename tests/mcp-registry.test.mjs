@@ -20,7 +20,7 @@ test('MCP entries persist privately and safe listings are independent copies', a
   const { registry, dataDir, config } = await setup(t);
   assert.deepEqual(await registry.list(), []);
   await registry.upsert(stdio);
-  assert.equal((await stat(join(dataDir, 'external-mcp.json'))).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal((await stat(join(dataDir, 'external-mcp.json'))).mode & 0o777, 0o600);
   const list = await registry.list();
   list[0].args.push('changed');
   assert.deepEqual((await registry.list())[0].args, ['mcp']);

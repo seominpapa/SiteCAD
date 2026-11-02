@@ -178,7 +178,7 @@ export async function startLocalWeb({ dataDir = defaultDataDir(), codexPath, ent
   } catch (cause) { readyReject(cause); await close(); throw cause; }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (import.meta.main) {
   startLocalWeb({ ...(process.env.SITECAD_WEB_DATA_DIR ? { dataDir: process.env.SITECAD_WEB_DATA_DIR } : {}) }).then(instance => {
     console.log(`SiteCAD 로컬 웹앱 ${instance.reused ? '연결됨' : '실행 중'}: ${instance.baseUrl}/`);
     if (!instance.reused) console.log('브라우저를 닫아도 서버는 유지됩니다. 화면의 실행기 종료를 사용해 주세요.');

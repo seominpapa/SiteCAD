@@ -33,7 +33,7 @@ export async function updateModelCatalog({ codexPath = defaultBinary, outputPath
   } finally { await rm(pending, { force: true }); await rm(temporary, { recursive: true, force: true }); }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (import.meta.main) {
   try {
     if (process.argv.length > 4) throw Error('Usage: node scripts/update-model-catalog.mjs [codex-path] [output-path]');
     const result = await updateModelCatalog({ ...(process.argv[2] ? { codexPath: resolve(process.argv[2]) } : {}), ...(process.argv[3] ? { outputPath: resolve(process.argv[3]) } : {}) });

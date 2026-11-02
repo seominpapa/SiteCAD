@@ -16,8 +16,8 @@ test('browser GeoJSON is stored privately, registered and remains usable after r
   assert.equal(dataset.title, '측량.geojson');
   const folders = await readdir(join(dataDir, 'TerrainUploads'));
   const folder = join(dataDir, 'TerrainUploads', folders[0]);
-  assert.equal((await stat(folder)).mode & 0o777, 0o700);
-  assert.equal((await stat(join(folder, '측량.geojson'))).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal((await stat(folder)).mode & 0o777, 0o700);
+  if (process.platform !== 'win32') assert.equal((await stat(join(folder, '측량.geojson'))).mode & 0o777, 0o600);
   assert.deepEqual(await readFile(join(folder, '측량.geojson')), json);
   const restarted = await createTerrainData({ dataDir });
   assert.equal((await restarted.query({ datasetId: dataset.id, bbox: [126.978, 37.566, 126.980, 37.568] })).features[0].properties.elevation_m, 25);

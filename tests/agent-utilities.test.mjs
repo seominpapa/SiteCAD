@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, readdir, rm, symlink, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import https from 'node:https';
 import { EventEmitter } from 'node:events';
@@ -35,7 +35,7 @@ test('downloads original bytes privately with provenance and never overwrites', 
   assert.equal(first.sha256, createHash('sha256').update(bytes).digest('hex'));
   assert.equal(first.untrusted, true);
   assert.deepEqual(await readFile(first.path), bytes);
-  assert.ok(first.path.startsWith(join(service.dataDir, 'downloads') + '/'));
+  assert.equal(dirname(first.path), join(service.dataDir, 'downloads'));
 });
 
 test('accepts supported signatures and gives MIME-based extensions to endpoint URLs', async t => {

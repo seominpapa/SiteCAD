@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
-import { dirname, extname, isAbsolute, join, relative, resolve, win32 } from 'node:path';
+import { dirname, extname, isAbsolute, join, relative, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateChat, validatePlan } from './lib/plan.mjs';
 import { oauthStatus, planWithCodex } from './lib/planner.mjs';
@@ -272,7 +272,7 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
   return server;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (import.meta.main) {
   const port = Number(process.env.PORT || 4317);
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw Error('PORT must be 1024..65535');
   createApp().listen(port, '127.0.0.1', () => console.log(`SiteCAD: http://127.0.0.1:${port}`));

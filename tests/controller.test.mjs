@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { createDesktopController } from '../lib/desktop-controller.mjs';
 
 const TEST_API_KEY = 'valid-test-key';
@@ -125,7 +125,7 @@ test('DWG saving is confined, verifies bytes, and never overwrites an existing f
     assert.equal(first.bytes, bytes.length);
     assert.deepEqual(await readFile(first.path), bytes);
     assert.match(first.sha256, /^[a-f0-9]{64}$/);
-    assert.equal(first.path.startsWith(join(t.dataDir, 'Drawings') + '/'), true);
+    assert.equal(dirname(first.path), join(t.dataDir, 'Drawings'));
     });
   } finally { await t.close(); }
 });

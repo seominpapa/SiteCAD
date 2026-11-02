@@ -1,6 +1,6 @@
 import { cp, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -78,7 +78,7 @@ export async function buildDesktop({ arch = process.arch, archivePath, dmg = tru
   } finally { await rm(staging, { recursive: true, force: true }); }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (import.meta.main) {
   const arch = process.argv.find(value => value.startsWith('--arch='))?.slice(7) || process.arch;
   const archivePath = process.argv.find(value => value.startsWith('--archive='))?.slice(10);
   await buildDesktop({ arch, archivePath, dmg: !process.argv.includes('--no-dmg') });

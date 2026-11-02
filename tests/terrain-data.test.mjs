@@ -128,7 +128,7 @@ test('registers app downloads with persistent original URL, hash, CRS and elevat
   assert.equal(result.originalCRS, 'EPSG:5179');
   assert.equal(result.features[0].properties.elevation_m, 25.5);
   assert.ok(Math.abs(result.features[0].geometry.coordinates[0] - 126.9785) < 1e-9);
-  assert.equal((await stat(join(dataDir, 'terrain-data.json'))).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal((await stat(join(dataDir, 'terrain-data.json'))).mode & 0o777, 0o600);
 });
 
 test('rejects downloads outside owned storage, mismatched bytes/hash and unsafe provenance without mutation', async () => {
@@ -260,7 +260,7 @@ test('registers user-selected terrain privately and returns safe catalog entries
   assert.equal(imported.originalCRS, 'EPSG:4326');
   assert.equal(imported.verticalDatum, 'unknown');
   assert.ok(!JSON.stringify(imported).includes(file));
-  assert.equal((await stat(join(dataDir, 'terrain-data.json'))).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal((await stat(join(dataDir, 'terrain-data.json'))).mode & 0o777, 0o600);
   const reopened = await createTerrainData({ dataDir });
   assert.deepEqual(await reopened.list(), [imported]);
   const result = await reopened.query({ bbox, datasetId: imported.id });

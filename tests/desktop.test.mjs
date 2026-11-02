@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { desktopPaths, isAllowedAuthUrl, createSecureStore, installBundledCodex } from '../desktop/runtime.mjs';
 import { CODEX_VERSION, codexTarget, extractCodexArchive, installCodex, windowsCodexFiles } from '../scripts/install-codex.mjs';
 
+const tar = process.platform === 'win32' ? join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : '/usr/bin/tar';
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 async function temp(t) {
   const directory = await mkdtemp(join(tmpdir(), 'sitecad-desktop-'));
@@ -69,7 +70,7 @@ test('archive integrity is checked before extraction and destination is atomical
   const archive = join(directory, 'codex.tar.gz');
   const destination = join(directory, 'installed-codex');
   await writeFile(join(directory, member), 'native-binary');
-  execFileSync('tar', ['-czf', archive, '-C', directory, member]);
+  execFileSync(tar, ['-czf', archive, '-C', directory, member]);
   await writeFile(destination, 'old-valid-binary');
   await assert.rejects(extractCodexArchive({ archive, destination, member, sha256: '0'.repeat(64) }), /integrity/);
   assert.equal(await readFile(destination, 'utf8'), 'old-valid-binary');
@@ -84,7 +85,7 @@ test('archives with additional members are rejected without changing installed r
   const archive = join(directory, 'codex.tar.gz');
   await writeFile(join(directory, member), 'binary');
   await writeFile(join(directory, 'unexpected'), 'untrusted');
-  execFileSync('tar', ['-czf', archive, '-C', directory, member, 'unexpected']);
+  execFileSync(tar, ['-czf', archive, '-C', directory, member, 'unexpected']);
   await assert.rejects(extractCodexArchive({ archive, destination: join(directory, 'codex'), member, sha256: hash(await readFile(archive)) }), /members/);
 });
 
@@ -149,13 +150,13 @@ test('Windows package extracts only its fixed file list and rejects extra files 
     await mkdir(join(fixture, file, '..'), { recursive: true });
     await writeFile(join(fixture, file), file);
   }
-  execFileSync('tar', ['-czf', archive, '-C', fixture, ...windowsCodexFiles]);
+  execFileSync(tar, ['-czf', archive, '-C', fixture, ...windowsCodexFiles]);
   const target = { ...codexTarget('x64', 'win32'), sha256: hash(await readFile(archive)) };
   await extractCodexArchive({ archive, destination, ...target });
   assert.equal(await readFile(destination, 'utf8'), 'bin/codex.exe');
   assert.equal(await readFile(join(directory, 'runtime', 'codex-path', 'rg.exe'), 'utf8'), 'codex-path/rg.exe');
   await writeFile(join(fixture, 'unexpected.ps1'), 'must not run');
-  execFileSync('tar', ['-czf', archive, '-C', fixture, ...windowsCodexFiles, 'unexpected.ps1']);
+  execFileSync(tar, ['-czf', archive, '-C', fixture, ...windowsCodexFiles, 'unexpected.ps1']);
   await assert.rejects(extractCodexArchive({ archive, destination, ...target, sha256: hash(await readFile(archive)) }), /members/);
   assert.equal(await readFile(destination, 'utf8'), 'bin/codex.exe');
 });
@@ -205,6 +206,6 @@ test('Codex archives reject link entries even when their names and digest match'
   const member = 'codex-aarch64-apple-darwin';
   const archive = join(directory, 'links.tar.gz');
   await symlink('/outside-sitecad', join(directory, member));
-  execFileSync('tar', ['-czf', archive, '-C', directory, member]);
+  execFileSync(tar, ['-czf', archive, '-C', directory, member]);
   await assert.rejects(extractCodexArchive({ archive, destination: join(directory, 'installed'), member, sha256: hash(await readFile(archive)) }), /types/);
 });
