@@ -89,7 +89,7 @@ test('fresh native release launcher installs private runtimes, opens the protect
     assert.equal((await execute(privateNode, ['--version'])).stdout.trim(), 'v24.22.1');
     assert.equal((await execute(privateNode, ['-p', 'process.arch'])).stdout.trim(), nativeArch);
     const readyFile = join(root, '.runtime/local-web/dependencies.ready');
-    assert.match(await readFile(readyFile, 'utf8'), new RegExp(`-${nativeArch}-24\\.22\\.1${windows ? '-win32' : ''}-node-only$`));
+    assert.match((await readFile(readyFile, 'utf8')).trim(), new RegExp(`-${nativeArch}-24\\.22\\.1${windows ? '-win32' : ''}-node-only$`));
     assert.ok((await stat(join(root, 'node_modules/.package-lock.json'))).isFile());
     const codex = await verifyCodexInstallation(join(root, 'runtime'), { platform: process.platform, arch: nativeArch });
     assert.match((await execute(codex, ['--version'], { timeout: 15000 })).stdout, /0\.163\.0/);
