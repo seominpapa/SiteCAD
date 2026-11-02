@@ -15,7 +15,7 @@ jobs:
             platform: Windows
           - os: macos-26
             platform: macOS
-          - os: macos-15-intel
+          - os: macos-26-intel
             platform: macOS-Intel
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
@@ -64,8 +64,6 @@ jobs:
         run: npm run desktop:build
       - name: Mount final macOS DMG and verify desktop startup
         if: runner.os == 'macOS'
-        env:
-          SITECAD_VERIFY_SWIFTSHADER: ${{ matrix.platform == 'macOS-Intel' && '1' || '0' }}
         shell: bash
         run: |
           set -euo pipefail

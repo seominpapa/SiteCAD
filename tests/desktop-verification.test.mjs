@@ -29,10 +29,8 @@ test('desktop shutdown handles close during stop and a bounded missing-close fal
 
 test('a failed executable preserves its startup error and saves a diagnostic after it has already exited', async () => {
   const previous = process.env.CI;
-  const previousMode = process.env.SITECAD_VERIFY_SWIFTSHADER;
   const directory = await mkdtemp(join(tmpdir(), 'sitecad-desktop-failure-'));
   process.env.CI = 'true';
-  delete process.env.SITECAD_VERIFY_SWIFTSHADER;
   try {
     // Node rejects Electron flags without opening any desktop app or personal profile.
     await assert.rejects(verifyDesktop({executable:process.execPath,outputDirectory:directory}), /Desktop exited before verification/);
@@ -41,31 +39,8 @@ test('a failed executable preserves its startup error and saves a diagnostic aft
     assert.notEqual(failure.exitCode, 0);
     assert.match(failure.error, /Desktop exited before verification/);
     assert.match(failure.stderr, /bad option|unknown option|not allowed|unrecognized/i);
-    assert.equal(failure.rendering, 'default');
-    assert.doesNotMatch(failure.stderr, /--use-gl|--use-angle/);
   } finally {
     if (previous === undefined) delete process.env.CI; else process.env.CI = previous;
-    if (previousMode === undefined) delete process.env.SITECAD_VERIFY_SWIFTSHADER; else process.env.SITECAD_VERIFY_SWIFTSHADER = previousMode;
-    await rm(directory, {recursive:true,force:true});
-  }
-});
-
-test('software rendering requires an explicit CI verifier opt-in and records the launch mode', async () => {
-  const previousCI = process.env.CI;
-  const previousMode = process.env.SITECAD_VERIFY_SWIFTSHADER;
-  const directory = await mkdtemp(join(tmpdir(), 'sitecad-software-rendering-'));
-  process.env.CI = 'true';
-  process.env.SITECAD_VERIFY_SWIFTSHADER = '1';
-  try {
-    await assert.rejects(verifyDesktop({executable:process.execPath,outputDirectory:directory}), /Desktop exited before verification/);
-    const failure = JSON.parse(await readFile(join(directory, 'desktop-verification-failure.json'), 'utf8'));
-    assert.equal(failure.rendering, 'swiftshader');
-    assert.match(failure.stderr, /--use-gl=angle/);
-    assert.match(failure.stderr, /--use-angle=swiftshader/);
-    assert.doesNotMatch(failure.stderr, /unsafe-swiftshader|no-sandbox|disable-gpu/);
-  } finally {
-    if (previousCI === undefined) delete process.env.CI; else process.env.CI = previousCI;
-    if (previousMode === undefined) delete process.env.SITECAD_VERIFY_SWIFTSHADER; else process.env.SITECAD_VERIFY_SWIFTSHADER = previousMode;
     await rm(directory, {recursive:true,force:true});
   }
 });

@@ -78,9 +78,7 @@ export async function verifyDesktop({ executable, outputDirectory } = {}) {
   if (!(await stat(executable)).isFile()) throw Error('Desktop executable must be a file');
   if (!isAbsolute(outputDirectory ?? '')) throw Error('Provide an absolute output directory');
   await mkdir(outputDirectory, { recursive: true });
-  const rendering = process.env.SITECAD_VERIFY_SWIFTSHADER === '1' ? 'swiftshader' : 'default';
-  const renderingArguments = rendering === 'swiftshader' ? ['--use-gl=angle', '--use-angle=swiftshader'] : [];
-  const child = spawn(executable, ['--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1', ...renderingArguments], {
+  const child = spawn(executable, ['--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1'], {
     shell: false, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: false,
   });
   let output = '', startupError, socket, call, stage = 'debugger startup', lastState;
@@ -146,10 +144,10 @@ export async function verifyDesktop({ executable, outputDirectory } = {}) {
     const screenshot = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
     await writeFile(join(outputDirectory, 'desktop.png'), Buffer.from(screenshot.data, 'base64'));
     const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-    const report = { version, platform: process.platform, arch: process.arch, rendering, ...view, modules, anonymousProfile: true,
+    const report = { version, platform: process.platform, arch: process.arch, ...view, modules, anonymousProfile: true,
       limitations: ['No AI inference or authenticated external API/MCP calls', 'No drawing modification or DWG round-trip test'] };
     await writeFile(join(outputDirectory, 'desktop-verification.json'), `${JSON.stringify(report, null, 2)}\n`);
-    console.log(`Desktop ${version} verified on ${process.platform}/${process.arch} (rendering: ${rendering}): editor, settings and packaged chat modules ready`);
+    console.log(`Desktop ${version} verified on ${process.platform}/${process.arch}: editor, settings and packaged chat modules ready`);
     return report;
   } catch (error) {
     if (call && socket?.readyState === WebSocket.OPEN) {
@@ -158,7 +156,7 @@ export async function verifyDesktop({ executable, outputDirectory } = {}) {
         await writeFile(join(outputDirectory, 'desktop-failure.png'), Buffer.from(screenshot.data, 'base64'));
       } catch { /* Diagnostic capture must preserve the original verification failure. */ }
     }
-    const failure = {platform:process.platform, arch:process.arch, rendering, stage, error:sanitizeDiagnostic(error.message),
+    const failure = {platform:process.platform, arch:process.arch, stage, error:sanitizeDiagnostic(error.message),
       exitCode:child.exitCode, signalCode:child.signalCode, lastState, rendererEvents, stderr:sanitizeDiagnostic(output)};
     const diagnostic = sanitizeDiagnostic(JSON.stringify(failure, null, 2));
     try { await writeFile(join(outputDirectory, 'desktop-verification-failure.json'), `${diagnostic}\n`); }
