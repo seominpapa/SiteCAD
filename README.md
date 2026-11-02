@@ -2,31 +2,35 @@
 
 SiteCAD는 OpenCADStudio 편집기와 AI·MCP를 연결하는 macOS(M계열)·Windows 로컬 브라우저 앱입니다. AI 계정을 연결한 뒤 채팅으로 2D 도면과 지원되는 3D 형상을 만들고 수정하거나 물량을 검토하고 DWG로 저장합니다. CAD 파일 처리와 도구 실행은 내 PC에서 이루어지며 AI 요청은 온라인 서비스를 사용합니다.
 
-**[0.16.0 설치 파일 — GitHub Actions](https://github.com/seominpapa/SiteCAD/actions/workflows/windows.yml)** · [공개 릴리스](https://github.com/seominpapa/SiteCAD/releases/latest) · [소스와 빌드 정보](SOURCE_BUILD.md)
+**웹앱 다운로드: [Windows ZIP](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/SiteCAD-0.16.0-local-web-Windows.zip) · [Mac M계열 ZIP](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/SiteCAD-0.16.0-local-web-macOS.zip)**
+
+**데스크탑 설치: [Windows Setup.exe](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/SiteCAD-0.16.0-Windows-x64-Setup.exe) · [Mac M계열 DMG](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/SiteCAD-0.16.0-macOS-arm64.dmg)**
+
+[0.16.0 릴리스와 변경 내용](https://github.com/seominpapa/SiteCAD/releases/tag/v0.16.0) · [SHA-256](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/SHA256SUMS.txt) · [설치 파일 검증 기록](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/sitecad-verification.json) · [소스와 빌드 정보](SOURCE_BUILD.md)
 
 ## 다운로드와 버전 확인
 
-**현재 소스 버전은 0.16.0입니다.** 2026-11-03 확인 기준 공개 Releases에는 0.15.0 웹앱 ZIP이 있고, 0.16.0 웹앱 ZIP·데스크탑 설치 파일은 GitHub Actions에서 제공합니다. 코드가 업데이트되어도 이미 내려받은 파일이나 공개 릴리스가 자동으로 바뀌지는 않습니다. 아래 기능 안내는 0.16.0 소스 기준입니다.
+**현재 배포 버전은 0.16.0입니다.** 아래 링크에서 운영체제와 사용 방식에 맞는 파일을 바로 받습니다. GitHub Actions의 중간 ZIP을 별도로 받을 필요는 없습니다. 코드가 업데이트되어도 이미 내려받은 파일이 자동으로 바뀌지는 않습니다. 아래 기능 안내는 0.16.0 기준이며, 파일을 만든 소스 버전·설치 검사 결과·파일별 SHA-256은 릴리스의 `sitecad-verification.json`에서 확인할 수 있습니다.
 
 | 사용 방식 | 대상 | 받을 파일 | 실행 방식 |
 | --- | --- | --- | --- |
-| 웹앱 | Mac M계열 | `SiteCAD-0.16.0-local-web-macOS.zip` | 압축을 풀고 `Start SiteCAD.command` 실행 |
-| 웹앱 | Windows 10/11 64비트 | `SiteCAD-0.16.0-local-web-Windows.zip` | 모두 압축을 풀고 `Start SiteCAD.cmd` 실행 |
-| 데스크탑 | Mac M계열 | `SiteCAD-0.16.0-macOS-arm64.dmg` | `SiteCAD.app`을 응용 프로그램에 복사 |
-| 데스크탑 | Windows x64 | `SiteCAD-0.16.0-Windows-x64-Setup.exe` | 설치 마법사로 설치 |
+| 웹앱 | Mac M계열 | [SiteCAD-0.16.0-local-web-macOS.zip](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/SiteCAD-0.16.0-local-web-macOS.zip) | 압축을 풀고 `Start SiteCAD.command` 실행 |
+| 웹앱 | Windows 10/11 64비트 | [SiteCAD-0.16.0-local-web-Windows.zip](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/SiteCAD-0.16.0-local-web-Windows.zip) | 모두 압축을 풀고 `Start SiteCAD.cmd` 실행 |
+| 데스크탑 | Mac M계열 | [SiteCAD-0.16.0-macOS-arm64.dmg](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/SiteCAD-0.16.0-macOS-arm64.dmg) | `SiteCAD.app`을 응용 프로그램에 복사 |
+| 데스크탑 | Windows x64 | [SiteCAD-0.16.0-Windows-x64-Setup.exe](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/SiteCAD-0.16.0-Windows-x64-Setup.exe) | 설치 마법사로 설치 |
 
 웹앱은 기본 브라우저와 실행기 터미널을 함께 사용하고, 데스크탑은 전용 앱 창에서 사용합니다. 두 방식 모두 내 PC에서 로컬 서비스와 CAD 도구를 실행합니다. 별도 원격 서버를 준비할 필요는 없으며, 로컬 접속 주소는 다른 사용자를 위한 공개 서비스 주소가 아닙니다.
 
-### GitHub Actions에서 0.16.0 받기
+### 릴리스에서 내려받기
 
-1. GitHub에 로그인한 뒤 [설치 파일 생성 작업](https://github.com/seominpapa/SiteCAD/actions/workflows/windows.yml)을 엽니다.
-2. `main` 브랜치의 작업 중 **Windows와 macOS 검사가 모두 초록색으로 완료된 실행**을 선택합니다. 실행 중이거나 실패한 작업의 파일은 사용하지 마세요.
-3. 실행 결과 아래 **Artifacts**에서 Windows는 `SiteCAD-Windows-…`, Mac은 `SiteCAD-macOS-…`를 다운로드합니다. 끝의 긴 문자열은 파일을 만든 소스 버전 식별자입니다.
-4. 내려받은 Artifacts ZIP을 먼저 풉니다. 그 안에서 위 표의 **웹앱 ZIP 또는 데스크탑 설치 파일 하나**를 선택합니다. 웹앱을 선택했다면 안쪽 웹앱 ZIP도 별도 폴더에 풀어야 합니다. `verification/`에는 해당 빌드의 검사 기록이 있습니다.
+1. 위 표에서 운영체제에 맞는 **웹앱 ZIP 또는 데스크탑 설치 파일 하나**를 누릅니다. 두 방식을 모두 설치할 필요는 없습니다.
+2. 웹앱은 받은 ZIP 전체를 폴더에 풉니다. 데스크탑은 받은 DMG 또는 Setup.exe를 바로 엽니다. 자세한 절차는 아래 운영체제별 설명을 따르세요.
+3. 파일 전체 목록과 변경 내용은 [0.16.0 릴리스](https://github.com/seominpapa/SiteCAD/releases/tag/v0.16.0)의 **Assets**에서 확인합니다. `SHA256SUMS.txt`와 `sitecad-verification.json`도 함께 제공합니다.
+4. GitHub의 **Code → Download ZIP**이나 자동 생성 **Source code.zip**은 설치용 파일이 아닙니다. 일반 사용자는 위 표에 있는 파일을 선택하세요.
 
-Actions 파일은 생성 후 **14일간 보관**합니다. 다운로드가 만료되면 더 최근에 성공한 작업을 확인하세요. 새 성공 작업도 없다면 소스에서 빌드하거나 새 빌드를 요청해야 합니다. GitHub의 **Code → Download ZIP**이나 릴리스의 자동 생성 **Source code.zip**은 위 설치 파일과 다릅니다.
+릴리스 첨부 파일은 GitHub Actions의 **14일 보관 기간**이 적용되는 임시 Artifacts와 별도로 보관됩니다. 개발 중 빌드가 필요할 때만 [설치 파일 생성 작업](https://github.com/seominpapa/SiteCAD/actions/workflows/windows.yml)에서 Windows·macOS 검사가 모두 통과한 실행의 Artifacts를 선택하세요. Artifacts ZIP 안에는 설치용 파일이 한 번 더 들어 있으며, 실행 중이거나 실패한 작업의 파일은 사용하지 마세요.
 
-이전 공개 0.15.0이 필요한 경우: [Windows 웹앱 ZIP](https://github.com/seominpapa/SiteCAD/releases/download/v0.15.0/SiteCAD-0.15.0-local-web-Windows.zip) · [Mac 웹앱 ZIP](https://github.com/seominpapa/SiteCAD/releases/download/v0.15.0/SiteCAD-0.15.0-local-web-macOS.zip). 0.16.0의 통합 설정 등 새 기능은 이 파일에 포함된 것으로 가정하지 마세요.
+이전 버전은 [전체 릴리스 목록](https://github.com/seominpapa/SiteCAD/releases)에서 찾을 수 있습니다. 새 설치·업데이트에는 위의 0.16.0 파일을 사용하세요.
 
 ## 웹앱 설치와 실행
 
@@ -67,7 +71,7 @@ Windows x64에서 설치·실행을 검증했습니다. 웹앱 실행기는 Wind
 
 ### Mac M계열 — DMG
 
-1. Actions에서 내려받은 ZIP을 풀어 `SiteCAD-0.16.0-macOS-arm64.dmg`를 찾습니다.
+1. 위 표에서 `SiteCAD-0.16.0-macOS-arm64.dmg`를 다운로드합니다.
 2. DMG를 더블클릭하고 창 안의 **`SiteCAD.app`을 Applications(응용 프로그램) 바로가기로 드래그**합니다.
 3. 복사가 끝나면 DMG를 추출하고 **응용 프로그램 → SiteCAD**에서 실행합니다. DMG 안의 앱을 계속 실행하는 방식은 사용하지 마세요.
 4. macOS가 차단하면 출처를 확인한 뒤 **시스템 설정 → 개인정보 보호 및 보안**에서 표시되는 실행 허용 절차를 진행합니다.
@@ -76,7 +80,7 @@ Windows x64에서 설치·실행을 검증했습니다. 웹앱 실행기는 Wind
 
 ### Windows x64 — Setup.exe
 
-1. Actions에서 내려받은 ZIP을 풀어 `SiteCAD-0.16.0-Windows-x64-Setup.exe`를 찾습니다.
+1. 위 표에서 `SiteCAD-0.16.0-Windows-x64-Setup.exe`를 다운로드합니다.
 2. 설치 파일을 실행합니다. 출처 확인 경고가 나타나면 GitHub 저장소와 받은 파일을 확인하고 운영체제 안내에 따라 진행합니다.
 3. 설치 마법사에서 라이선스와 설치 위치를 확인합니다. 기본 경로는 **`%LOCALAPPDATA%\Programs\SiteCAD`**이며 현재 사용자 계정에 설치하므로 관리자 권한이 필요하지 않습니다.
 4. 설치 후 **시작 메뉴 또는 바탕 화면의 SiteCAD**를 엽니다. 별도 실행 창을 유지할 필요는 없습니다.
