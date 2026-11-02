@@ -29,3 +29,14 @@ test('desktop packaging retains production native optional dependencies and make
   assert.match(source, /installCodex\(\{[^}]*platform/);
   assert.match(source, /'desktop\/sitecad\.iss'/);
 });
+
+test('Windows packaging provides explicit publisher metadata without requiring an author in the source manifest', async () => {
+  const source = await readFile(new URL('../scripts/build-desktop.mjs', import.meta.url), 'utf8');
+  const company = source.match(/win32metadata:\s*\{\s*CompanyName:\s*'([^']+)'/);
+  assert.ok(company, 'Windows package needs an explicit CompanyName');
+  assert.equal(company[1], 'seominpapa');
+  const { getMetadataFromPackageJSON } = await import('../node_modules/@electron/packager/dist/infer.js');
+  assert.deepEqual(await getMetadataFromPackageJSON(['win32'], {
+    name: 'SiteCAD', appVersion: '0.16.0', electronVersion: '45.0.0', win32metadata: { CompanyName: company[1] },
+  }, '/package-metadata-not-needed'), {});
+});

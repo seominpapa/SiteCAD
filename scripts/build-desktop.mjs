@@ -51,6 +51,7 @@ export async function buildDesktop({ arch = process.arch, archivePath, dmg = tru
       dir: staging, out: output, name: 'SiteCAD', executableName: 'SiteCAD', platform, arch,
       appBundleId: 'com.sitecad.desktop', appVersion: packageInfo.version, electronVersion: packageInfo.devDependencies.electron,
       asar: false, prune: false, overwrite: true, appCopyright: 'SiteCAD contributors',
+      ...(platform === 'win32' ? { win32metadata: { CompanyName: 'seominpapa' } } : {}),
       ...(platform === 'darwin' ? { extendInfo: { NSHumanReadableCopyright: 'SiteCAD. Includes OpenCADStudio (GPL-3.0) and Codex (Apache-2.0).', NSHighResolutionCapable: true } } : {}),
     });
     for (const appDirectory of apps) {

@@ -7,6 +7,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { stopProcessTree } from '../lib/mcp-launcher.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+const sanitized = value => String(value ?? '').replace(/(?:https?|wss?):\/\/[^\s"'<>]+/gi, '[redacted URL]')
+  .replace(/((?:access[_-]?token|refresh[_-]?token|api[_-]?key|authorization)\s*[=:]\s*)[^\s,;]+/gi, '$1[redacted]');
 const readyExpression = `JSON.stringify({
   title:document.title,
   editorReady:document.querySelector('#editor-stage')?.getAttribute('aria-busy')==='false' && document.querySelector('#new-drawing')?.disabled===false && document.querySelector('#editor')?.inert===false,
@@ -46,6 +48,16 @@ function protocol(socket) {
   });
 }
 
+export async function stopDesktop(child, timeoutMs = 5000, stop = stopProcessTree) {
+  if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
+  await new Promise(resolveStop => {
+    const finish = () => { clearTimeout(timer); child.off('close', finish); resolveStop(); };
+    const timer = setTimeout(finish, timeoutMs);
+    child.once('close', finish);
+    try { stop(child, 'SIGKILL'); } catch { finish(); }
+  });
+}
+
 export async function verifyDesktop({ executable, outputDirectory } = {}) {
   // shortcut: clean CI profiles only; add explicit isolated-profile support before local desktop use.
   if (process.env.CI !== 'true') throw Error('Desktop verification requires a clean CI machine; personal profiles must not be used.');
@@ -56,7 +68,7 @@ export async function verifyDesktop({ executable, outputDirectory } = {}) {
   const child = spawn(executable, ['--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1'], {
     shell: false, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: false,
   });
-  let output = '', startupError, socket;
+  let output = '', startupError, socket, stage = 'debugger startup', lastState;
   child.once('error', error => { startupError = error; });
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', text => { output = (output + text).slice(-32768); });
@@ -72,22 +84,26 @@ export async function verifyDesktop({ executable, outputDirectory } = {}) {
     throw Error(`Desktop verification timed out: ${label}`);
   }
   try {
-    const port = await until(async () => output.match(/DevTools listening on ws:\/\/127\.0\.0\.1:(\d+)\//)?.[1], 'debugger startup');
+    const port = await until(async () => output.match(/DevTools listening on ws:\/\/127\.0\.0\.1:(\d+)\//)?.[1], stage);
+    stage = 'local application page';
     const target = await until(async () => {
       const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) });
       assert.equal(response.status, 200);
       return (await response.json()).find(item => item.type === 'page' && /^http:\/\/127\.0\.0\.1:\d+\/$/.test(item.url));
-    }, 'local application page');
+    }, stage);
     assert.match(target.webSocketDebuggerUrl, new RegExp(`^ws://127\\.0\\.0\\.1:${port}/devtools/page/`));
     socket = await connect(target.webSocketDebuggerUrl);
     const call = protocol(socket);
+    stage = 'CAD editor and unified settings readiness';
     const view = await until(async () => {
       const response = await call('Runtime.evaluate', { expression: readyExpression, returnByValue: true });
       if (response.exceptionDetails || typeof response.result?.value !== 'string') return;
       const state = JSON.parse(response.result.value);
+      lastState = state;
       return state.editorReady && state.settingsReady ? state : undefined;
-    }, 'CAD editor and unified settings readiness');
+    }, stage);
     assert.match(view.title, /SiteCAD/); assert.equal(view.settingsTabs, 5);
+    stage = 'anonymous profile and packaged modules';
     const baseUrl = new URL(target.url).origin;
     const statusResponse = await fetch(`${baseUrl}/api/desktop/status`, { signal: AbortSignal.timeout(5000) });
     assert.equal(statusResponse.status, 200);
@@ -102,6 +118,7 @@ export async function verifyDesktop({ executable, outputDirectory } = {}) {
       assert.equal(servedHash, hash(await readFile(new URL(`../public/${name}`, import.meta.url))), `Packaged ${name} must match tested source`);
       modules[name] = servedHash;
     }
+    stage = 'desktop screenshot';
     const screenshot = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
     await writeFile(join(outputDirectory, 'desktop.png'), Buffer.from(screenshot.data, 'base64'));
     const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
@@ -110,11 +127,17 @@ export async function verifyDesktop({ executable, outputDirectory } = {}) {
     await writeFile(join(outputDirectory, 'desktop-verification.json'), `${JSON.stringify(report, null, 2)}\n`);
     console.log(`Desktop ${version} verified on ${process.platform}/${process.arch}: editor, settings and packaged chat modules ready`);
     return report;
+  } catch (error) {
+    const failure = {platform:process.platform, arch:process.arch, stage, error:sanitized(error.message),
+      exitCode:child.exitCode, signalCode:child.signalCode, lastState, stderr:sanitized(output)};
+    try { await writeFile(join(outputDirectory, 'desktop-verification-failure.json'), `${JSON.stringify(failure, null, 2)}\n`); }
+    catch { console.error('Could not save desktop failure diagnostic'); }
+    console.error(`Desktop verification failed during ${stage}: ${sanitized(error.message)}`);
+    if (output) console.error(sanitized(output));
+    throw error;
   } finally {
-    socket?.close();
-    const stopped = new Promise(resolveStop => { child.once('close', resolveStop); setTimeout(resolveStop, 5000).unref(); });
-    stopProcessTree(child, 'SIGKILL');
-    await stopped;
+    try { socket?.close(); } catch { /* Cleanup must preserve the original verification failure. */ }
+    await stopDesktop(child);
   }
 }
 
