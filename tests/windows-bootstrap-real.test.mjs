@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { isAbsolute, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { buildLocalWeb } from '../scripts/build-local-web.mjs';
@@ -38,7 +38,8 @@ test('fresh native release launcher installs private runtimes, opens the protect
     ...(windows ? { windowsVerbatimArguments: true, windowsHide: true } : { detached: true }) };
   let child;
   try {
-    const archive = await buildLocalWeb({ platform: process.platform, outputDirectory: join(directory, 'release') });
+    const archive = process.env.SITECAD_TEST_RELEASE_ARCHIVE || await buildLocalWeb({ platform: process.platform, outputDirectory: join(directory, 'release') });
+    assert.ok(isAbsolute(archive), 'Downloaded release archive path must be absolute');
     if (windows) {
       const command = `$ProgressPreference='SilentlyContinue'; $ErrorActionPreference='Stop'; Expand-Archive -LiteralPath ${literal(archive)} -DestinationPath ${literal(extracted)}`;
       await execute('powershell.exe', ['-NoProfile', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], { timeout: 60000 });
@@ -118,6 +119,44 @@ assert.ok(await stores.apis.read() === null, 'Fresh installation must not inheri
     assert.equal(JSON.parse(await readFile(join(dataDir, 'local-web-runtime.json'), 'utf8')).pid, runtime.pid);
     const after = await Promise.all([readyFile, join(root, 'node_modules/.package-lock.json')].map(file => stat(file)));
     assert.deepEqual(after.map(item => item.mtimeMs), before.map(item => item.mtimeMs), 'Second launch must reuse installed dependencies');
+    if (process.env.SITECAD_TEST_RELEASE_ARCHIVE) {
+      const drawing = join(root, 'drawings', '사용자 보존 확인.dwg');
+      await mkdir(join(root, 'drawings'), { recursive: true });
+      await writeFile(drawing, 'AC1032 first-install preservation check');
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(Error('First launcher did not stop')), 15000);
+        child.once('close', () => { clearTimeout(timer); resolve(); });
+        stopProcessTree(child, 'SIGKILL', { killGroup: !windows });
+      });
+      child = spawn(executable, args, { ...launchOptions, stdio: ['pipe', 'pipe', 'pipe'] });
+      child.stdin.end('\r\n');
+      let restarted = '';
+      child.stdout.on('data', bytes => { restarted = (restarted + bytes.toString('utf8')).slice(-65536); });
+      child.stderr.on('data', bytes => { errors = (errors + bytes.toString('utf8')).slice(-65536); });
+      const restartDeadline = Date.now() + 60000;
+      let newRuntime;
+      while (Date.now() < restartDeadline) {
+        assert.equal(child.exitCode, null, `Restart failed: ${redacted(errors)}`);
+        try { newRuntime = JSON.parse(await readFile(join(dataDir, 'local-web-runtime.json'), 'utf8')); }
+        catch (error) { if (error.code !== 'ENOENT') throw error; }
+        if (newRuntime?.pid !== runtime.pid && restarted.includes(`http://127.0.0.1:${newRuntime?.port}/`)) break;
+        await delay(500);
+      }
+      assert.ok(newRuntime?.pid && newRuntime.pid !== runtime.pid && restarted.includes('로컬 웹앱 실행 중'), 'Stopped release must restart');
+      assert.equal((await fetch(`http://127.0.0.1:${newRuntime.port}/`, { signal: AbortSignal.timeout(10000) })).status, 200);
+      assert.equal(await readFile(drawing, 'utf8'), 'AC1032 first-install preservation check');
+      const reused = await Promise.all([readyFile, join(root, 'node_modules/.package-lock.json')].map(file => stat(file)));
+      assert.deepEqual(reused.map(item => item.mtimeMs), before.map(item => item.mtimeMs), 'Restart must preserve installed dependencies');
+      const outputDirectory = process.env.SITECAD_TEST_EVIDENCE_DIR;
+      assert.ok(isAbsolute(outputDirectory), 'Evidence directory must be absolute');
+      await mkdir(outputDirectory, { recursive: true });
+      await writeFile(join(outputDirectory, 'web-first-install.json'), `${JSON.stringify({
+        version: '0.16.0', platform: process.platform, arch: nativeArch, downloadedReleaseArchive: true,
+        freshRuntimeAbsent: true, privateNode: '24.22.1', privateCodex: '0.163.0', anonymousSecretsVerified: true,
+        protectedServiceVerified: true, launcherSecondRunReused: true, stopAndRestartVerified: true, drawingsPreserved: true,
+        limitations: ['Web CAD browser rendering was not inspected by this runtime test.', 'No real-account AI inference or authenticated API/MCP calls.'],
+      }, null, 2)}\n`);
+    }
   } finally {
     if (child && child.pid && child.exitCode === null && child.signalCode === null) {
       stopProcessTree(child, 'SIGKILL', { killGroup: !windows });
