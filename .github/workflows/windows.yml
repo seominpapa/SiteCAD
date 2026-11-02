@@ -64,6 +64,8 @@ jobs:
         run: npm run desktop:build
       - name: Mount final macOS DMG and verify desktop startup
         if: runner.os == 'macOS'
+        env:
+          SITECAD_VERIFY_SWIFTSHADER: ${{ matrix.platform == 'macOS-Intel' && '1' || '0' }}
         shell: bash
         run: |
           set -euo pipefail

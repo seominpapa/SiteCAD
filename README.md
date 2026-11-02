@@ -14,6 +14,8 @@ SiteCAD는 OpenCADStudio 편집기와 AI·MCP를 연결하는 macOS·Windows 로
 
 데스크탑 설치 파일은 배포자 인증서로 서명·공증하지 않았습니다. 운영체제의 출처 확인과 실행 허용은 사용자가 진행합니다. Windows ARM64용 데스크탑 설치 검증은 이번 대상에 포함하지 않습니다.
 
+Intel Mac 가상환경에서 그래픽 초기화 실패가 발생하여 Chromium의 SwiftShader 드라이버 모드로 검사합니다. 이 설정은 검증 도구에만 적용하며 배포 앱에는 강제하지 않습니다. Intel Mac 실기기의 기본 그래픽 실행은 별도 확인이 필요합니다.
+
 ## 설치·실행
 
 1. 릴리스의 운영체제에 맞는 `SiteCAD-0.15.0-local-web-Windows.zip` 또는 `SiteCAD-0.15.0-local-web-macOS.zip`을 다운로드하고 쓰기 가능한 폴더에 압축을 풉니다. GitHub의 자동 생성 `Source code.zip`보다 위 설치 ZIP을 권장합니다.
