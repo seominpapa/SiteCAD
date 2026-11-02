@@ -6,15 +6,15 @@ SiteCAD는 OpenCADStudio 편집기와 AI·MCP를 연결하는 macOS·Windows 로
 
 ## 0.16.0 설치 파일 갱신
 
-현재 소스는 0.16.0입니다. Windows·macOS의 웹앱 ZIP과 macOS ARM64·Intel x64 DMG, Windows x64 `Setup.exe`를 빌드합니다. 공개 릴리스 링크는 아직 0.15.0이며 코드 푸시만으로 공개 릴리스 파일을 교체하지 않습니다. 새 파일은 GitHub Actions의 **Native platform verification and installers** 작업 결과에서 내려받습니다.
+현재 소스는 0.16.0입니다. Windows·macOS의 웹앱 ZIP과 macOS ARM64 DMG, Windows x64 `Setup.exe`를 빌드합니다. 정규 설치·실행 CI 대상은 Windows x64와 Apple Silicon Mac입니다. 공개 릴리스 링크는 아직 0.15.0이며 코드 푸시만으로 공개 릴리스 파일을 교체하지 않습니다. 새 파일은 GitHub Actions의 **Native platform verification and installers** 작업 결과에서 내려받습니다.
 
 - 웹앱: 운영체제에 맞는 ZIP을 새 폴더에 풀고 macOS는 `Start SiteCAD.command`, Windows는 `Start SiteCAD.cmd`를 실행합니다. 기존 도면과 사용자 설정은 덮어쓰지 마세요.
-- macOS 데스크탑: Apple Silicon은 `SiteCAD-0.16.0-macOS-arm64.dmg`, Intel은 `SiteCAD-0.16.0-macOS-x64.dmg`를 열어 `SiteCAD.app`을 Applications로 복사합니다.
+- macOS 데스크탑: Apple Silicon Mac에서 `SiteCAD-0.16.0-macOS-arm64.dmg`를 열어 `SiteCAD.app`을 Applications로 복사합니다.
 - Windows 데스크탑: `SiteCAD-0.16.0-Windows-x64-Setup.exe`를 실행합니다. 관리자 권한 없이 사용자 폴더에 설치하며 제거해도 사용자가 만든 도면과 설정은 보존합니다. 설치 중인 앱은 먼저 종료하세요.
 
 데스크탑 설치 파일은 배포자 인증서로 서명·공증하지 않았습니다. 운영체제의 출처 확인과 실행 허용은 사용자가 진행합니다. Windows ARM64용 데스크탑 설치 검증은 이번 대상에 포함하지 않습니다.
 
-Intel Mac의 macOS 15 가상환경에서는 기본 모드와 SwiftShader 드라이버 모드 모두 그래픽 초기화에 실패했습니다. 현재 검증은 macOS 26 가상환경에서 기본 모드로 수행하며, Intel Mac 실기기의 그래픽 실행은 별도 확인이 필요합니다.
+Intel Mac은 macOS 15 가상환경의 기본·SwiftShader 모드와 macOS 26 가상환경의 기본 모드 모두 CAD 그래픽 초기화·제어 연결에 실패했습니다. [Intel Mac 실패 기록](https://github.com/seominpapa/SiteCAD/actions/runs/41443046011/job/125269364976)을 보존하며, 정규 CI의 통과 대상으로 포함하지 않습니다. `npm run desktop:build -- --arch=x64`로 Intel DMG를 빌드할 수 있지만 실험용입니다. 실제 Intel Mac의 그래픽 실행 확인 전에는 검증 완료로 안내하지 않습니다.
 
 ## 설치·실행
 

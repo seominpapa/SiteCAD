@@ -15,8 +15,6 @@ jobs:
             platform: Windows
           - os: macos-26
             platform: macOS
-          - os: macos-26-intel
-            platform: macOS-Intel
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     env:
