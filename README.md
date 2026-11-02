@@ -6,13 +6,13 @@ SiteCAD는 OpenCADStudio 편집기와 AI·MCP를 연결하는 macOS·Windows 로
 
 ## 0.16.0 설치 파일 갱신
 
-현재 소스는 0.16.0입니다. Windows·macOS의 웹앱 ZIP과 macOS ARM64 DMG, Windows x64 `Setup.exe`를 빌드합니다. 공개 릴리스 링크는 아직 0.15.0이며 코드 푸시만으로 공개 릴리스 파일을 교체하지 않습니다. 새 파일은 GitHub Actions의 **Native platform verification and installers** 작업 결과에서 내려받습니다.
+현재 소스는 0.16.0입니다. Windows·macOS의 웹앱 ZIP과 macOS ARM64·Intel x64 DMG, Windows x64 `Setup.exe`를 빌드합니다. 공개 릴리스 링크는 아직 0.15.0이며 코드 푸시만으로 공개 릴리스 파일을 교체하지 않습니다. 새 파일은 GitHub Actions의 **Native platform verification and installers** 작업 결과에서 내려받습니다.
 
 - 웹앱: 운영체제에 맞는 ZIP을 새 폴더에 풀고 macOS는 `Start SiteCAD.command`, Windows는 `Start SiteCAD.cmd`를 실행합니다. 기존 도면과 사용자 설정은 덮어쓰지 마세요.
-- macOS 데스크탑: `SiteCAD-0.16.0-macOS-arm64.dmg`를 열어 `SiteCAD.app`을 Applications로 복사합니다.
+- macOS 데스크탑: Apple Silicon은 `SiteCAD-0.16.0-macOS-arm64.dmg`, Intel은 `SiteCAD-0.16.0-macOS-x64.dmg`를 열어 `SiteCAD.app`을 Applications로 복사합니다.
 - Windows 데스크탑: `SiteCAD-0.16.0-Windows-x64-Setup.exe`를 실행합니다. 관리자 권한 없이 사용자 폴더에 설치하며 제거해도 사용자가 만든 도면과 설정은 보존합니다. 설치 중인 앱은 먼저 종료하세요.
 
-데스크탑 설치 파일은 배포자 인증서로 서명·공증하지 않았습니다. 운영체제의 출처 확인과 실행 허용은 사용자가 진행합니다. Windows ARM64·Intel Mac용 데스크탑 설치 검증은 이번 대상에 포함하지 않습니다.
+데스크탑 설치 파일은 배포자 인증서로 서명·공증하지 않았습니다. 운영체제의 출처 확인과 실행 허용은 사용자가 진행합니다. Windows ARM64용 데스크탑 설치 검증은 이번 대상에 포함하지 않습니다.
 
 ## 설치·실행
 

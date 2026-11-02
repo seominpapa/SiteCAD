@@ -67,7 +67,7 @@ export async function buildDesktop({ arch = process.arch, archivePath, dmg = tru
         const dmgPath = join(output, `SiteCAD-${packageInfo.version}-macOS-${arch}.dmg`);
         const imageRoot = await mkdtemp(join(tmpdir(), 'sitecad-dmg-'));
         try {
-          await cp(appPath, join(imageRoot, 'SiteCAD.app'), { recursive: true });
+          await cp(appPath, join(imageRoot, 'SiteCAD.app'), { recursive: true, verbatimSymlinks: true });
           const { symlink } = await import('node:fs/promises');
           await symlink('/Applications', join(imageRoot, 'Applications'));
           await execute('/usr/bin/hdiutil', ['create', '-volname', 'SiteCAD', '-srcfolder', imageRoot, '-ov', '-format', 'UDZO', dmgPath], { timeout: 180000, maxBuffer: 16384 });

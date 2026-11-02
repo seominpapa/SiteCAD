@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { windowsInstallerArguments } from '../scripts/build-desktop.mjs';
 
 test('Windows installer compiler receives separate arguments, preserving spaces and Korean paths', () => {
@@ -39,4 +41,24 @@ test('Windows packaging provides explicit publisher metadata without requiring a
   assert.deepEqual(await getMetadataFromPackageJSON(['win32'], {
     name: 'SiteCAD', appVersion: '0.16.0', electronVersion: '45.0.0', win32metadata: { CompanyName: company[1] },
   }, '/package-metadata-not-needed'), {});
+});
+
+test('macOS DMG staging keeps framework links relative and works after the build directory is moved', {skip: process.platform === 'win32'}, async t => {
+  const source = await readFile(new URL('../scripts/build-desktop.mjs', import.meta.url), 'utf8');
+  const optionsText = source.match(/await cp\(appPath, join\(imageRoot, 'SiteCAD\.app'\), (\{[^}]+\})\)/)?.[1];
+  assert.ok(optionsText, 'Use the actual DMG staging copy options');
+  const options = Object.fromEntries([...optionsText.matchAll(/(\w+):\s*(true|false)/g)].map(([,key,value]) => [key,value === 'true']));
+  const directory = await mkdtemp(join(tmpdir(), 'sitecad-framework-copy-'));
+  t.after(() => rm(directory, {recursive:true,force:true}));
+  const appPath = join(directory,'built.app'), imagePath = join(directory,'image/SiteCAD.app');
+  const framework = 'Contents/Frameworks/Electron Framework.framework';
+  await mkdir(join(appPath,framework,'Versions/A/Resources'), {recursive:true});
+  await writeFile(join(appPath,framework,'Versions/A/Resources/icudtl.dat'), 'ICU fixture');
+  await symlink('A',join(appPath,framework,'Versions/Current'));
+  await symlink('Versions/Current/Resources',join(appPath,framework,'Resources'));
+  await cp(appPath,imagePath,options);
+  await rename(appPath,join(directory,'build-is-no-longer-here.app'));
+  assert.equal(await readlink(join(imagePath,framework,'Resources')), 'Versions/Current/Resources');
+  assert.equal(await readlink(join(imagePath,framework,'Versions/Current')), 'A');
+  assert.equal(await readFile(join(imagePath,framework,'Resources/icudtl.dat'),'utf8'), 'ICU fixture');
 });

@@ -163,20 +163,117 @@ test('actual idle editor context is accepted by the chat boundary including comm
   assert.equal(validateChat(request),request);
 });
 
-test('startup handles an autosave dialog arriving while the initial blank drawing opens', async () => {
-  const { cad, control, state } = engine();
-  state.documents = [{ id: 1, start: true }];
-  const original = control.request;
-  let shown = false;
-  control.request = async request => {
-    const reply = await original(request);
-    if (request.op === 'new' && !shown) { state.modal = 'AutosaveRestore'; shown = true; }
-    if (request.op === 'action' && request.name === 'close_modal') state.modal = null;
+for (const modal of ['AutosaveRestore', 'GpuWarning']) {
+  for (const phase of ['capabilities', 'new']) {
+  test(`startup handles ${modal} after ${phase} without creating another blank drawing`, async () => {
+    const { cad, control, state, calls } = engine(6);
+    state.documents = [{ id: 1, start: true }];
+    const original = control.request;
+    control.request = async request => {
+      if (request.op === 'action' && request.name === 'close_modal') {
+        calls.push(request);
+        state.modal = null;
+        return {ok:true}; // Closing an engine modal does not edit the document.
+      }
+      const reply = await original(request);
+      if (request.op === phase) state.modal = modal;
+      return reply;
+    };
+    const ready = await cad.ready();
+    assert.equal(ready.modal, null);
+    assert.equal(ready.units, 4);
+    assert.equal(calls.filter(call => call.op === 'new').length, 1);
+    assert.equal((await cad.request({op:'header'})).insertion_units, 4);
+  });
+  }
+}
+
+test('startup preserves unknown dialogs and active user commands', async () => {
+  for (const pending of [{modal:'SaveDialog'}, {modal:'GpuWarning',command:{name:'LINE'}},
+    {modal:'GpuWarning',text_editor:true}, {modal:'GpuWarning',mtext_editor:true}]) {
+    const {cad,state,calls} = engine();
+    Object.assign(state, pending, {documents:[{id:1,start:true}]});
+    await assert.rejects(cad.ready(), /진행 중/);
+    assert.equal(calls.some(call=>call.name==='close_modal' || call.op==='new' || call.op==='sysvar'), false);
+    assert.equal(state.modal, pending.modal);
+  }
+});
+
+test('ordinary new drawing requests preserve graphics warnings', async () => {
+  const {cad,state,calls}=engine();
+  state.modal='GpuWarning';
+  await assert.rejects(cad.newDrawing(), /진행 중/);
+  assert.equal(calls.some(call=>call.name==='close_modal' || call.op==='new'), false);
+});
+
+test('startup preserves an unknown dialog arriving after the blank drawing opens', async () => {
+  const {cad,state,control,calls}=engine(6);
+  state.documents=[{id:1,start:true}];
+  const original=control.request;
+  control.request=async request=>{
+    const reply=await original(request);
+    if(request.op==='new')state.modal='SaveDialog';
     return reply;
   };
-  const ready = await cad.ready();
-  assert.equal(ready.modal, null);
-  assert.equal(ready.units, 4);
+  await assert.rejects(cad.ready(), /진행 중/);
+  assert.equal(calls.filter(call=>call.op==='new').length, 1);
+  assert.equal(calls.some(call=>call.name==='close_modal' || call.op==='sysvar'), false);
+  assert.equal(state.modal, 'SaveDialog');
+});
+
+test('startup stops retrying a graphics warning that remains open', async () => {
+  const {cad,state,control,calls}=engine();
+  state.documents=[{id:1,start:true}];
+  const original=control.request;
+  control.request=async request=>{
+    if(request.op==='action' && request.name==='close_modal'){
+      calls.push(request); return {ok:true};
+    }
+    const reply=await original(request);
+    if(request.op==='new')state.modal='GpuWarning';
+    return reply;
+  };
+  await assert.rejects(cad.ready(), /진행 중/);
+  assert.equal(calls.filter(call=>call.name==='close_modal').length, 3);
+  assert.equal(calls.filter(call=>call.op==='new').length, 1);
+  assert.equal(calls.some(call=>call.op==='sysvar'), false);
+});
+
+test('startup never retries a new drawing whose mutation reply failed', async () => {
+  const {cad,state,control,calls}=engine();
+  state.documents=[{id:1,start:true}];
+  const original=control.request;
+  control.request=async request=>{
+    const reply=await original(request);
+    if(request.op==='new'){
+      state.modal='GpuWarning';
+      return {ok:false,error:'control_reply_lost_after_new'};
+    }
+    return reply;
+  };
+  await assert.rejects(cad.ready(), /control_reply_lost_after_new/);
+  assert.equal(state.document_id, 2);
+  assert.equal(calls.filter(call=>call.op==='new').length, 1);
+  assert.equal(calls.some(call=>call.name==='close_modal' || call.op==='sysvar'), false);
+});
+
+test('startup does not refresh an edited drawing after a graphics warning', async () => {
+  const {cad,state,control,calls}=engine(6);
+  state.documents=[{id:1,start:true}];
+  const original=control.request;
+  control.request=async request=>{
+    if(request.op==='action' && request.name==='close_modal'){
+      calls.push(request); state.modal=null; state.revision++;
+      return {ok:true};
+    }
+    const reply=await original(request);
+    if(request.op==='new')state.modal='GpuWarning';
+    return reply;
+  };
+  await assert.rejects(cad.ready(), /변경/);
+  assert.equal(calls.filter(call=>call.op==='new').length, 1);
+  assert.equal(calls.some(call=>call.op==='sysvar'), false);
+  assert.equal((await cad.request({op:'header'})).insertion_units, 6);
 });
 
 test('create, move last and measure execute in order in a metre drawing', async () => {

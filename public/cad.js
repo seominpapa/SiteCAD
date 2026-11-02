@@ -7,6 +7,11 @@ export { mmPerUnit } from './units.js';
 
 const MAX_COORDINATE_MM = 100_000_000;
 const MAX_FILE_BYTES = 30 * 1024 * 1024;
+const STARTUP_PROMPTS = new Set(['DonationPrompt', 'AutosaveRestore', 'GpuWarning']);
+
+function isStartupPrompt(state) {
+  return STARTUP_PROMPTS.has(state.modal) && !state.command && !state.text_editor && !state.mtext_editor;
+}
 
 function number(value, positive = false) {
   if (!Number.isFinite(value) || Math.abs(value) > MAX_COORDINATE_MM || (positive && value <= 0)) {
@@ -87,12 +92,35 @@ export class CadEditor {
       (expected.selection != null && !sameSelection(state.selection || [], expected.selection)))) {
       throw new Error('도면이 변경되었습니다. 현재 도면에서 요청을 다시 보내 주세요.');
     }
-    if (state.modal || state.command || state.text_editor || state.mtext_editor) throw new Error('편집기의 진행 중 명령이나 대화상자를 먼저 닫아 주세요.');
+    if (state.modal || state.command || state.text_editor || state.mtext_editor) {
+      const error = new Error('편집기의 진행 중 명령이나 대화상자를 먼저 닫아 주세요.');
+      error.code = 'cad_interaction_pending';
+      throw error;
+    }
     if (signal?.aborted) throw new Error('작업을 취소했습니다.');
     return this.request({ protocol: 1, request_id: crypto.randomUUID(),
       document_id: state.document_id, revision: state.revision,
       ...(!expected && ['new','open'].includes(operation.op) ? {} : {geometry_revision:state.geometry_revision}),
       selection:state.selection, ...operation });
+  }
+
+  async mutateStartup(operation, expected) {
+    for (let attempt = 0; ; attempt++) {
+      try { return await this.mutate(operation, expected); }
+      catch (error) {
+        // Only our pre-dispatch guard guarantees that no write reached the engine.
+        if (error.code !== 'cad_interaction_pending') throw error;
+        const current = await this.snapshot();
+        if (attempt >= 3 || !isStartupPrompt(current) || (expected &&
+          (current.document_id !== expected.document_id || current.revision !== expected.revision ||
+            (expected.layout != null && current.layout !== expected.layout) ||
+            !sameSelection(current.selection || [], expected.selection || [])))) throw error;
+        // Software-renderer warnings can arrive after the first blank tab opens.
+        // Retry only the blocked operation; creating a second tab loses its identity.
+        await this.request({ protocol: 1, request_id: crypto.randomUUID(), op: 'action',
+          name: 'close_modal', document_id: current.document_id, revision: current.revision });
+      }
+    }
   }
 
   async ready() {
@@ -107,7 +135,7 @@ export class CadEditor {
         new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('CAD 제어 연결 시간 초과')), 120_000); })]);
     } finally { clearTimeout(timer); }
     let state = await this.snapshot();
-    for (let attempt = 0; state.modal && attempt < 3; attempt++) {
+    for (let attempt = 0; isStartupPrompt(state) && attempt < 3; attempt++) {
       await this.request({ protocol: 1, request_id: crypto.randomUUID(), op: 'action',
         name: 'close_modal', document_id: state.document_id, revision: state.revision });
       state = await this.snapshot();
@@ -117,25 +145,18 @@ export class CadEditor {
       if (!capabilities.operations?.[operation]) throw new Error(`편집기가 필요한 기능을 지원하지 않습니다: ${operation}`);
     }
     if (state.documents?.find(d => d.id === state.document_id)?.start) {
-      try { return await this.newDrawing(); }
-      catch (error) {
-        const current = await this.snapshot();
-        if (current.modal !== 'AutosaveRestore') throw error;
-        // Startup restoration may appear after the engine's ready promise resolves.
-        await this.request({ protocol: 1, request_id: crypto.randomUUID(), op: 'action',
-          name: 'close_modal', document_id: current.document_id, revision: current.revision });
-        return this.newDrawing();
-      }
+      return this.newDrawing({ startup: true });
     }
     return state;
   }
 
-  async newDrawing() {
-    await this.mutate({ op: 'new' });
+  async newDrawing({ startup = false } = {}) {
+    const mutate = startup ? this.mutateStartup.bind(this) : this.mutate.bind(this);
+    await mutate({ op: 'new' });
     let state = await this.snapshot();
     if (state.documents?.find(d => d.id === state.document_id)?.start) throw new Error('새 도면을 만들지 못했습니다.');
     for (let attempt=0; ; attempt++) {
-      try { await this.mutate({op:'sysvar',set:{insunits:4}},state); break; }
+      try { await mutate({op:'sysvar',set:{insunits:4}},state); break; }
       catch (error) {
         const current=await this.snapshot();
         // A new blank tab's first render can advance geometry without an edit.
