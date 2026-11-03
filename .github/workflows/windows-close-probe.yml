@@ -1,0 +1,42 @@
+name: Diagnose Windows native close confirmation
+on:
+  push:
+    branches: [diagnostics/windows-close-0161]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  close:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.22.1'
+      - name: Download already built candidate without rebuilding
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 41584677423 --repo seominpapa/SiteCAD --name SiteCAD-Windows-919893a110bdf2fe7cd84c571485d2842d23ca34 --dir dist/candidate
+      - name: Install and verify actual close dialog and subsequent restart
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item dist/verification -ItemType Directory -Force | Out-Null
+          $setup = (Get-ChildItem dist/candidate -Filter '*-Setup.exe' | Select-Object -First 1).FullName
+          $destination = Join-Path $env:RUNNER_TEMP '설치 확인 SiteCAD'
+          $install = Start-Process $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=`"$destination`"") -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw 'Candidate installation failed' }
+          node scripts/verify-desktop.mjs "$destination\SiteCAD.exe" "$PWD/dist/verification/desktop-first"
+          if ($LASTEXITCODE -ne 0) { throw 'First start failed' }
+          node scripts/verify-desktop.mjs "$destination\SiteCAD.exe" "$PWD/dist/verification/desktop-restart" --normal-close
+          if ($LASTEXITCODE -ne 0) { throw 'Actual normal close failed' }
+          node scripts/verify-desktop.mjs "$destination\SiteCAD.exe" "$PWD/dist/verification/desktop-normal-restart" --normal-close
+          if ($LASTEXITCODE -ne 0) { throw 'Restart after actual normal close failed' }
+      - name: Save isolated close evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: SiteCAD-close-${{ github.sha }}
+          path: dist/verification/
+          retention-days: 14
