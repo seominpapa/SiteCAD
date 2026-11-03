@@ -1,0 +1,59 @@
+name: Diagnose Windows encrypted-store restart
+on:
+  push:
+    branches: ['diagnostics/desktop-restart-0161']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  secrets:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.22.1'
+      - run: npm ci --no-audit --no-fund
+      - name: Compare clean exit and forced exit using only fixed anonymous data
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import {spawn} from 'node:child_process';
+          import {mkdir,writeFile} from 'node:fs/promises';
+          import {join} from 'node:path';
+          import {stopProcessTree} from './lib/mcp-launcher.mjs';
+          assert.equal(process.env.CI,'true');
+          const results=[];
+          async function probe(profile,mode,action) {
+            const child=spawn(join(process.cwd(),'node_modules/electron/dist/electron.exe'), ['scripts/probe-desktop-secrets.mjs',profile,mode,action], {stdio:['ignore','pipe','pipe']});
+            let stdout='',stderr='',forced=false,timedOut=false;
+            const timer=setTimeout(()=>{timedOut=true;stopProcessTree(child,'SIGKILL');},45000);
+            child.stdout.on('data',data=>{
+              stdout+=data;
+              if(action==='write-hold' && !forced && stdout.includes('awaiting-forced-shutdown')) {forced=true;stopProcessTree(child,'SIGKILL');}
+            });
+            child.stderr.on('data',data=>{stderr+=data;});
+            const code=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('close',resolve);});
+            clearTimeout(timer);
+            const result={profile:profile.split(/[\\/]/).at(-1),mode,action,code,forced,timedOut,stdout,stderr};
+            results.push(result);console.log(JSON.stringify(result,null,2));
+          }
+          for (const mode of ['sync','async']) {
+            for (const action of ['write','write-hold']) {
+              const profile=join(process.env.RUNNER_TEMP,`sitecad-probe-${mode}-${action}`);
+              await probe(profile,mode,action);
+              await probe(profile,'sync','read');
+              await probe(profile,'async','read');
+            }
+          }
+          await mkdir('dist/verification',{recursive:true});
+          await writeFile('dist/verification/encrypted-store-probe.json',JSON.stringify(results,null,2)+'\n');
+          JS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: Windows-encrypted-store-probe-${{ github.sha }}
+          path: dist/verification/
+          retention-days: 7
