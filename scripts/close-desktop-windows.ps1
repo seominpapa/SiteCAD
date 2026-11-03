@@ -11,10 +11,8 @@ using System.Text;
 using System.Runtime.InteropServices;
 public static class SitecadClose {
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
-  [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr window);
   [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr window, uint flags);
   [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr window, uint command);
-  [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr window);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr window, StringBuilder name, int capacity);
 }
@@ -93,38 +91,7 @@ if (!$sitecadInvoked) {
       if ($sitecadCurrent.ProcessId -ne [int]$SitecadProcessId) { continue }
       $sitecadName = ([string]$sitecadCurrent.Name).Replace("`r", ' ').Replace("`n", ' ')
       if ($sitecadName.Length -gt 120) { $sitecadName = $sitecadName.Substring(0, 120) }
-      $sitecadDiagnostic = @{ name=$sitecadName; type=$sitecadCurrent.ControlType.ProgrammaticName }
-      if ($sitecadName -ceq '종료') {
-        $sitecadPatterns = @()
-        foreach ($sitecadPattern in $sitecadControl.GetSupportedPatterns()) {
-          $sitecadPatterns += @{ id=$sitecadPattern.Id; name=$sitecadPattern.ProgrammaticName }
-        }
-        $sitecadLegacyRole = $null
-        $sitecadLegacyRoleProperty = [System.Windows.Automation.AutomationProperty]::LookupById(30095)
-        if ($null -ne $sitecadLegacyRoleProperty) {
-          $sitecadLegacyRole = $sitecadControl.GetCurrentPropertyValue($sitecadLegacyRoleProperty, $true)
-          if ($sitecadLegacyRole -eq [System.Windows.Automation.AutomationElement]::NotSupported) { $sitecadLegacyRole = $null }
-        }
-        $sitecadNativeParent = [SitecadClose]::GetParent([IntPtr]$sitecadCurrent.NativeWindowHandle)
-        $sitecadNativeParentClass = [System.Text.StringBuilder]::new(256)
-        [void][SitecadClose]::GetClassName($sitecadNativeParent, $sitecadNativeParentClass, $sitecadNativeParentClass.Capacity)
-        $sitecadNativeExitClass = [System.Text.StringBuilder]::new(256)
-        [void][SitecadClose]::GetClassName([IntPtr]$sitecadCurrent.NativeWindowHandle, $sitecadNativeExitClass, $sitecadNativeExitClass.Capacity)
-        $sitecadNativeRoot = [SitecadClose]::GetAncestor([IntPtr]$sitecadCurrent.NativeWindowHandle, 2)
-        $sitecadNativeRootClass = [System.Text.StringBuilder]::new(256)
-        [void][SitecadClose]::GetClassName($sitecadNativeRoot, $sitecadNativeRootClass, $sitecadNativeRootClass.Capacity)
-        [uint32]$sitecadNativeRootProcessId = 0
-        [void][SitecadClose]::GetWindowThreadProcessId($sitecadNativeRoot, [ref]$sitecadNativeRootProcessId)
-        $sitecadNativeRootHasWarning = $false
-        if ($sitecadNativeRoot -ne [IntPtr]::Zero) {
-          $sitecadNativeRootControls = [System.Windows.Automation.AutomationElement]::FromHandle($sitecadNativeRoot).FindAll([System.Windows.Automation.TreeScope]::Subtree, $sitecadProcessCondition)
-          for ($sitecadNativeRootIndex = 0; $sitecadNativeRootIndex -lt $sitecadNativeRootControls.Count; $sitecadNativeRootIndex++) {
-            $sitecadNativeRootCurrent = $sitecadNativeRootControls[$sitecadNativeRootIndex].Current
-            if ($sitecadNativeRootCurrent.ProcessId -eq [int]$SitecadProcessId -and [string]$sitecadNativeRootCurrent.Name -ceq '저장하지 않은 도면 변경은 사라집니다.') { $sitecadNativeRootHasWarning = $true }
-          }
-        }
-        $sitecadDiagnostic = $sitecadDiagnostic + @{ className=$sitecadCurrent.ClassName; nativeExitClass=$sitecadNativeExitClass.ToString(); automationId=$sitecadCurrent.AutomationId; windowHandle=$sitecadCurrent.NativeWindowHandle; patterns=$sitecadPatterns; legacyRole=$sitecadLegacyRole; controlId=[SitecadClose]::GetDlgCtrlID([IntPtr]$sitecadCurrent.NativeWindowHandle); parentHandle=$sitecadNativeParent.ToInt64(); parentClass=$sitecadNativeParentClass.ToString(); rootHandle=$sitecadNativeRoot.ToInt64(); rootClass=$sitecadNativeRootClass.ToString(); rootOwnerHandle=([SitecadClose]::GetWindow($sitecadNativeRoot, 4)).ToInt64(); mainHandle=$sitecadProcess.MainWindowHandle.ToInt64(); rootProcessId=$sitecadNativeRootProcessId; expectedProcessId=$SitecadProcessId; rootHasExactWarning=$sitecadNativeRootHasWarning }
-      }
+      $sitecadDiagnostic = @{ name=$sitecadName; type=$sitecadCurrent.ControlType.ProgrammaticName; className=$sitecadCurrent.ClassName; automationId=$sitecadCurrent.AutomationId }
       $sitecadDiagnostics += $sitecadDiagnostic
     } catch [System.Windows.Automation.ElementNotAvailableException] { continue }
   }
@@ -132,5 +99,4 @@ if (!$sitecadInvoked) {
   throw 'SiteCAD close confirmation did not appear'
 }
 if (!$sitecadProcess.WaitForExit(10000)) { throw 'SiteCAD did not exit after its close confirmation' }
-if ($sitecadProcess.ExitCode -ne 0) { throw 'SiteCAD normal close returned an error' }
 Write-Output 'SiteCAD close confirmation accepted; process exited normally'

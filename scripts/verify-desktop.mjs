@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
+import { once } from 'node:events';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -94,6 +95,9 @@ export async function closeWindowsDesktop(child) {
   } catch (error) {
     throw Error(`Windows close confirmation failed (${error.code ?? 'unknown'}): ${sanitizeDiagnostic(error.stderr).slice(-3000)}\n${sanitizeDiagnostic(error.stdout).slice(-12000)}`);
   }
+  if (child.exitCode === null && child.signalCode === null) await once(child, 'exit', {signal:AbortSignal.timeout(5000)});
+  assert.equal(child.signalCode, null, 'Normal close must not terminate by signal');
+  assert.equal(child.exitCode, 0, 'Normal close must return a successful exit code');
 }
 
 export async function verifyDesktop({ executable, outputDirectory, normalClose = false } = {}) {
