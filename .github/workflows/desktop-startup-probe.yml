@@ -15,6 +15,7 @@ jobs:
         with:
           node-version: '24.22.1'
       - run: npm ci --no-audit --no-fund
+      - run: node node_modules/electron/install.js
       - name: Compare clean exit and forced exit using only fixed anonymous data
         shell: bash
         run: |
