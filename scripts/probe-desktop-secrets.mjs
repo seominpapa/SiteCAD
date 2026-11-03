@@ -19,7 +19,8 @@ if (action !== 'read') {
 const { app, safeStorage } = await import('electron');
 app.setName('SiteCAD Secret Probe');
 app.setPath('userData', profile);
-await app.whenReady();
+stage('module-loaded');
+app.whenReady().then(async () => {
 try {
   stage('ready');
   const state = await readFile(join(profile, 'Local State'), 'utf8').then(JSON.parse).catch(error => { if (error.code === 'ENOENT') return {}; throw error; });
@@ -52,3 +53,7 @@ try {
   stage(`failed-${error.name}`);
   app.exit(1);
 }
+}).catch(error => {
+  stage(`startup-failed-${error.name}`);
+  app.exit(1);
+});
