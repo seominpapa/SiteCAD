@@ -1,4 +1,4 @@
-name: Published 0.16.0 first-install verification
+name: Published 0.16.0 Windows restart verification
 on:
   push:
     branches: ['validation/public-release-0.16.0']
@@ -13,8 +13,6 @@ jobs:
         include:
           - os: windows-2022
             platform: Windows
-          - os: macos-26
-            platform: macOS
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:

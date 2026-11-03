@@ -4,7 +4,19 @@ import { EventEmitter } from 'node:events';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { sanitizeDiagnostic, stopDesktop, verifyDesktop } from '../scripts/verify-desktop.mjs';
+import { findDesktopPage, sanitizeDiagnostic, stopDesktop, verifyDesktop } from '../scripts/verify-desktop.mjs';
+
+test('desktop discovery tolerates a warming debugger without hiding invalid responses', async () => {
+  for (const error of [new DOMException('warming up', 'TimeoutError'), Object.assign(new TypeError('fetch failed'), {cause:{code:'ECONNREFUSED'}})]) {
+    assert.equal(await findDesktopPage(49152, async () => { throw error; }), undefined);
+  }
+  assert.equal(await findDesktopPage(49152, async () => ({status:200,json:async () => { throw new DOMException('body warming up', 'TimeoutError'); }})), undefined);
+  const page = {type:'page',url:'http://127.0.0.1:49153/',webSocketDebuggerUrl:'ws://127.0.0.1:49152/devtools/page/test'};
+  assert.deepEqual(await findDesktopPage(49152, async () => ({status:200,json:async () => [page]})), page);
+  assert.equal(await findDesktopPage(49152, async () => ({status:200,json:async () => []})), undefined);
+  await assert.rejects(findDesktopPage(49152, async () => ({status:500})), /500/);
+  await assert.rejects(findDesktopPage(49152, async () => { throw Error('unexpected failure'); }), /unexpected failure/);
+});
 
 test('desktop diagnostics redact capability URLs and credentials before writing CI logs', () => {
   const input = 'https://127.0.0.1:4242/?token=private ws://127.0.0.1:1/devtools/private Authorization: Bearer secret-access-token api_key=private-key {"refresh_token":"private-refresh"}';

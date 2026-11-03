@@ -71,6 +71,18 @@ export async function stopDesktop(child, timeoutMs = 5000, stop = stopProcessTre
   });
 }
 
+export async function findDesktopPage(port, request = fetch) {
+  try {
+    const response = await request(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) });
+    assert.equal(response.status, 200);
+    return (await response.json()).find(item => item.type === 'page' && /^http:\/\/127\.0\.0\.1:\d+\/$/.test(item.url));
+  } catch (error) {
+    // The debugger can announce its port before the app finishes starting.
+    if (error.name === 'TimeoutError' || error.cause?.code === 'ECONNREFUSED') return;
+    throw error;
+  }
+}
+
 export async function verifyDesktop({ executable, outputDirectory } = {}) {
   // shortcut: clean CI profiles only; add explicit isolated-profile support before local desktop use.
   if (process.env.CI !== 'true') throw Error('Desktop verification requires a clean CI machine; personal profiles must not be used.');
@@ -78,11 +90,12 @@ export async function verifyDesktop({ executable, outputDirectory } = {}) {
   if (!(await stat(executable)).isFile()) throw Error('Desktop executable must be a file');
   if (!isAbsolute(outputDirectory ?? '')) throw Error('Provide an absolute output directory');
   await mkdir(outputDirectory, { recursive: true });
+  const startedAt = Date.now();
   const child = spawn(executable, ['--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1'], {
     shell: false, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: false,
   });
   let output = '', startupError, socket, call, stage = 'debugger startup', lastState;
-  let rendererEvents = [];
+  let rendererEvents = [], discoveryAttempts = 0;
   child.once('error', error => { startupError = error; });
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', text => { output = (output + text).slice(-32768); });
@@ -101,9 +114,8 @@ export async function verifyDesktop({ executable, outputDirectory } = {}) {
     const port = await until(async () => output.match(/DevTools listening on ws:\/\/127\.0\.0\.1:(\d+)\//)?.[1], stage);
     stage = 'local application page';
     const target = await until(async () => {
-      const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) });
-      assert.equal(response.status, 200);
-      return (await response.json()).find(item => item.type === 'page' && /^http:\/\/127\.0\.0\.1:\d+\/$/.test(item.url));
+      discoveryAttempts++;
+      return findDesktopPage(port);
     }, stage);
     assert.match(target.webSocketDebuggerUrl, new RegExp(`^ws://127\\.0\\.0\\.1:${port}/devtools/page/`));
     socket = await connect(target.webSocketDebuggerUrl);
@@ -145,6 +157,7 @@ export async function verifyDesktop({ executable, outputDirectory } = {}) {
     await writeFile(join(outputDirectory, 'desktop.png'), Buffer.from(screenshot.data, 'base64'));
     const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
     const report = { version, platform: process.platform, arch: process.arch, ...view, modules, anonymousProfile: true,
+      startupMs: Date.now() - startedAt, discoveryAttempts,
       limitations: ['No AI inference or authenticated external API/MCP calls', 'No drawing modification or DWG round-trip test'] };
     await writeFile(join(outputDirectory, 'desktop-verification.json'), `${JSON.stringify(report, null, 2)}\n`);
     console.log(`Desktop ${version} verified on ${process.platform}/${process.arch}: editor, settings and packaged chat modules ready`);
@@ -157,6 +170,7 @@ export async function verifyDesktop({ executable, outputDirectory } = {}) {
       } catch { /* Diagnostic capture must preserve the original verification failure. */ }
     }
     const failure = {platform:process.platform, arch:process.arch, stage, error:sanitizeDiagnostic(error.message),
+      elapsedMs:Date.now() - startedAt, discoveryAttempts,
       exitCode:child.exitCode, signalCode:child.signalCode, lastState, rendererEvents, stderr:sanitizeDiagnostic(output)};
     const diagnostic = sanitizeDiagnostic(JSON.stringify(failure, null, 2));
     try { await writeFile(join(outputDirectory, 'desktop-verification-failure.json'), `${diagnostic}\n`); }
