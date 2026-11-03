@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { findDesktopPage, sanitizeDiagnostic, stopDesktop, verifyDesktop } from '../scripts/verify-desktop.mjs';
+import { closeWindowsDesktop, findDesktopPage, sanitizeDiagnostic, stopDesktop, verifyDesktop } from '../scripts/verify-desktop.mjs';
 
 test('desktop discovery tolerates a warming debugger without hiding invalid responses', async () => {
   for (const error of [new DOMException('warming up', 'TimeoutError'), Object.assign(new TypeError('fetch failed'), {cause:{code:'ECONNREFUSED'}})]) {
@@ -60,7 +60,10 @@ test('a failed executable preserves its startup error and saves a diagnostic aft
 test('desktop verification refuses personal profiles outside a clean CI environment', async () => {
   const previous = process.env.CI;
   delete process.env.CI;
-  try { await assert.rejects(verifyDesktop({ executable: process.execPath, outputDirectory: '/tmp/unused' }), /clean CI/); }
+  try {
+    await assert.rejects(verifyDesktop({ executable: process.execPath, outputDirectory: '/tmp/unused' }), /clean CI/);
+    await assert.rejects(closeWindowsDesktop({pid:process.pid}), /clean Windows CI/);
+  }
   finally { if (previous === undefined) delete process.env.CI; else process.env.CI = previous; }
 });
 

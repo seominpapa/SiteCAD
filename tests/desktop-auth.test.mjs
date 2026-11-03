@@ -43,6 +43,62 @@ async function fixture(options = {}) {
   return { auth, callback, calls, get url() { return authUrl; }, get saved() { return saved; }, setHandler(handler) { tokenHandler = handler; } };
 }
 
+test('anonymous startup stays in memory until the user starts login', async t => {
+  let writes = 0;
+  const options = {store:{read:async () => null,write:async () => { writes++; }},openExternal:async () => {}};
+  const first = await createDesktopAuth(options); t.after(() => first.close());
+  const restarted = await createDesktopAuth(options); t.after(() => restarted.close());
+  assert.equal(first.status().loggedIn, false);
+  assert.equal(restarted.status().loggedIn, false);
+  assert.equal(writes, 0, 'An anonymous first launch must not create encrypted credentials');
+});
+
+test('first login persists its host before discovery and keeps it after cancellation and restart', async t => {
+  let saved = null, writes = 0, requests = 0, opened;
+  const options = {
+    store:{read:async () => structuredClone(saved),write:async value => { saved = structuredClone(value); writes++; }},
+    openExternal:async value => { opened = new URL(value); assert.equal(opened.searchParams.get('ext_agent_host_id'), saved.hostId); },
+    fetchImpl:async () => {
+      requests++;
+      assert.match(saved.hostId, /^urn:uuid:/, 'Persist the host before contacting the OAuth server');
+      return Response.json({issuer:ISSUER,authorization_endpoint:`${ISSUER}/authorize`,token_endpoint:`${ISSUER}/token`,jwks_uri:`${ISSUER}/keys`});
+    },
+  };
+  const first = await createDesktopAuth(options); t.after(() => first.close());
+  assert.equal(saved, null);
+  await first.login();
+  const host = saved.hostId;
+  assert.equal(writes, 1);
+  assert.equal(requests, 1);
+  first.cancel(); await first.close();
+  const restarted = await createDesktopAuth(options); t.after(() => restarted.close());
+  assert.equal(writes, 1, 'Reading an existing registration must not rewrite it');
+  await restarted.login();
+  assert.equal(opened.searchParams.get('ext_agent_host_id'), host);
+  assert.equal(writes, 1, 'A returning registration is already persisted');
+});
+
+test('failed first-login persistence stops before network or browser access', async t => {
+  let external = 0;
+  const auth = await createDesktopAuth({
+    store:{read:async () => null,write:async () => { throw Error('private storage detail'); }},
+    openExternal:async () => { external++; }, fetchImpl:async () => { external++; assert.fail('Network must wait for protected persistence'); },
+  });
+  t.after(() => auth.close());
+  await assert.rejects(auth.login(), error => /확인/.test(error.message) && !error.message.includes('private'));
+  assert.equal(auth.status().pending, false);
+  assert.equal(external, 0);
+});
+
+test('unreadable existing credentials are never replaced with an anonymous record', async () => {
+  let writes = 0;
+  await assert.rejects(createDesktopAuth({
+    store:{read:async () => { throw Error('Encrypted credentials could not be opened'); },write:async () => { writes++; }},
+    openExternal:async () => {},
+  }), /could not be opened/);
+  assert.equal(writes, 0);
+});
+
 test('dynamic registration validates real signed identity and keeps tokens backend only', async t => {
   const f = await fixture(); t.after(() => f.auth.close());
   assert.equal(f.auth.status().loggedIn, false);

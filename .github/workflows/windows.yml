@@ -60,7 +60,7 @@ jobs:
           "INNO_SETUP_COMPILER=$compilerRoot\ISCC.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Build native desktop installer
         run: npm run desktop:build
-      - name: Mount final macOS DMG and verify desktop startup
+      - name: Mount final macOS DMG, record trust status and verify restart
         if: runner.os == 'macOS'
         shell: bash
         run: |
@@ -70,22 +70,31 @@ jobs:
           hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mount"
           trap 'hdiutil detach "$mount"' EXIT
           ditto "$mount/SiteCAD.app" "$RUNNER_TEMP/SiteCAD.app"
+          codesign -dv --verbose=2 "$RUNNER_TEMP/SiteCAD.app" > dist/verification/mac-signature.txt 2>&1
+          spctl --assess --type execute -vv "$RUNNER_TEMP/SiteCAD.app" > dist/verification/mac-gatekeeper.txt 2>&1 || true
           node scripts/verify-desktop.mjs "$RUNNER_TEMP/SiteCAD.app/Contents/MacOS/SiteCAD" "$PWD/dist/verification"
-      - name: Install Windows setup, verify desktop and preserve drawings on uninstall
+          node scripts/verify-desktop.mjs "$RUNNER_TEMP/SiteCAD.app/Contents/MacOS/SiteCAD" "$PWD/dist/verification/desktop-restart"
+      - name: Install Windows setup, verify forced and normal restarts, preserve drawings on uninstall
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $setup = (Get-ChildItem 'dist/SiteCAD-*-Windows-x64-Setup.exe' | Select-Object -First 1).FullName
+          Get-AuthenticodeSignature $setup | Select-Object Status,StatusMessage | ConvertTo-Json | Out-File dist/verification/windows-signature.json
           $destination = Join-Path $env:RUNNER_TEMP '설치 확인 SiteCAD'
           $install = Start-Process $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$destination`"") -Wait -PassThru
           if ($install.ExitCode -ne 0) { throw "SiteCAD installation failed: $($install.ExitCode)" }
           node scripts/verify-desktop.mjs "$destination\SiteCAD.exe" "$PWD/dist/verification"
           if ($LASTEXITCODE -ne 0) { throw 'Desktop verification failed' }
+          node scripts/verify-desktop.mjs "$destination\SiteCAD.exe" "$PWD/dist/verification/desktop-restart" --normal-close
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop recovery or normal-close verification failed' }
+          node scripts/verify-desktop.mjs "$destination\SiteCAD.exe" "$PWD/dist/verification/desktop-normal-restart" --normal-close
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop restart after normal close failed' }
           New-Item "$destination\drawings" -ItemType Directory -Force | Out-Null
           Set-Content "$destination\drawings\preserve.txt" 'User drawing placeholder'
           $uninstall = Start-Process "$destination\unins000.exe" -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
           if ($uninstall.ExitCode -ne 0 -or !(Test-Path "$destination\drawings\preserve.txt")) { throw 'Uninstaller removed a user drawing or failed' }
+          @{ installed=$true; forcedRestart=$true; normalRestart=$true; closeConfirmationVerified=$true; uninstallSucceeded=$true; userDrawingPreserved=$true } | ConvertTo-Json | Out-File dist/verification/windows-install.json
       - name: Save platform installers and verification evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

@@ -2,22 +2,24 @@
 
 SiteCAD는 OpenCADStudio 편집기와 AI·MCP를 연결하는 macOS(M계열)·Windows 로컬 브라우저 앱입니다. AI 계정을 연결한 뒤 채팅으로 2D 도면과 지원되는 3D 형상을 만들고 수정하거나 물량을 검토하고 DWG로 저장합니다. CAD 파일 처리와 도구 실행은 내 PC에서 이루어지며 AI 요청은 온라인 서비스를 사용합니다.
 
-**웹앱 다운로드: [Windows ZIP](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/SiteCAD-0.16.0-local-web-Windows.zip) · [Mac M계열 ZIP](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/SiteCAD-0.16.0-local-web-macOS.zip)**
+**웹앱 다운로드: [Windows ZIP](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/SiteCAD-0.16.1-local-web-Windows.zip) · [Mac M계열 ZIP](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/SiteCAD-0.16.1-local-web-macOS.zip)**
 
-**데스크탑 설치: [Windows Setup.exe](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/SiteCAD-0.16.0-Windows-x64-Setup.exe) · [Mac M계열 DMG](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/SiteCAD-0.16.0-macOS-arm64.dmg)**
+**데스크탑 설치: [Windows Setup.exe](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/SiteCAD-0.16.1-Windows-x64-Setup.exe) · [Mac M계열 DMG — 미공증](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/SiteCAD-0.16.1-macOS-arm64.dmg)**
 
-[0.16.0 릴리스와 변경 내용](https://github.com/seominpapa/SiteCAD/releases/tag/v0.16.0) · [SHA-256](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/SHA256SUMS.txt) · [설치 파일 검증 기록](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/sitecad-verification.json) · [소스와 빌드 정보](SOURCE_BUILD.md)
+[0.16.1 릴리스와 변경 내용](https://github.com/seominpapa/SiteCAD/releases/tag/v0.16.1) · [SHA-256](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/SHA256SUMS.txt) · [설치 파일 검증 기록](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/sitecad-verification.json) · [소스와 빌드 정보](SOURCE_BUILD.md)
+
+> **Mac 데스크탑은 미공증 개발용 배포입니다.** Apple Developer 배포 인증서가 없어 기본 Gatekeeper 보안 승인을 통과하지 못합니다. Mac에서는 웹앱 ZIP 사용을 권장합니다. 앱의 CAD 실행 검사 통과는 운영체제의 보안 승인을 뜻하지 않습니다.
 
 ## 다운로드와 버전 확인
 
-**현재 배포 버전은 0.16.0입니다.** 아래 링크에서 운영체제와 사용 방식에 맞는 파일을 바로 받습니다. GitHub Actions의 중간 ZIP을 별도로 받을 필요는 없습니다. 코드가 업데이트되어도 이미 내려받은 파일이 자동으로 바뀌지는 않습니다. 아래 기능 안내는 0.16.0 기준이며, 파일을 만든 소스 버전·설치 검사 결과·파일별 SHA-256은 릴리스의 `sitecad-verification.json`에서 확인할 수 있습니다.
+**현재 배포 버전은 0.16.1입니다.** Windows의 새 설치 직후 강제 중단·재실행 문제를 수정한 패치입니다. 아래 링크에서 운영체제와 사용 방식에 맞는 파일을 바로 받습니다. GitHub Actions의 중간 ZIP을 별도로 받을 필요는 없습니다. 코드가 업데이트되어도 이미 내려받은 파일이 자동으로 바뀌지는 않습니다. 아래 기능 안내는 0.16.1 기준이며, 파일을 만든 소스 버전·설치 검사 결과·파일별 SHA-256은 릴리스의 `sitecad-verification.json`에서 확인할 수 있습니다.
 
 | 사용 방식 | 대상 | 받을 파일 | 실행 방식 |
 | --- | --- | --- | --- |
-| 웹앱 | Mac M계열 | [SiteCAD-0.16.0-local-web-macOS.zip](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/SiteCAD-0.16.0-local-web-macOS.zip) | 압축을 풀고 `Start SiteCAD.command` 실행 |
-| 웹앱 | Windows 10/11 64비트 | [SiteCAD-0.16.0-local-web-Windows.zip](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/SiteCAD-0.16.0-local-web-Windows.zip) | 모두 압축을 풀고 `Start SiteCAD.cmd` 실행 |
-| 데스크탑 | Mac M계열 | [SiteCAD-0.16.0-macOS-arm64.dmg](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/SiteCAD-0.16.0-macOS-arm64.dmg) | `SiteCAD.app`을 응용 프로그램에 복사 |
-| 데스크탑 | Windows x64 | [SiteCAD-0.16.0-Windows-x64-Setup.exe](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.0/SiteCAD-0.16.0-Windows-x64-Setup.exe) | 설치 마법사로 설치 |
+| 웹앱 | Mac M계열 | [SiteCAD-0.16.1-local-web-macOS.zip](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/SiteCAD-0.16.1-local-web-macOS.zip) | 압축을 풀고 `Start SiteCAD.command` 실행 |
+| 웹앱 | Windows 10/11 64비트 | [SiteCAD-0.16.1-local-web-Windows.zip](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/SiteCAD-0.16.1-local-web-Windows.zip) | 모두 압축을 풀고 `Start SiteCAD.cmd` 실행 |
+| 데스크탑 | Mac M계열 | [SiteCAD-0.16.1-macOS-arm64.dmg](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/SiteCAD-0.16.1-macOS-arm64.dmg) | 미공증 개발용. 일반 사용자는 웹앱 ZIP 권장 |
+| 데스크탑 | Windows x64 | [SiteCAD-0.16.1-Windows-x64-Setup.exe](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/SiteCAD-0.16.1-Windows-x64-Setup.exe) | 설치 마법사로 설치 |
 
 웹앱은 기본 브라우저와 실행기 터미널을 함께 사용하고, 데스크탑은 전용 앱 창에서 사용합니다. 두 방식 모두 내 PC에서 로컬 서비스와 CAD 도구를 실행합니다. 별도 원격 서버를 준비할 필요는 없으며, 로컬 접속 주소는 다른 사용자를 위한 공개 서비스 주소가 아닙니다.
 
@@ -25,12 +27,12 @@ SiteCAD는 OpenCADStudio 편집기와 AI·MCP를 연결하는 macOS(M계열)·Wi
 
 1. 위 표에서 운영체제에 맞는 **웹앱 ZIP 또는 데스크탑 설치 파일 하나**를 누릅니다. 두 방식을 모두 설치할 필요는 없습니다.
 2. 웹앱은 받은 ZIP 전체를 폴더에 풉니다. 데스크탑은 받은 DMG 또는 Setup.exe를 바로 엽니다. 자세한 절차는 아래 운영체제별 설명을 따르세요.
-3. 파일 전체 목록과 변경 내용은 [0.16.0 릴리스](https://github.com/seominpapa/SiteCAD/releases/tag/v0.16.0)의 **Assets**에서 확인합니다. `SHA256SUMS.txt`와 `sitecad-verification.json`도 함께 제공합니다.
+3. 파일 전체 목록과 변경 내용은 [0.16.1 릴리스](https://github.com/seominpapa/SiteCAD/releases/tag/v0.16.1)의 **Assets**에서 확인합니다. `SHA256SUMS.txt`와 `sitecad-verification.json`도 함께 제공합니다.
 4. GitHub의 **Code → Download ZIP**이나 자동 생성 **Source code.zip**은 설치용 파일이 아닙니다. 일반 사용자는 위 표에 있는 파일을 선택하세요.
 
 릴리스 첨부 파일은 GitHub Actions의 **14일 보관 기간**이 적용되는 임시 Artifacts와 별도로 보관됩니다. 개발 중 빌드가 필요할 때만 [설치 파일 생성 작업](https://github.com/seominpapa/SiteCAD/actions/workflows/windows.yml)에서 Windows·macOS 검사가 모두 통과한 실행의 Artifacts를 선택하세요. Artifacts ZIP 안에는 설치용 파일이 한 번 더 들어 있으며, 실행 중이거나 실패한 작업의 파일은 사용하지 마세요.
 
-이전 버전은 [전체 릴리스 목록](https://github.com/seominpapa/SiteCAD/releases)에서 찾을 수 있습니다. 새 설치·업데이트에는 위의 0.16.0 파일을 사용하세요.
+이전 버전은 [전체 릴리스 목록](https://github.com/seominpapa/SiteCAD/releases)에서 찾을 수 있습니다. 새 설치·업데이트에는 위의 0.16.1 파일을 사용하세요.
 
 ## 웹앱 설치와 실행
 
@@ -38,7 +40,7 @@ SiteCAD는 OpenCADStudio 편집기와 AI·MCP를 연결하는 macOS(M계열)·Wi
 
 ### Mac M계열
 
-1. 위 다운로드 절차에서 `SiteCAD-0.16.0-local-web-macOS.zip`을 받습니다.
+1. 위 다운로드 절차에서 `SiteCAD-0.16.1-local-web-macOS.zip`을 받습니다.
 2. ZIP을 풀고 안의 `SiteCAD` 폴더 전체를 문서 폴더 등 **본인이 쓸 수 있는 위치**에 둡니다. 실행 파일만 따로 옮기지 마세요.
 3. `SiteCAD` 폴더의 **`Start SiteCAD.command`**를 더블클릭합니다. 터미널이 열리고 최초 준비가 진행됩니다. 완료될 때까지 창을 유지합니다.
 4. 자동으로 열린 기본 브라우저에서 CAD 화면이 준비될 때까지 기다립니다. 브라우저가 열리지 않으면 터미널에 표시된 `http://127.0.0.1:숫자/` 주소로 접속합니다. 포트 번호는 실행 시 정해지므로 예전 주소로 고정하지 마세요.
@@ -48,7 +50,7 @@ macOS가 실행을 차단하면 파일 출처를 확인하고 **시스템 설정
 
 ### Windows
 
-1. `SiteCAD-0.16.0-local-web-Windows.zip`을 받습니다.
+1. `SiteCAD-0.16.1-local-web-Windows.zip`을 받습니다.
 2. 파일 탐색기에서 ZIP을 우클릭해 **모두 압축 풀기**를 선택합니다. 문서 폴더 등 쓰기 가능한 위치에 전체를 풀고, ZIP 미리보기 안에서는 실행하지 마세요.
 3. 압축을 푼 `SiteCAD` 폴더의 **`Start SiteCAD.cmd`**를 더블클릭합니다. 실행 창이 열리고 PowerShell이 전용 실행 환경을 준비합니다. 관리자 권한은 필요하지 않습니다.
 4. 준비가 끝나면 기본 브라우저가 열립니다. 열리지 않으면 실행 창에 나온 `http://127.0.0.1:숫자/` 주소를 사용합니다. 실행 창은 작업 중 유지합니다.
@@ -67,20 +69,20 @@ Windows x64에서 설치·실행을 검증했습니다. 웹앱 실행기는 Wind
 
 데스크탑 설치 파일에는 Electron, 운영 의존성, Codex 실행 환경이 포함됩니다. **별도 터미널에서 서버를 켜거나 Node.js·Codex CLI를 직접 실행할 필요가 없습니다.** 앱을 열면 내부 로컬 서비스가 시작되고, 앱 종료 시 관련 작업을 정리합니다. AI 로그인과 외부 연결은 설치 후 각 사용자가 설정합니다. 선택 기능인 Claude Console용 `ant` CLI와 KCSC 전용 환경까지 미리 포함하는 것은 아닙니다.
 
-현재 설치 파일은 배포자 인증서로 **서명·공증하지 않았습니다.** 운영체제의 출처 확인 절차는 사용자가 직접 진행해야 합니다. Windows ARM64용 데스크탑 설치 검증은 이번 배포 대상에 포함하지 않습니다.
+현재 Windows 설치 파일에는 배포자 디지털 서명이 없으며, Mac DMG는 임시 서명만 있고 Apple 공증은 없습니다. Mac의 기본 보안 검사는 통과하지 못합니다. 인증서가 없는 빌드를 정식 보안 승인 완료로 표시하지 않습니다. 회사 보안 정책상 허용이 불가능한 경우 실행을 중단하고 담당자에게 확인하세요. Windows ARM64용 데스크탑 설치 검증은 이번 배포 대상에 포함하지 않습니다.
 
-### Mac M계열 — DMG
+### Mac M계열 — 미공증 개발용 DMG
 
-1. 위 표에서 `SiteCAD-0.16.0-macOS-arm64.dmg`를 다운로드합니다.
+1. 위 표에서 `SiteCAD-0.16.1-macOS-arm64.dmg`를 다운로드합니다.
 2. DMG를 더블클릭하고 창 안의 **`SiteCAD.app`을 Applications(응용 프로그램) 바로가기로 드래그**합니다.
 3. 복사가 끝나면 DMG를 추출하고 **응용 프로그램 → SiteCAD**에서 실행합니다. DMG 안의 앱을 계속 실행하는 방식은 사용하지 마세요.
-4. macOS가 차단하면 출처를 확인한 뒤 **시스템 설정 → 개인정보 보호 및 보안**에서 표시되는 실행 허용 절차를 진행합니다.
+4. 이 파일은 현재 Gatekeeper 보안 승인에 실패합니다. 일반 사용자는 웹앱 ZIP을 사용하세요. 개발용 앱의 실행 여부는 파일 출처와 조직 정책을 확인해 사용자가 직접 판단해야 합니다. 실행기가 보안 설정이나 격리 속성을 자동으로 해제하지 않습니다.
 5. 앱 창이 열리면 **설정 → 일반 → 폴더 선택**으로 문서 폴더 등 쓰기 가능한 도면 저장 위치를 선택합니다. `/Applications`에 설치한 경우 기본 도면 경로는 `/Applications/drawings/`이므로 계정에 따라 저장 권한이 없을 수 있습니다.
 6. [AI 연결](#처음-ai-연결)을 마치고 도면을 열거나 새 도면을 만듭니다. 종료 전에는 DWG를 저장하고 앱의 종료 확인 창을 확인합니다.
 
 ### Windows x64 — Setup.exe
 
-1. 위 표에서 `SiteCAD-0.16.0-Windows-x64-Setup.exe`를 다운로드합니다.
+1. 위 표에서 `SiteCAD-0.16.1-Windows-x64-Setup.exe`를 다운로드합니다.
 2. 설치 파일을 실행합니다. 출처 확인 경고가 나타나면 GitHub 저장소와 받은 파일을 확인하고 운영체제 안내에 따라 진행합니다.
 3. 설치 마법사에서 라이선스와 설치 위치를 확인합니다. 기본 경로는 **`%LOCALAPPDATA%\Programs\SiteCAD`**이며 현재 사용자 계정에 설치하므로 관리자 권한이 필요하지 않습니다.
 4. 설치 후 **시작 메뉴 또는 바탕 화면의 SiteCAD**를 엽니다. 별도 실행 창을 유지할 필요는 없습니다.
@@ -180,7 +182,7 @@ KCSC 전용 실행 환경 자동 설치는 **Apple Silicon Mac과 Windows x64·A
 
 채팅의 **모델** 버튼 또는 설정 → LLM에서 **사용 중인 연결의 모델 목록**을 조회하고 다음 요청의 모델을 선택합니다. ChatGPT OAuth는 고정 Codex 버전의 카탈로그를, API·Claude 연결은 해당 제공자의 모델 목록을 사용합니다. 카탈로그 표시는 계정별 실행 권한을 보증하지 않으며, 실제 요청에서 확인합니다. 모델 선택은 현재 화면에 유지합니다. 도구 진행 상태와 답변을 표시하며 토큰 단위 스트리밍 여부는 연결 방식에 따라 다릅니다. 처리 과정은 기본 접힌 큰 묶음으로 제공하고 펼친 경우에만 개별 내용을 확인하며, 승인 요청은 바로 표시합니다. 완료된 과정은 현재 응답에 접힌 기록으로 남기고, 기존 도면 변경 감지·저장 검증을 통과한 최종 응답만 완료 처리합니다. 내부 추론이나 비밀 도구 인수·결과는 진행 영역에 표시하지 않습니다. 연결이 끊기면 작업을 취소하고 부분 결과를 확인하도록 안내하며 자동 재실행하지 않습니다.
 
-0.16.0에서는 AI 작업 중에도 같은 입력창에 보충·수정할 내용을 쓰고 **추가 지시**로 실행 중인 작업에 전달할 수 있습니다. 수락된 지시는 같은 채팅 기록에 남습니다. 작업이 끝나기 직전이면 전달이 거절될 수 있으며, 이때 입력은 유지됩니다. **정지**는 이후 실행을 중단하고 미완료 명령을 정리하지만 이미 반영된 객체를 자동으로 되돌리지 않습니다. 스킬·연결 등록 안내는 입력창 아래에 있으며, 스킬 실행과 MCP/API 등록은 현재 작업을 마친 뒤 요청합니다.
+0.16.1에서는 AI 작업 중에도 같은 입력창에 보충·수정할 내용을 쓰고 **추가 지시**로 실행 중인 작업에 전달할 수 있습니다. 수락된 지시는 같은 채팅 기록에 남습니다. 작업이 끝나기 직전이면 전달이 거절될 수 있으며, 이때 입력은 유지됩니다. **정지**는 이후 실행을 중단하고 미완료 명령을 정리하지만 이미 반영된 객체를 자동으로 되돌리지 않습니다. 스킬·연결 등록 안내는 입력창 아래에 있으며, 스킬 실행과 MCP/API 등록은 현재 작업을 마친 뒤 요청합니다.
 
 ChatGPT OAuth에서 사용하는 Codex 0.163.0의 번들 카탈로그는 11개 중 표시 대상 8개를 제공합니다. 웹검색 도구가 유지되도록 전체 메타데이터를 보존한 채 `use_responses_lite:false`로 생성합니다. 이 수치는 API·Claude 모델 목록의 개수를 뜻하지 않습니다. Codex 버전을 변경하면 `node scripts/update-model-catalog.mjs`로 같은 실행 파일의 카탈로그를 다시 생성하고 모델·웹검색 회귀를 확인합니다.
 
@@ -223,12 +225,13 @@ ChatGPT OAuth에서 사용하는 Codex 0.163.0의 번들 카탈로그는 11개 �
 
 회사에서 터미널·자식 프로세스·네트워크 실행을 차단하는 경우 담당자의 허용이 필요합니다. 앱은 해당 정책을 우회하지 않습니다. 저장을 요청하지 않은 편집은 자동으로 디스크에 보존되지 않으므로 중요한 업무 도면은 복사본으로 작업하세요.
 
-## 검증 기록 — 0.16.0 / 2026-11-02
+## 검증 기록 — 0.16.1 / 2026-11-03
 
-- [Windows x64·Mac M계열 가상환경 검증](https://github.com/seominpapa/SiteCAD/actions/runs/41444574792)이 모두 통과했습니다. 기준 소스는 `41af2293cd5d6023d514ea08dfa38b52b32d7660`이며, 후속 변경은 해당 Actions 실행의 소스 식별자와 결과를 별도로 확인하세요.
-- 깨끗한 폴더에서 웹앱 최초 설치·두 번째 실행 재사용, 데스크탑 설치 파일에서 앱 실행, CAD 준비 상태와 설정 탭 5개를 확인했습니다. Windows는 앱 제거 후 사용자 도면 보존 검사도 통과했습니다.
-- 당시 로컬 자동 테스트는 830개 중 820개 통과·실패 0개·건너뜀 10개였으며 줄 커버리지는 94.42%입니다. 실제 KCSC 런타임 설치·인증키 없는 MCP 도구 목록 조회는 지원 환경별 CI에서 별도 확인했습니다.
-- Windows 가상환경은 소프트웨어 그래픽을 사용했습니다. 실기기 그래픽 성능, 이번 버전의 실제 계정 AI 추론·외부 인증 API 조회·DWG 재저장 후 AutoCAD 대조까지 검증한 것은 아닙니다. 아래 과거 기록의 검사 범위를 새 버전 전체로 확대하지 않습니다.
+- 0.16.0 공개 설치 파일의 추가 검사에서 Windows 최초 실행 직후 강제 중단 시 재실행 실패를 발견했습니다. 정상 종료와 강제 중단을 분리한 익명 데이터 비교에서, 암호화 키의 디스크 기록 전에 프로세스를 끊으면 다음 복호화가 실패하는 것을 확인했습니다. 비동기 암호화 API만 바꾸는 것으로는 해결되지 않았습니다.
+- 0.16.1은 로그인 전 빈 기기 기록을 디스크에 쓰지 않습니다. 첫 로그인에서 브라우저를 열기 전에 기기 식별자를 저장하며, 기존 연결 정보는 그대로 읽습니다. 손상된 연결 정보를 자동 삭제하거나 새 기록으로 덮어쓰지 않습니다.
+- 새 설치 검사는 Windows의 첫 실행·강제 중단 후 복구·실제 종료 확인창을 통한 종료·정상 재실행·제거 후 사용자 파일 보존을 각각 확인합니다. macOS는 CAD·설정·재실행과 별도로 서명·Gatekeeper 상태를 기록합니다. 최종 소스 식별자와 실행 결과는 이 릴리스의 `sitecad-verification.json`을 확인하세요.
+- **Mac 배포자 서명·공증은 미완료**입니다. Apple Developer 계정과 인증서가 없어 정상 보안 승인을 받은 DMG는 제공하지 못합니다. `npm run desktop:build -- --release`는 필수 서명 정보가 없으면 빌드를 중단합니다. 준비 절차는 [SOURCE_BUILD.md](SOURCE_BUILD.md)를 참고하세요.
+- 가상환경 실행 검사는 실제 계정 AI 추론·인증된 외부 API/MCP 호출·실기기 GPU 성능·AutoCAD 대조를 포함하지 않습니다. 강제 중단 복구 검증도 로그인 전 새 설치를 대상으로 하며, 모든 외부 계정의 연결 정보 복구를 보증하지 않습니다.
 
 ## 과거 검증 기록 — 0.15.0 / 2026-10-24
 

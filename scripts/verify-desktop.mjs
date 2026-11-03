@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
@@ -7,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { stopProcessTree } from '../lib/mcp-launcher.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+const execute = promisify(execFile);
 export const sanitizeDiagnostic = value => String(value ?? '').replace(/(?:https?|wss?):\/\/[^\s"'<>]+/gi, '[redacted URL]')
   .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, 'Bearer [redacted]')
   .replace(/((?:access[_-]?token|refresh[_-]?token|api[_-]?key|authorization)["']?\s*[=:]\s*["']?)[^\s"',;]+/gi, '$1[redacted]');
@@ -83,9 +85,17 @@ export async function findDesktopPage(port, request = fetch) {
   }
 }
 
-export async function verifyDesktop({ executable, outputDirectory } = {}) {
+export async function closeWindowsDesktop(child) {
+  if (process.env.CI !== 'true' || process.platform !== 'win32') throw Error('Normal-close verification requires a clean Windows CI desktop');
+  assert.ok(Number.isSafeInteger(child.pid) && child.pid > 0 && child.exitCode === null && child.signalCode === null);
+  const script = `$SitecadProcessId=${child.pid}\n${await readFile(new URL('./close-desktop-windows.ps1', import.meta.url), 'utf8')}`;
+  await execute('powershell.exe', ['-NoProfile', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {timeout:35000,maxBuffer:16384,windowsHide:true});
+}
+
+export async function verifyDesktop({ executable, outputDirectory, normalClose = false } = {}) {
   // shortcut: clean CI profiles only; add explicit isolated-profile support before local desktop use.
   if (process.env.CI !== 'true') throw Error('Desktop verification requires a clean CI machine; personal profiles must not be used.');
+  if (normalClose && process.platform !== 'win32') throw Error('Normal-close verification currently requires Windows');
   if (!isAbsolute(executable ?? '')) throw Error('Provide an absolute executable path');
   if (!(await stat(executable)).isFile()) throw Error('Desktop executable must be a file');
   if (!isAbsolute(outputDirectory ?? '')) throw Error('Provide an absolute output directory');
@@ -158,7 +168,13 @@ export async function verifyDesktop({ executable, outputDirectory } = {}) {
     const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
     const report = { version, platform: process.platform, arch: process.arch, ...view, modules, anonymousProfile: true,
       startupMs: Date.now() - startedAt, discoveryAttempts,
+      shutdownMethod: normalClose ? 'native close confirmation' : 'forced process-tree termination',
       limitations: ['No AI inference or authenticated external API/MCP calls', 'No drawing modification or DWG round-trip test'] };
+    if (normalClose) {
+      stage = 'normal Windows close confirmation';
+      await closeWindowsDesktop(child);
+      report.normalCloseVerified = true;
+    }
     await writeFile(join(outputDirectory, 'desktop-verification.json'), `${JSON.stringify(report, null, 2)}\n`);
     console.log(`Desktop ${version} verified on ${process.platform}/${process.arch}: editor, settings and packaged chat modules ready`);
     return report;
@@ -185,5 +201,5 @@ export async function verifyDesktop({ executable, outputDirectory } = {}) {
 }
 
 if (import.meta.main) {
-  await verifyDesktop({ executable: process.argv[2], outputDirectory: process.argv[3] });
+  await verifyDesktop({ executable: process.argv[2], outputDirectory: process.argv[3], normalClose: process.argv.includes('--normal-close') });
 }

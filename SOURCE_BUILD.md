@@ -1,12 +1,32 @@
 # Source, build instructions and verification status
 
-Updated by SiteCAD contributors on 2026-11-02. SiteCAD is provided under GNU GPL version 3; see `LICENSE` for redistribution terms and the disclaimer of warranty. Other components keep their own licenses; see `THIRD_PARTY_NOTICES.md`.
+Updated by SiteCAD contributors on 2026-11-03. SiteCAD is provided under GNU GPL version 3; see `LICENSE` for redistribution terms and the disclaimer of warranty. Other components keep their own licenses; see `THIRD_PARTY_NOTICES.md`.
 
 ## SiteCAD source
 
-The application sources and installer scripts are included in the local-web ZIP and published at https://github.com/seominpapa/SiteCAD. Select the tag matching the downloaded release. The reviewed public v0.14.0 source tag is `aab72f02ae3bf9529c54a3f6162244478f264894`. SiteCAD 0.15.0 includes the changes described here; use its matching tag and SHA256SUMS.txt rather than assuming they are present in older ZIPs.
+The application sources and installer scripts are included in the local-web ZIP and published at https://github.com/seominpapa/SiteCAD. Select the tag matching the downloaded release. The reviewed public v0.14.0 source tag is `aab72f02ae3bf9529c54a3f6162244478f264894`. SiteCAD 0.16.1 includes the changes described here; use its matching tag and SHA256SUMS.txt rather than assuming they are present in older ZIPs.
 
 On Apple Silicon macOS, the included `Start SiteCAD.command` prepares pinned Node.js/Codex and npm dependencies, then opens the local web application. On Windows, use `Start SiteCAD.cmd`. See `README.md` for platform requirements. To build a local-web ZIP from the source checkout, use `npm run local-web:build` or `npm run local-web:build:windows`. The optional Electron build uses `npm run desktop:build` on Apple Silicon macOS (DMG) or Windows x64 (Setup.exe). Windows requires Inno Setup 6.6.1; set `INNO_SETUP_COMPILER` to its `ISCC.exe`. The CI workflow pins and verifies the official compiler download SHA-256. Native tests run on clean GitHub-hosted macOS and Windows VMs. Installer generation, desktop readiness, real-account AI calls and DWG interoperability are separate verification gates. Runtime downloads, hashes and build steps are in the included `scripts/` sources and `package-lock.json`.
+
+## macOS distributor signing and notarization
+
+A normal public Mac desktop release needs an Apple Developer Program account, a valid **Developer ID Application** certificate with its private key in the build machine's Keychain, and notarization credentials stored with `xcrun notarytool store-credentials SiteCAD`. Use the interactive prompts; never put passwords, `.p12` exports or `.p8` private keys in this repository, build output or chat.
+
+After those credentials are installed, build on Apple Silicon macOS:
+
+```sh
+SITECAD_MAC_SIGN_IDENTITY='Developer ID Application: Your Publisher (TEAMID1234)' \
+SITECAD_MAC_NOTARY_PROFILE='SiteCAD' \
+npm run desktop:build -- --release
+```
+
+The release build uses Electron Packager's existing signing/notarization support. Discovered Electron components and native modules are signed with hardened runtime and the JIT entitlement required by Electron. The official Codex executable keeps its existing OpenAI Developer ID signature and exact upstream bytes; re-signing it would invalidate the bundled runtime manifest's SHA-256. The build verifies Codex's digest and Apple Developer ID signature before packaging and again in the packaged app, and excludes only that exact executable from re-signing. The original archive digest and provenance remain unchanged. The app's notarization ticket is stapled before it enters the DMG. The build verifies the app's signature, ticket and Gatekeeper acceptance, then signs/notarizes the final DMG, staples its ticket and verifies the DMG's Gatekeeper acceptance. A missing credential, rejected notarization or failed trust check stops the release build; it never silently falls back to an ad-hoc signature.
+
+Running the ordinary build without signing credentials still creates an explicitly labelled development DMG with an ad-hoc signature. That file is **not** established as trusted by Gatekeeper. Do not describe it as a signed/notarized release or disable macOS security checks to pass verification.
+
+On 2026-11-03 this workstation had no valid code-signing identity, no `SiteCAD` notarization profile, and this repository had no GitHub Actions signing secrets. The signing flow has automated configuration/command-order tests; an actual Developer ID signature, Apple notarization and approval of that signed installer remain unverified until the publisher supplies the required account/certificate.
+
+Official procedures: [Electron code signing](https://www.electronjs.org/docs/latest/tutorial/code-signing), [Apple notarization](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution), and [Electron notarization credentials](https://github.com/electron/notarize#usage-with-keychain-credentials).
 
 ## Engine identification and source download
 
