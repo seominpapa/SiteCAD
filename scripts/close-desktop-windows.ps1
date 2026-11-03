@@ -28,14 +28,16 @@ while ([DateTime]::UtcNow -lt $sitecadDeadline) {
         $sitecadObserved += $sitecadControl
         $sitecadName = [string]$sitecadCurrent.Name
         if ($sitecadName.Contains('저장하지 않은 도면 변경은 사라집니다.')) { $sitecadHasWarning = $true }
-        if ($sitecadCurrent.ControlType -eq [System.Windows.Automation.ControlType]::Button -and $sitecadName -ceq '종료' -and $sitecadCurrent.IsEnabled) {
+        if ($sitecadName -ceq '종료' -and $sitecadCurrent.IsEnabled) {
           $sitecadButtons += $sitecadControl
         }
       }
       if (!$sitecadHasWarning) { continue }
       if ($sitecadButtons.Count -eq 0) { continue }
       if ($sitecadButtons.Count -ne 1) { throw 'SiteCAD close confirmation had ambiguous exit buttons' }
-      $sitecadButtons[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+      $sitecadInvoke = $null
+      if (!$sitecadButtons[0].TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$sitecadInvoke)) { continue }
+      $sitecadInvoke.Invoke()
       $sitecadInvoked = $true
       break
     } catch [System.Windows.Automation.ElementNotAvailableException] { continue }
@@ -52,7 +54,21 @@ if (!$sitecadInvoked) {
       if ($sitecadCurrent.ProcessId -ne [int]$SitecadProcessId) { continue }
       $sitecadName = ([string]$sitecadCurrent.Name).Replace("`r", ' ').Replace("`n", ' ')
       if ($sitecadName.Length -gt 120) { $sitecadName = $sitecadName.Substring(0, 120) }
-      $sitecadDiagnostics += @{ name=$sitecadName; type=$sitecadCurrent.ControlType.ProgrammaticName }
+      $sitecadDiagnostic = @{ name=$sitecadName; type=$sitecadCurrent.ControlType.ProgrammaticName }
+      if ($sitecadName -ceq '종료') {
+        $sitecadPatterns = @()
+        foreach ($sitecadPattern in $sitecadControl.GetSupportedPatterns()) {
+          $sitecadPatterns += @{ id=$sitecadPattern.Id; name=$sitecadPattern.ProgrammaticName }
+        }
+        $sitecadLegacyRole = $null
+        $sitecadLegacyRoleProperty = [System.Windows.Automation.AutomationProperty]::LookupById(30095)
+        if ($null -ne $sitecadLegacyRoleProperty) {
+          $sitecadLegacyRole = $sitecadControl.GetCurrentPropertyValue($sitecadLegacyRoleProperty, $true)
+          if ($sitecadLegacyRole -eq [System.Windows.Automation.AutomationElement]::NotSupported) { $sitecadLegacyRole = $null }
+        }
+        $sitecadDiagnostic = $sitecadDiagnostic + @{ className=$sitecadCurrent.ClassName; automationId=$sitecadCurrent.AutomationId; windowHandle=$sitecadCurrent.NativeWindowHandle; patterns=$sitecadPatterns; legacyRole=$sitecadLegacyRole }
+      }
+      $sitecadDiagnostics += $sitecadDiagnostic
     } catch [System.Windows.Automation.ElementNotAvailableException] { continue }
   }
   Write-Output ('SiteCAD same-process controls: ' + (ConvertTo-Json -InputObject $sitecadDiagnostics -Compress))
