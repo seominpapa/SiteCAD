@@ -1,0 +1,84 @@
+name: Published 0.16.1 first-install verification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  published:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            platform: Windows
+          - os: macos-26
+            platform: macOS
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: v0.16.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.22.1'
+      - name: Verify download checks and local-profile guard
+        run: node --test tests/published-release.test.mjs
+      - name: Download public release assets and verify tag source and SHA-256
+        run: node scripts/verify-published-release.mjs
+      - name: First-install published web ZIP, relaunch, stop and restart
+        shell: bash
+        env:
+          SITECAD_TEST_FRESH_INSTALL: '1'
+          SITECAD_TEST_RELEASE_ARCHIVE: ${{ github.workspace }}/dist/published-release-downloads/SiteCAD-0.16.1-local-web-${{ matrix.platform }}.zip
+          SITECAD_TEST_EVIDENCE_DIR: ${{ github.workspace }}/dist/verification
+        run: |
+          set -euo pipefail
+          node --test tests/windows-bootstrap-real.test.mjs 2>&1 | tee dist/verification/web-tests.txt
+      - name: Mount downloaded development Mac DMG, record trust limits and verify restart
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg="$PWD/dist/published-release-downloads/SiteCAD-0.16.1-macOS-arm64.dmg"
+          mount="$RUNNER_TEMP/sitecad-published-dmg"
+          hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mount"
+          trap 'hdiutil detach "$mount"' EXIT
+          ditto "$mount/SiteCAD.app" "$RUNNER_TEMP/SiteCAD.app"
+          signature_status=0
+          gatekeeper_status=0
+          notarization_status=0
+          codesign -dv --verbose=2 "$RUNNER_TEMP/SiteCAD.app" > dist/verification/mac-signature.txt 2>&1 || signature_status=$?
+          spctl --assess --type execute -vv "$RUNNER_TEMP/SiteCAD.app" > dist/verification/mac-gatekeeper.txt 2>&1 || gatekeeper_status=$?
+          xcrun stapler validate "$RUNNER_TEMP/SiteCAD.app" > dist/verification/mac-notarization.txt 2>&1 || notarization_status=$?
+          SITECAD_SIGNATURE_EXIT="$signature_status" SITECAD_GATEKEEPER_EXIT="$gatekeeper_status" SITECAD_NOTARIZATION_EXIT="$notarization_status" node --input-type=module -e 'import {writeFile} from "node:fs/promises"; await writeFile("dist/verification/mac-trust.json", JSON.stringify({developmentBuild:true,signatureInspectionExit:Number(process.env.SITECAD_SIGNATURE_EXIT),gatekeeperApproved:process.env.SITECAD_GATEKEEPER_EXIT==="0",notarizationTicketValid:process.env.SITECAD_NOTARIZATION_EXIT==="0",browserQuarantineFlowChecked:false,securitySettingsChanged:false},null,2)+"\n");'
+          node scripts/verify-desktop.mjs "$RUNNER_TEMP/SiteCAD.app/Contents/MacOS/SiteCAD" "$PWD/dist/verification/desktop-first"
+          node scripts/verify-desktop.mjs "$RUNNER_TEMP/SiteCAD.app/Contents/MacOS/SiteCAD" "$PWD/dist/verification/desktop-restart"
+      - name: Install downloaded Windows setup and verify forced and normal restarts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Resolve-Path 'dist/published-release-downloads/SiteCAD-0.16.1-Windows-x64-Setup.exe').Path
+          Get-AuthenticodeSignature $setup | Select-Object Status,StatusMessage | ConvertTo-Json | Out-File dist/verification/windows-signature.json
+          $destination = Join-Path $env:RUNNER_TEMP '설치 확인 SiteCAD'
+          $install = Start-Process $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$destination`"") -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "SiteCAD installation failed: $($install.ExitCode)" }
+          node scripts/verify-desktop.mjs "$destination\SiteCAD.exe" "$PWD/dist/verification/desktop-first"
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop first-run verification failed' }
+          node scripts/verify-desktop.mjs "$destination\SiteCAD.exe" "$PWD/dist/verification/desktop-restart" --normal-close
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop recovery or normal-close verification failed' }
+          node scripts/verify-desktop.mjs "$destination\SiteCAD.exe" "$PWD/dist/verification/desktop-normal-restart" --normal-close
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop restart after normal close failed' }
+          New-Item "$destination\drawings" -ItemType Directory -Force | Out-Null
+          Set-Content "$destination\drawings\preserve.txt" 'User drawing placeholder'
+          $uninstall = Start-Process "$destination\unins000.exe" -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0 -or !(Test-Path "$destination\drawings\preserve.txt")) { throw 'Uninstaller removed a user drawing or failed' }
+          @{ installed=$true; forcedRestart=$true; normalRestart=$true; closeConfirmationVerified=$true; uninstallSucceeded=$true; userDrawingPreserved=$true } | ConvertTo-Json | Out-File dist/verification/windows-install.json
+      - name: Save public-download first-install verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: SiteCAD-public-first-install-${{ matrix.platform }}-v0.16.1-${{ github.run_id }}
+          path: dist/verification/
+          retention-days: 14
