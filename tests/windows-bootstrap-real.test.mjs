@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { isAbsolute, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { buildLocalWeb } from '../scripts/build-local-web.mjs';
@@ -38,7 +38,8 @@ test('fresh native release launcher installs private runtimes, opens the protect
     ...(windows ? { windowsVerbatimArguments: true, windowsHide: true } : { detached: true }) };
   let child;
   try {
-    const archive = await buildLocalWeb({ platform: process.platform, outputDirectory: join(directory, 'release') });
+    const archive = process.env.SITECAD_TEST_RELEASE_ARCHIVE || await buildLocalWeb({ platform: process.platform, outputDirectory: join(directory, 'release') });
+    assert.ok(isAbsolute(archive), 'Downloaded release archive path must be absolute');
     if (windows) {
       const command = `$ProgressPreference='SilentlyContinue'; $ErrorActionPreference='Stop'; Expand-Archive -LiteralPath ${literal(archive)} -DestinationPath ${literal(extracted)}`;
       await execute('powershell.exe', ['-NoProfile', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], { timeout: 60000 });
@@ -93,15 +94,13 @@ test('fresh native release launcher installs private runtimes, opens the protect
     assert.ok((await stat(join(root, 'node_modules/.package-lock.json'))).isFile());
     const codex = await verifyCodexInstallation(join(root, 'runtime'), { platform: process.platform, arch: nativeArch });
     assert.match((await execute(codex, ['--version'], { timeout: 15000 })).stdout, /0\.163\.0/);
-    const encrypted = await readFile(join(dataDir, 'credentials.enc'));
-    const magic = Buffer.from('SITECADWEB1\0');
-    assert.ok(encrypted.subarray(0, magic.length).equals(magic), 'Anonymous startup record must be encrypted');
+    await assert.rejects(stat(join(dataDir, 'credentials.enc')), {code:'ENOENT'}, 'Anonymous startup must not create encrypted credentials');
     await execute(privateNode, ['--input-type=module', '-e', `
 import assert from 'node:assert/strict';
 import { createNodeSecretStores } from './lib/node-secret-store.mjs';
 const stores = createNodeSecretStores({ dataDir: process.argv[1] });
 const account = await stores.auth.read();
-assert.ok(account && Array.isArray(account.registrations) && account.registrations.length === 0 && account.activeClientId === null, 'Fresh installation must contain only an anonymous account record');
+assert.equal(account, null, 'Fresh installation must not contain an OAuth record before login');
 assert.ok(!/access_?token|refresh_?token/i.test(JSON.stringify(account)), 'Fresh installation must not inherit OAuth tokens');
 const mcp = await stores.mcp.read();
 assert.ok(mcp === null || (mcp.records && Object.keys(mcp.records).length === 0), 'Fresh installation must not inherit MCP secrets');
@@ -118,6 +117,47 @@ assert.ok(await stores.apis.read() === null, 'Fresh installation must not inheri
     assert.equal(JSON.parse(await readFile(join(dataDir, 'local-web-runtime.json'), 'utf8')).pid, runtime.pid);
     const after = await Promise.all([readyFile, join(root, 'node_modules/.package-lock.json')].map(file => stat(file)));
     assert.deepEqual(after.map(item => item.mtimeMs), before.map(item => item.mtimeMs), 'Second launch must reuse installed dependencies');
+    if (process.env.SITECAD_TEST_RELEASE_ARCHIVE) {
+      const drawing = join(root, 'drawings', '사용자 보존 확인.dwg');
+      await mkdir(join(root, 'drawings'), { recursive: true });
+      await writeFile(drawing, 'AC1032 first-install preservation check');
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(Error('First launcher did not stop')), 15000);
+        child.once('close', () => { clearTimeout(timer); resolve(); });
+        stopProcessTree(child, 'SIGKILL', { killGroup: !windows });
+      });
+      child = spawn(executable, args, { ...launchOptions, stdio: ['pipe', 'pipe', 'pipe'] });
+      child.stdin.end('\r\n');
+      let restarted = '';
+      child.stdout.on('data', bytes => { restarted = (restarted + bytes.toString('utf8')).slice(-65536); });
+      child.stderr.on('data', bytes => { errors = (errors + bytes.toString('utf8')).slice(-65536); });
+      const restartDeadline = Date.now() + 60000;
+      let newRuntime;
+      while (Date.now() < restartDeadline) {
+        assert.equal(child.exitCode, null, `Restart failed: ${redacted(errors)}`);
+        try { newRuntime = JSON.parse(await readFile(join(dataDir, 'local-web-runtime.json'), 'utf8')); }
+        catch (error) { if (error.code !== 'ENOENT') throw error; }
+        if (newRuntime?.pid !== runtime.pid && restarted.includes(`http://127.0.0.1:${newRuntime?.port}/`)) break;
+        await delay(500);
+      }
+      assert.ok(newRuntime?.pid && newRuntime.pid !== runtime.pid && restarted.includes('로컬 웹앱 실행 중'), 'Stopped release must restart');
+      assert.equal((await fetch(`http://127.0.0.1:${newRuntime.port}/`, { signal: AbortSignal.timeout(10000) })).status, 200);
+      await assert.rejects(stat(join(dataDir, 'credentials.enc')), {code:'ENOENT'}, 'Anonymous restart must not create encrypted credentials');
+      assert.equal(await readFile(drawing, 'utf8'), 'AC1032 first-install preservation check');
+      const reused = await Promise.all([readyFile, join(root, 'node_modules/.package-lock.json')].map(file => stat(file)));
+      assert.deepEqual(reused.map(item => item.mtimeMs), before.map(item => item.mtimeMs), 'Restart must preserve installed dependencies');
+      const outputDirectory = process.env.SITECAD_TEST_EVIDENCE_DIR;
+      assert.ok(isAbsolute(outputDirectory), 'Evidence directory must be absolute');
+      await mkdir(outputDirectory, { recursive: true });
+      const version = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')).version;
+      await writeFile(join(outputDirectory, 'web-first-install.json'), `${JSON.stringify({
+        version, platform: process.platform, arch: nativeArch, downloadedReleaseArchive: true,
+        freshRuntimeAbsent: true, privateNode: '24.22.1', privateCodex: '0.163.0', anonymousSecretsVerified: true,
+        protectedServiceVerified: true, launcherSecondRunReused: true, stopAndRestartVerified: true, drawingsPreserved: true,
+        anonymousCredentialsFileAbsentAfterRestart: true,
+        limitations: ['Web CAD browser rendering was not inspected by this runtime test.', 'No real-account AI inference or authenticated API/MCP calls.'],
+      }, null, 2)}\n`);
+    }
   } finally {
     if (child && child.pid && child.exitCode === null && child.signalCode === null) {
       stopProcessTree(child, 'SIGKILL', { killGroup: !windows });
