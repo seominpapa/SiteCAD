@@ -89,7 +89,11 @@ export async function closeWindowsDesktop(child) {
   if (process.env.CI !== 'true' || process.platform !== 'win32') throw Error('Normal-close verification requires a clean Windows CI desktop');
   assert.ok(Number.isSafeInteger(child.pid) && child.pid > 0 && child.exitCode === null && child.signalCode === null);
   const script = `$SitecadProcessId=${child.pid}\n${await readFile(new URL('./close-desktop-windows.ps1', import.meta.url), 'utf8')}`;
-  await execute('powershell.exe', ['-NoProfile', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {timeout:35000,maxBuffer:16384,windowsHide:true});
+  try {
+    await execute('powershell.exe', ['-NoProfile', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {timeout:35000,maxBuffer:32768,windowsHide:true});
+  } catch (error) {
+    throw Error(`Windows close confirmation failed (${error.code ?? 'unknown'}): ${sanitizeDiagnostic(error.stderr).slice(-3000)}\n${sanitizeDiagnostic(error.stdout).slice(-12000)}`);
+  }
 }
 
 export async function verifyDesktop({ executable, outputDirectory, normalClose = false } = {}) {

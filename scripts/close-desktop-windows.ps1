@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
 if ($env:CI -ne 'true') { throw 'Normal-close verification requires a disposable CI desktop' }
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $sitecadProcess = Get-Process -Id $SitecadProcessId
 if ($sitecadProcess.ProcessName -ne 'SiteCAD' -or $sitecadProcess.MainWindowHandle -eq 0) { throw 'Expected the verified SiteCAD window' }
 Add-Type -AssemblyName UIAutomationClient
@@ -14,15 +15,24 @@ while ([DateTime]::UtcNow -lt $sitecadDeadline) {
   $sitecadObserved = @()
   # Native task-dialog titles vary; identify the owned warning and its exact exit button instead.
   $sitecadWindows = [System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, $sitecadProcessCondition)
-  foreach ($sitecadWindow in $sitecadWindows) {
+  for ($sitecadWindowIndex = 0; $sitecadWindowIndex -lt $sitecadWindows.Count; $sitecadWindowIndex++) {
+    $sitecadWindow = $sitecadWindows[$sitecadWindowIndex]
     try {
       $sitecadControls = $sitecadWindow.FindAll([System.Windows.Automation.TreeScope]::Subtree, $sitecadProcessCondition)
-      $sitecadObserved += @($sitecadControls)
-      $sitecadWarnings = @($sitecadControls | Where-Object { $_.Current.Name.Contains('저장하지 않은 도면 변경은 사라집니다.') })
-      if ($sitecadWarnings.Count -eq 0) { continue }
-      $sitecadButtons = @($sitecadControls | Where-Object {
-        $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and $_.Current.Name -ceq '종료' -and $_.Current.IsEnabled
-      })
+      $sitecadHasWarning = $false
+      $sitecadButtons = @()
+      for ($sitecadControlIndex = 0; $sitecadControlIndex -lt $sitecadControls.Count; $sitecadControlIndex++) {
+        $sitecadControl = $sitecadControls[$sitecadControlIndex]
+        $sitecadCurrent = $sitecadControl.Current
+        if ($sitecadCurrent.ProcessId -ne [int]$SitecadProcessId) { continue }
+        $sitecadObserved += $sitecadControl
+        $sitecadName = [string]$sitecadCurrent.Name
+        if ($sitecadName.Contains('저장하지 않은 도면 변경은 사라집니다.')) { $sitecadHasWarning = $true }
+        if ($sitecadCurrent.ControlType -eq [System.Windows.Automation.ControlType]::Button -and $sitecadName -ceq '종료' -and $sitecadCurrent.IsEnabled) {
+          $sitecadButtons += $sitecadControl
+        }
+      }
+      if (!$sitecadHasWarning) { continue }
       if ($sitecadButtons.Count -eq 0) { continue }
       if ($sitecadButtons.Count -ne 1) { throw 'SiteCAD close confirmation had ambiguous exit buttons' }
       $sitecadButtons[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
@@ -40,7 +50,7 @@ if (!$sitecadInvoked) {
     try {
       $sitecadCurrent = $sitecadControl.Current
       if ($sitecadCurrent.ProcessId -ne [int]$SitecadProcessId) { continue }
-      $sitecadName = $sitecadCurrent.Name.Replace("`r", ' ').Replace("`n", ' ')
+      $sitecadName = ([string]$sitecadCurrent.Name).Replace("`r", ' ').Replace("`n", ' ')
       if ($sitecadName.Length -gt 120) { $sitecadName = $sitecadName.Substring(0, 120) }
       $sitecadDiagnostics += @{ name=$sitecadName; type=$sitecadCurrent.ControlType.ProgrammaticName }
     } catch [System.Windows.Automation.ElementNotAvailableException] { continue }
