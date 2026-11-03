@@ -12,6 +12,7 @@ using System.Runtime.InteropServices;
 public static class SitecadClose {
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
   [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr window);
+  [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr window, uint flags);
   [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr window, uint command);
   [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr window);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
@@ -53,9 +54,11 @@ while ([DateTime]::UtcNow -lt $sitecadDeadline) {
       } else {
         # Electron's TaskDialog uses custom button IDs 100 + index; '종료' is index 1.
         # TDM_CLICK_BUTTON selects that real button through the normal task-dialog callback.
-        $sitecadExitHandle = [IntPtr]$sitecadButtons[0].Current.NativeWindowHandle
+        $sitecadExitCurrent = $sitecadButtons[0].Current
+        if ([string]$sitecadExitCurrent.AutomationId -cne 'CommandLink_101') { continue }
+        $sitecadExitHandle = [IntPtr]$sitecadExitCurrent.NativeWindowHandle
         if ($sitecadExitHandle -eq [IntPtr]::Zero) { continue }
-        $sitecadDialogHandle = [SitecadClose]::GetParent($sitecadExitHandle)
+        $sitecadDialogHandle = [SitecadClose]::GetAncestor($sitecadExitHandle, 2)
         if ($sitecadDialogHandle -eq [IntPtr]::Zero -or [SitecadClose]::GetWindow($sitecadDialogHandle, 4) -ne $sitecadProcess.MainWindowHandle) { continue }
         $sitecadExitClass = [System.Text.StringBuilder]::new(256)
         $sitecadDialogClass = [System.Text.StringBuilder]::new(256)
@@ -66,7 +69,7 @@ while ([DateTime]::UtcNow -lt $sitecadDeadline) {
         [void][SitecadClose]::GetWindowThreadProcessId($sitecadExitHandle, [ref]$sitecadExitProcessId)
         [void][SitecadClose]::GetWindowThreadProcessId($sitecadDialogHandle, [ref]$sitecadDialogProcessId)
         if ($sitecadExitProcessId -ne [uint32]$SitecadProcessId -or $sitecadDialogProcessId -ne [uint32]$SitecadProcessId) { continue }
-        if ($sitecadExitClass.ToString() -cne 'CCCommandLink' -or $sitecadDialogClass.ToString() -cne '#32770' -or [SitecadClose]::GetDlgCtrlID($sitecadExitHandle) -ne 101) { continue }
+        if ($sitecadExitClass.ToString() -cne 'CCCommandLink' -or $sitecadDialogClass.ToString() -cne '#32770') { continue }
         $sitecadDialogControls = [System.Windows.Automation.AutomationElement]::FromHandle($sitecadDialogHandle).FindAll([System.Windows.Automation.TreeScope]::Subtree, $sitecadProcessCondition)
         $sitecadDialogHasWarning = $false
         for ($sitecadDialogIndex = 0; $sitecadDialogIndex -lt $sitecadDialogControls.Count; $sitecadDialogIndex++) {
