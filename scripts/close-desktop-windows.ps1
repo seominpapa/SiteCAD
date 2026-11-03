@@ -55,21 +55,19 @@ while ([DateTime]::UtcNow -lt $sitecadDeadline) {
         # Electron's TaskDialog uses custom button IDs 100 + index; '종료' is index 1.
         # TDM_CLICK_BUTTON selects that real button through the normal task-dialog callback.
         $sitecadExitCurrent = $sitecadButtons[0].Current
-        if ([string]$sitecadExitCurrent.AutomationId -cne 'CommandLink_101') { continue }
+        if ([string]$sitecadExitCurrent.ClassName -cne 'CCCommandLink' -or [string]$sitecadExitCurrent.AutomationId -cne 'CommandLink_101') { continue }
         $sitecadExitHandle = [IntPtr]$sitecadExitCurrent.NativeWindowHandle
         if ($sitecadExitHandle -eq [IntPtr]::Zero) { continue }
         $sitecadDialogHandle = [SitecadClose]::GetAncestor($sitecadExitHandle, 2)
         if ($sitecadDialogHandle -eq [IntPtr]::Zero -or [SitecadClose]::GetWindow($sitecadDialogHandle, 4) -ne $sitecadProcess.MainWindowHandle) { continue }
-        $sitecadExitClass = [System.Text.StringBuilder]::new(256)
         $sitecadDialogClass = [System.Text.StringBuilder]::new(256)
-        [void][SitecadClose]::GetClassName($sitecadExitHandle, $sitecadExitClass, $sitecadExitClass.Capacity)
         [void][SitecadClose]::GetClassName($sitecadDialogHandle, $sitecadDialogClass, $sitecadDialogClass.Capacity)
         [uint32]$sitecadExitProcessId = 0
         [uint32]$sitecadDialogProcessId = 0
         [void][SitecadClose]::GetWindowThreadProcessId($sitecadExitHandle, [ref]$sitecadExitProcessId)
         [void][SitecadClose]::GetWindowThreadProcessId($sitecadDialogHandle, [ref]$sitecadDialogProcessId)
         if ($sitecadExitProcessId -ne [uint32]$SitecadProcessId -or $sitecadDialogProcessId -ne [uint32]$SitecadProcessId) { continue }
-        if ($sitecadExitClass.ToString() -cne 'CCCommandLink' -or $sitecadDialogClass.ToString() -cne '#32770') { continue }
+        if ($sitecadDialogClass.ToString() -cne '#32770') { continue }
         $sitecadDialogControls = [System.Windows.Automation.AutomationElement]::FromHandle($sitecadDialogHandle).FindAll([System.Windows.Automation.TreeScope]::Subtree, $sitecadProcessCondition)
         $sitecadDialogHasWarning = $false
         for ($sitecadDialogIndex = 0; $sitecadDialogIndex -lt $sitecadDialogControls.Count; $sitecadDialogIndex++) {
@@ -110,6 +108,8 @@ if (!$sitecadInvoked) {
         $sitecadNativeParent = [SitecadClose]::GetParent([IntPtr]$sitecadCurrent.NativeWindowHandle)
         $sitecadNativeParentClass = [System.Text.StringBuilder]::new(256)
         [void][SitecadClose]::GetClassName($sitecadNativeParent, $sitecadNativeParentClass, $sitecadNativeParentClass.Capacity)
+        $sitecadNativeExitClass = [System.Text.StringBuilder]::new(256)
+        [void][SitecadClose]::GetClassName([IntPtr]$sitecadCurrent.NativeWindowHandle, $sitecadNativeExitClass, $sitecadNativeExitClass.Capacity)
         $sitecadNativeRoot = [SitecadClose]::GetAncestor([IntPtr]$sitecadCurrent.NativeWindowHandle, 2)
         $sitecadNativeRootClass = [System.Text.StringBuilder]::new(256)
         [void][SitecadClose]::GetClassName($sitecadNativeRoot, $sitecadNativeRootClass, $sitecadNativeRootClass.Capacity)
@@ -123,7 +123,7 @@ if (!$sitecadInvoked) {
             if ($sitecadNativeRootCurrent.ProcessId -eq [int]$SitecadProcessId -and [string]$sitecadNativeRootCurrent.Name -ceq '저장하지 않은 도면 변경은 사라집니다.') { $sitecadNativeRootHasWarning = $true }
           }
         }
-        $sitecadDiagnostic = $sitecadDiagnostic + @{ className=$sitecadCurrent.ClassName; automationId=$sitecadCurrent.AutomationId; windowHandle=$sitecadCurrent.NativeWindowHandle; patterns=$sitecadPatterns; legacyRole=$sitecadLegacyRole; controlId=[SitecadClose]::GetDlgCtrlID([IntPtr]$sitecadCurrent.NativeWindowHandle); parentHandle=$sitecadNativeParent.ToInt64(); parentClass=$sitecadNativeParentClass.ToString(); rootHandle=$sitecadNativeRoot.ToInt64(); rootClass=$sitecadNativeRootClass.ToString(); rootOwnerHandle=([SitecadClose]::GetWindow($sitecadNativeRoot, 4)).ToInt64(); mainHandle=$sitecadProcess.MainWindowHandle.ToInt64(); rootProcessId=$sitecadNativeRootProcessId; expectedProcessId=$SitecadProcessId; rootHasExactWarning=$sitecadNativeRootHasWarning }
+        $sitecadDiagnostic = $sitecadDiagnostic + @{ className=$sitecadCurrent.ClassName; nativeExitClass=$sitecadNativeExitClass.ToString(); automationId=$sitecadCurrent.AutomationId; windowHandle=$sitecadCurrent.NativeWindowHandle; patterns=$sitecadPatterns; legacyRole=$sitecadLegacyRole; controlId=[SitecadClose]::GetDlgCtrlID([IntPtr]$sitecadCurrent.NativeWindowHandle); parentHandle=$sitecadNativeParent.ToInt64(); parentClass=$sitecadNativeParentClass.ToString(); rootHandle=$sitecadNativeRoot.ToInt64(); rootClass=$sitecadNativeRootClass.ToString(); rootOwnerHandle=([SitecadClose]::GetWindow($sitecadNativeRoot, 4)).ToInt64(); mainHandle=$sitecadProcess.MainWindowHandle.ToInt64(); rootProcessId=$sitecadNativeRootProcessId; expectedProcessId=$SitecadProcessId; rootHasExactWarning=$sitecadNativeRootHasWarning }
       }
       $sitecadDiagnostics += $sitecadDiagnostic
     } catch [System.Windows.Automation.ElementNotAvailableException] { continue }
