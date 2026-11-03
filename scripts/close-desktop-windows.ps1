@@ -110,7 +110,20 @@ if (!$sitecadInvoked) {
         $sitecadNativeParent = [SitecadClose]::GetParent([IntPtr]$sitecadCurrent.NativeWindowHandle)
         $sitecadNativeParentClass = [System.Text.StringBuilder]::new(256)
         [void][SitecadClose]::GetClassName($sitecadNativeParent, $sitecadNativeParentClass, $sitecadNativeParentClass.Capacity)
-        $sitecadDiagnostic = $sitecadDiagnostic + @{ className=$sitecadCurrent.ClassName; automationId=$sitecadCurrent.AutomationId; windowHandle=$sitecadCurrent.NativeWindowHandle; patterns=$sitecadPatterns; legacyRole=$sitecadLegacyRole; controlId=[SitecadClose]::GetDlgCtrlID([IntPtr]$sitecadCurrent.NativeWindowHandle); parentHandle=$sitecadNativeParent.ToInt64(); parentClass=$sitecadNativeParentClass.ToString() }
+        $sitecadNativeRoot = [SitecadClose]::GetAncestor([IntPtr]$sitecadCurrent.NativeWindowHandle, 2)
+        $sitecadNativeRootClass = [System.Text.StringBuilder]::new(256)
+        [void][SitecadClose]::GetClassName($sitecadNativeRoot, $sitecadNativeRootClass, $sitecadNativeRootClass.Capacity)
+        [uint32]$sitecadNativeRootProcessId = 0
+        [void][SitecadClose]::GetWindowThreadProcessId($sitecadNativeRoot, [ref]$sitecadNativeRootProcessId)
+        $sitecadNativeRootHasWarning = $false
+        if ($sitecadNativeRoot -ne [IntPtr]::Zero) {
+          $sitecadNativeRootControls = [System.Windows.Automation.AutomationElement]::FromHandle($sitecadNativeRoot).FindAll([System.Windows.Automation.TreeScope]::Subtree, $sitecadProcessCondition)
+          for ($sitecadNativeRootIndex = 0; $sitecadNativeRootIndex -lt $sitecadNativeRootControls.Count; $sitecadNativeRootIndex++) {
+            $sitecadNativeRootCurrent = $sitecadNativeRootControls[$sitecadNativeRootIndex].Current
+            if ($sitecadNativeRootCurrent.ProcessId -eq [int]$SitecadProcessId -and [string]$sitecadNativeRootCurrent.Name -ceq '저장하지 않은 도면 변경은 사라집니다.') { $sitecadNativeRootHasWarning = $true }
+          }
+        }
+        $sitecadDiagnostic = $sitecadDiagnostic + @{ className=$sitecadCurrent.ClassName; automationId=$sitecadCurrent.AutomationId; windowHandle=$sitecadCurrent.NativeWindowHandle; patterns=$sitecadPatterns; legacyRole=$sitecadLegacyRole; controlId=[SitecadClose]::GetDlgCtrlID([IntPtr]$sitecadCurrent.NativeWindowHandle); parentHandle=$sitecadNativeParent.ToInt64(); parentClass=$sitecadNativeParentClass.ToString(); rootHandle=$sitecadNativeRoot.ToInt64(); rootClass=$sitecadNativeRootClass.ToString(); rootOwnerHandle=([SitecadClose]::GetWindow($sitecadNativeRoot, 4)).ToInt64(); mainHandle=$sitecadProcess.MainWindowHandle.ToInt64(); rootProcessId=$sitecadNativeRootProcessId; expectedProcessId=$SitecadProcessId; rootHasExactWarning=$sitecadNativeRootHasWarning }
       }
       $sitecadDiagnostics += $sitecadDiagnostic
     } catch [System.Windows.Automation.ElementNotAvailableException] { continue }
