@@ -5,7 +5,19 @@ $sitecadProcess = Get-Process -Id $SitecadProcessId
 if ($sitecadProcess.ProcessName -ne 'SiteCAD' -or $sitecadProcess.MainWindowHandle -eq 0) { throw 'Expected the verified SiteCAD window' }
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
-Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class SitecadClose { [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam); }'
+Add-Type -TypeDefinition @'
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public static class SitecadClose {
+  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr window);
+  [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr window, uint command);
+  [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr window);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr window, StringBuilder name, int capacity);
+}
+'@
 if (![SitecadClose]::PostMessage($sitecadProcess.MainWindowHandle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) { throw 'Could not request window close' }
 $sitecadDeadline = [DateTime]::UtcNow.AddSeconds(20)
 $sitecadInvoked = $false
@@ -36,8 +48,34 @@ while ([DateTime]::UtcNow -lt $sitecadDeadline) {
       if ($sitecadButtons.Count -eq 0) { continue }
       if ($sitecadButtons.Count -ne 1) { throw 'SiteCAD close confirmation had ambiguous exit buttons' }
       $sitecadInvoke = $null
-      if (!$sitecadButtons[0].TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$sitecadInvoke)) { continue }
-      $sitecadInvoke.Invoke()
+      if ($sitecadButtons[0].TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$sitecadInvoke)) {
+        $sitecadInvoke.Invoke()
+      } else {
+        # Electron's TaskDialog uses custom button IDs 100 + index; '종료' is index 1.
+        # TDM_CLICK_BUTTON selects that real button through the normal task-dialog callback.
+        $sitecadExitHandle = [IntPtr]$sitecadButtons[0].Current.NativeWindowHandle
+        if ($sitecadExitHandle -eq [IntPtr]::Zero) { continue }
+        $sitecadDialogHandle = [SitecadClose]::GetParent($sitecadExitHandle)
+        if ($sitecadDialogHandle -eq [IntPtr]::Zero -or [SitecadClose]::GetWindow($sitecadDialogHandle, 4) -ne $sitecadProcess.MainWindowHandle) { continue }
+        $sitecadExitClass = [System.Text.StringBuilder]::new(256)
+        $sitecadDialogClass = [System.Text.StringBuilder]::new(256)
+        [void][SitecadClose]::GetClassName($sitecadExitHandle, $sitecadExitClass, $sitecadExitClass.Capacity)
+        [void][SitecadClose]::GetClassName($sitecadDialogHandle, $sitecadDialogClass, $sitecadDialogClass.Capacity)
+        [uint32]$sitecadExitProcessId = 0
+        [uint32]$sitecadDialogProcessId = 0
+        [void][SitecadClose]::GetWindowThreadProcessId($sitecadExitHandle, [ref]$sitecadExitProcessId)
+        [void][SitecadClose]::GetWindowThreadProcessId($sitecadDialogHandle, [ref]$sitecadDialogProcessId)
+        if ($sitecadExitProcessId -ne [uint32]$SitecadProcessId -or $sitecadDialogProcessId -ne [uint32]$SitecadProcessId) { continue }
+        if ($sitecadExitClass.ToString() -cne 'CCCommandLink' -or $sitecadDialogClass.ToString() -cne '#32770' -or [SitecadClose]::GetDlgCtrlID($sitecadExitHandle) -ne 101) { continue }
+        $sitecadDialogControls = [System.Windows.Automation.AutomationElement]::FromHandle($sitecadDialogHandle).FindAll([System.Windows.Automation.TreeScope]::Subtree, $sitecadProcessCondition)
+        $sitecadDialogHasWarning = $false
+        for ($sitecadDialogIndex = 0; $sitecadDialogIndex -lt $sitecadDialogControls.Count; $sitecadDialogIndex++) {
+          $sitecadDialogCurrent = $sitecadDialogControls[$sitecadDialogIndex].Current
+          if ($sitecadDialogCurrent.ProcessId -eq [int]$SitecadProcessId -and [string]$sitecadDialogCurrent.Name -ceq '저장하지 않은 도면 변경은 사라집니다.') { $sitecadDialogHasWarning = $true }
+        }
+        if (!$sitecadDialogHasWarning) { continue }
+        if (![SitecadClose]::PostMessage($sitecadDialogHandle, 0x0466, [IntPtr]101, [IntPtr]::Zero)) { throw 'Could not select the verified SiteCAD task-dialog exit button' }
+      }
       $sitecadInvoked = $true
       break
     } catch [System.Windows.Automation.ElementNotAvailableException] { continue }
@@ -66,7 +104,10 @@ if (!$sitecadInvoked) {
           $sitecadLegacyRole = $sitecadControl.GetCurrentPropertyValue($sitecadLegacyRoleProperty, $true)
           if ($sitecadLegacyRole -eq [System.Windows.Automation.AutomationElement]::NotSupported) { $sitecadLegacyRole = $null }
         }
-        $sitecadDiagnostic = $sitecadDiagnostic + @{ className=$sitecadCurrent.ClassName; automationId=$sitecadCurrent.AutomationId; windowHandle=$sitecadCurrent.NativeWindowHandle; patterns=$sitecadPatterns; legacyRole=$sitecadLegacyRole }
+        $sitecadNativeParent = [SitecadClose]::GetParent([IntPtr]$sitecadCurrent.NativeWindowHandle)
+        $sitecadNativeParentClass = [System.Text.StringBuilder]::new(256)
+        [void][SitecadClose]::GetClassName($sitecadNativeParent, $sitecadNativeParentClass, $sitecadNativeParentClass.Capacity)
+        $sitecadDiagnostic = $sitecadDiagnostic + @{ className=$sitecadCurrent.ClassName; automationId=$sitecadCurrent.AutomationId; windowHandle=$sitecadCurrent.NativeWindowHandle; patterns=$sitecadPatterns; legacyRole=$sitecadLegacyRole; controlId=[SitecadClose]::GetDlgCtrlID([IntPtr]$sitecadCurrent.NativeWindowHandle); parentHandle=$sitecadNativeParent.ToInt64(); parentClass=$sitecadNativeParentClass.ToString() }
       }
       $sitecadDiagnostics += $sitecadDiagnostic
     } catch [System.Windows.Automation.ElementNotAvailableException] { continue }
