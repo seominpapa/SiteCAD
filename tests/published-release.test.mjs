@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { assetNames, checksumEntries, preparePublishedRelease, publishedSourceCommit, releaseBase, releaseVersion } from '../scripts/verify-published-release.mjs';
 
 test('published download checks accept only the fixed supported release files', () => {
-  assert.equal(releaseVersion, '0.16.1');
-  assert.equal(assetNames('darwin')[1], 'SiteCAD-0.16.1-macOS-arm64.dmg');
-  assert.equal(assetNames('win32')[1], 'SiteCAD-0.16.1-Windows-x64-Setup.exe');
+  assert.equal(releaseVersion, '0.16.2');
+  assert.equal(assetNames('darwin')[1], 'SiteCAD-0.16.2-macOS-arm64.dmg');
+  assert.equal(assetNames('win32')[1], 'SiteCAD-0.16.2-Windows-x64-Setup.exe');
   assert.throws(() => assetNames('linux'));
-  assert.equal(new URL(assetNames('win32')[0], releaseBase).href, 'https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/SiteCAD-0.16.1-local-web-Windows.zip');
+  assert.equal(new URL(assetNames('win32')[0], releaseBase).href, 'https://github.com/seominpapa/SiteCAD/releases/download/v0.16.2/SiteCAD-0.16.2-local-web-Windows.zip');
 });
 
 test('published checksums reject incomplete, duplicate and unsafe names', () => {
@@ -20,8 +20,8 @@ test('published checksums reject incomplete, duplicate and unsafe names', () => 
 
 test('published source proof binds the released tag commit to the successful build record', () => {
   const sha = 'a'.repeat(40);
-  const ref = { ref: 'refs/tags/v0.16.1', object: { type: 'commit', sha } };
-  const evidence = { version: '0.16.1', releaseTag: 'v0.16.1', sourceCommit: sha, ci: { headSha: sha, conclusion: 'success' } };
+  const ref = { ref: 'refs/tags/v0.16.2', object: { type: 'commit', sha } };
+  const evidence = { version: '0.16.2', releaseTag: 'v0.16.2', sourceCommit: sha, ci: { headSha: sha, conclusion: 'success' } };
   assert.equal(publishedSourceCommit(ref, evidence), sha);
   assert.throws(() => publishedSourceCommit({ ...ref, object: { type: 'commit', sha: 'main' } }, evidence));
   assert.throws(() => publishedSourceCommit({ ...ref, ref: 'refs/tags/v0.16.0' }, evidence));

@@ -1,3 +1,4 @@
+import { publicChatFailure } from './lib/chat-errors.mjs';
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
@@ -105,7 +106,7 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
           const disconnected = () => { if (!res.writableEnded) void desktop.cancel().catch(() => {}); };
           res.once('close', disconnected);
           try { send({ type: 'result', data: await desktop.chat(request, { onEvent: send }) }); }
-          catch { send({ type: 'error', message: '요청을 완료하지 못했습니다. 로그인·연결·도면 상태를 확인해 주세요. 일부 변경이 남아 있을 수 있습니다.' }); }
+          catch (error) { send(publicChatFailure(error)); }
           finally { res.off('close', disconnected); if (!res.destroyed) res.end(); }
           return;
         }

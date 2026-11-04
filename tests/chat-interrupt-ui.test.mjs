@@ -54,12 +54,42 @@ test('assistant replies render tables while user input remains literal; feedback
   const button = descendants(followup).find(item => item.tagName === 'button');
   run('busy=true;'); button.listeners.click(); assert.equal(ids['message-input'].value, '');
   run('busy=false;'); button.listeners.click();
-  assert.match(ids['message-input'].value, /원하는 처리 방법/); assert.match(ids['message-input'].value, /스킬 등록 여부/);
+  assert.match(ids['message-input'].value, /원하는 처리 방법/); assert.match(ids['message-input'].value, /기존 스킬.*수정.*새 스킬.*등록/);
   assert.match(ids['message-input'].value, /대상 답변: \| 항목 \| 값/);
   ids['message-input'].value = '작성 중인 내용'; button.listeners.click(); assert.equal(ids['message-input'].value, '작성 중인 내용');
   assert.equal(calls.length, 0);
   run('appendMessage("user", "| 항목 | 값 |\\n| --- | --- |\\n| H1 | 8 |");');
   assert.equal(descendants(ids.messages.children[1]).filter(item => item.tagName === 'table').length, 0);
+});
+
+test('review feedback asks visibly and offers consent-based updates or registration without saving', () => {
+  const { ids, calls, run } = fixture();
+  run('appendMessage("assistant", "물량 검토 결과입니다. 철근 단위중량을 다시 확인해야 합니다.");');
+  const followup = descendants(ids.messages.children[0]).find(item => item.className === 'chat-review-followup');
+  assert.equal(followup.open, false);
+  assert.equal(followup.children[0].tagName, 'summary');
+  assert.match(followup.children[0].textContent, /결과.*맞나요.*처리 방법/);
+  assert.match(followup.textContent, /기존 스킬.*수정.*새 스킬.*등록/);
+  assert.match(followup.textContent, /동의/);
+  const button = descendants(followup).find(item => item.tagName === 'button');
+  button.listeners.click();
+  const draft = ids['message-input'].value;
+  assert.match(draft, /이번에 사용한 스킬.*확인/);
+  assert.match(draft, /기존 스킬.*수정.*새 스킬.*등록/);
+  assert.match(draft, /동의.*저장/);
+  assert.equal(ids['message-input'].focused, true);
+  assert.equal(calls.length, 0);
+});
+
+test('feedback actions keep unavailable connections and active work from changing the draft', () => {
+  const { ids, calls, run } = fixture();
+  run('appendMessage("assistant", "검토 결과");');
+  const button = descendants(ids.messages.children[0]).find(item => item['data-chat-feedback'] === '');
+  for (const state of ['ready=false', 'ready=true; connected=false', 'connected=true; busy=true', 'busy=false; connectionBusy=true']) {
+    run(state); button.listeners.click();
+    assert.equal(ids['message-input'].value, '');
+  }
+  assert.equal(calls.length, 0);
 });
 
 test('registration help follows composer and the regional footer is removed', () => {

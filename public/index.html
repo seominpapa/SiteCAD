@@ -36,6 +36,7 @@
       <aside id="sitecad-chat-panel" class="chat-panel" aria-labelledby="chat-title">
         <button id="chat-collapse" class="chat-edge-toggle chat-edge-close" type="button" aria-label="채팅 접기" title="채팅 접기" aria-controls="sitecad-chat-panel" aria-expanded="true">›</button>
         <div class="chat-heading"><div><p class="eyebrow">DRAWING ASSISTANT</p><h2 id="chat-title">도면에 요청하기</h2></div><span class="local-label">LOCAL</span></div>
+        <div id="skill-reference" class="skill-reference" hidden><div class="skill-menu-controls"><button id="skill-toggle" type="button" aria-expanded="false" aria-controls="skill-menu" hidden>스킬목록(/)</button><span class="skill-reference-note">자연어 요청도 지원</span></div><section id="skill-menu" class="skill-menu" aria-label="설치된 스킬" hidden><p id="skill-status" role="status"></p><div id="skill-list"></div></section></div>
         <div id="chat-session-controls" class="chat-session-controls" hidden><label class="sr-only" for="chat-select">채팅 선택</label><select id="chat-select" aria-label="채팅 선택" disabled><option>채팅을 준비하고 있습니다</option></select><button id="chat-new" type="button" disabled>새 채팅</button><button id="chat-delete" type="button" disabled>삭제</button><p id="chat-history-status" role="status" aria-live="polite"></p></div>
         <div id="auth-help" class="auth-help" hidden><strong>AI 연결이 필요합니다.</strong><p>설정에서 사용할 AI 서비스와 로그인 또는 API 키 연결을 선택해 주세요.</p></div>
         <div id="messages" class="messages" role="log" aria-label="도면 작업 대화" aria-live="polite" aria-relevant="additions">
@@ -54,12 +55,12 @@
         <div id="chat-progress" class="chat-progress" role="status" hidden><span class="spinner" aria-hidden="true"></span><span id="chat-progress-text">요청을 해석하고 있습니다.</span></div>
         <div class="composer-area">
 
-          <div class="skill-menu-controls"><button id="skill-toggle" type="button" aria-expanded="false" aria-controls="skill-menu" hidden>스킬목록(/)</button><button id="model-choice" type="button" aria-haspopup="dialog" aria-controls="model-dialog" hidden disabled>모델: 자동 선택</button></div><section id="skill-menu" class="skill-menu" aria-label="설치된 스킬" hidden><p id="skill-status" role="status"></p><div id="skill-list"></div></section>
+          <div class="skill-menu-controls"><button id="model-choice" type="button" aria-haspopup="dialog" aria-controls="model-dialog" hidden disabled>모델: 자동 선택</button></div>
           <form id="chat-form"><label for="message-input" class="sr-only">도면 생성 또는 수정 요청</label><textarea id="message-input" rows="3" maxlength="2000" placeholder="도면 요청 · /스킬 · MCP·API·플러그인 등록" aria-controls="skill-menu" disabled></textarea><div class="composer-footer"><span id="composer-hint">Enter 전송 · Shift+Enter 줄바꿈</span><div class="composer-actions"><button id="stop-task" type="button" hidden>정지</button><button id="send-message" class="primary" type="submit" disabled>전송</button></div></div></form>
           <details class="registration-help">
             <summary>스킬·연결 등록 방법</summary>
             <div class="registration-guide">
-              <p><strong>스킬</strong> 결과가 원하는 내용과 다르면 응답 아래의 “원하는 결과가 아닌가요?”에서 원하는 처리 방법을 알려주세요. 필요한 내용을 확인하고 정리한 절차는 동의를 받아 스킬로 등록합니다. “이 작업을 스킬로 만들어줘”라고 직접 요청할 수도 있습니다. 저장된 스킬은 스킬목록(/)에서 선택합니다.</p>
+              <p><strong>스킬</strong> 물량 산출·설계기준 검토·기성 표시와 스킬 만들기·찾기·설치는 슬래시 없이 자연어로 요청할 수 있습니다. 채팅 상단 스킬목록(/)에서 설명을 확인하거나 직접 선택할 수도 있습니다. 응답 아래의 “결과가 맞나요? 바꿀 처리 방법을 알려주세요.”에서 원하는 절차를 알려주세요. 필요한 내용을 확인한 뒤 동의를 받아 기존 스킬을 수정하거나 새 스킬로 등록합니다.</p>
               <p><strong>API·MCP·플러그인</strong> 주소와 함께 “이 연결을 등록·설치해줘”라고 요청하세요. AI가 지원 방식과 설치 대상을 확인하고, 필요한 승인을 받습니다. 설치 결과와 연결 상태는 설정에서 확인합니다.</p>
               <p><strong>API 키</strong> 키가 필요하면 채팅에서 발급 사이트와 설정의 API 항목을 안내합니다. 본인이 발급받은 값은 설정의 비공개 입력란에 등록하세요. 키를 채팅에 붙여 넣지 마세요.</p>
             </div>

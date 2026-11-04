@@ -6,6 +6,7 @@ import { mkdtemp, mkdir, readFile, writeFile, readdir, rm, symlink, stat, cp } f
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildLocalWeb, sourceEntries } from '../scripts/build-local-web.mjs';
+import { testDrawingNames } from '../scripts/package-drawings.mjs';
 
 const execute = promisify(execFile);
 const project = new URL('../', import.meta.url);
@@ -57,6 +58,8 @@ async function fixture(t) {
     else await writeFile(join(sourceRoot, name), name === 'package.json' ? JSON.stringify({ version: '0.11.0' }) : 'fixture');
   }
   await cp(new URL('skills',project),join(sourceRoot,'skills'),{recursive:true});
+  await mkdir(join(sourceRoot, 'drawings/Test'), { recursive: true });
+  for (const name of testDrawingNames) await writeFile(join(sourceRoot, 'drawings/Test', name), `sample ${name}`);
   await writeFile(join(sourceRoot, 'vendor/editor/manifest.local.json'), JSON.stringify({ files: [] }));
   const fixturePath = join(base, 'original.dwg');
   await writeFile(fixturePath, 'AC1032 test drawing');
@@ -66,6 +69,8 @@ async function fixture(t) {
 test('release ZIP contains standalone drawing and allowlisted source, never private project state', async t => {
   const { base, sourceRoot, fixturePath } = await fixture(t);
   for (const name of ['.env', 'credentials.enc', 'private-note.txt', 'lib/.env', 'lib/.env.local', 'public/credentials.enc']) await writeFile(join(sourceRoot, name), 'secret');
+  await writeFile(join(sourceRoot, 'drawings/private-project.dwg'), 'secret');
+  await writeFile(join(sourceRoot, 'drawings/Test/private-note.txt'), 'secret');
   for (const name of ['node_modules', 'test-results', '.runtime', 'desktop/runtime']) {
     await mkdir(join(sourceRoot, name), { recursive: true });
     await writeFile(join(sourceRoot, name, 'secret.txt'), 'secret');
@@ -83,6 +88,8 @@ test('release ZIP contains standalone drawing and allowlisted source, never priv
   assert.equal(await readFile(join(extracted, 'SiteCAD/fixtures/retaining-wall.dwg'), 'utf8'), 'AC1032 test drawing');
   if (process.platform !== 'win32') assert.ok((await stat(join(extracted, 'SiteCAD/Start SiteCAD.command'))).mode & 0o111);
   assert.deepEqual(await readdir(join(extracted, 'SiteCAD/fixtures')), ['retaining-wall.dwg']);
+  assert.deepEqual((await readdir(join(extracted, 'SiteCAD/drawings/Test'))).sort(), [...testDrawingNames].sort());
+  for (const name of testDrawingNames) assert.equal(await readFile(join(extracted, 'SiteCAD/drawings/Test', name), 'utf8'), `sample ${name}`);
 });
 
 test('release build rejects linked private files inside otherwise public source', async t => {

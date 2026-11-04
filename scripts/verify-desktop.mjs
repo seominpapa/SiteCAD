@@ -4,12 +4,21 @@ import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { stopProcessTree } from '../lib/mcp-launcher.mjs';
+import { testDrawingNames } from './package-drawings.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const execute = promisify(execFile);
+export async function verifyPackagedDrawings(appRoot) {
+  return Promise.all(testDrawingNames.map(async name => {
+    const bytes = await readFile(join(appRoot, 'drawings', 'Test', name));
+    const sha256 = hash(bytes);
+    assert.equal(sha256, hash(await readFile(new URL(`../drawings/Test/${name}`, import.meta.url))), `Packaged test drawing must match source: ${name}`);
+    return { name, bytes: bytes.length, sha256 };
+  }));
+}
 export const sanitizeDiagnostic = value => String(value ?? '').replace(/(?:https?|wss?):\/\/[^\s"'<>]+/gi, '[redacted URL]')
   .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, 'Bearer [redacted]')
   .replace(/((?:access[_-]?token|refresh[_-]?token|api[_-]?key|authorization)["']?\s*[=:]\s*["']?)[^\s"',;]+/gi, '$1[redacted]');
@@ -170,11 +179,13 @@ export async function verifyDesktop({ executable, outputDirectory, normalClose =
       assert.equal(servedHash, hash(await readFile(new URL(`../public/${name}`, import.meta.url))), `Packaged ${name} must match tested source`);
       modules[name] = servedHash;
     }
+    stage = 'packaged test drawings';
+    const testDrawings = await verifyPackagedDrawings(join(dirname(executable), process.platform === 'darwin' ? '../Resources/app' : 'resources/app'));
     stage = 'desktop screenshot';
     const screenshot = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
     await writeFile(join(outputDirectory, 'desktop.png'), Buffer.from(screenshot.data, 'base64'));
     const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-    const report = { version, platform: process.platform, arch: process.arch, ...view, modules, anonymousProfile: true,
+    const report = { version, platform: process.platform, arch: process.arch, ...view, modules, testDrawings, anonymousProfile: true,
       startupMs: Date.now() - startedAt, discoveryAttempts,
       shutdownMethod: normalClose ? 'native close confirmation' : 'forced process-tree termination',
       limitations: ['No AI inference or authenticated external API/MCP calls', 'No drawing modification or DWG round-trip test'] };

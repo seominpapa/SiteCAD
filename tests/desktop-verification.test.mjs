@@ -1,10 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { closeWindowsDesktop, findDesktopPage, sanitizeDiagnostic, stopDesktop, verifyDesktop } from '../scripts/verify-desktop.mjs';
+import { closeWindowsDesktop, findDesktopPage, sanitizeDiagnostic, stopDesktop, verifyDesktop, verifyPackagedDrawings } from '../scripts/verify-desktop.mjs';
+
+test('final desktop bundles retain the exact curated drawings and guide, and reject modified or missing files', async t => {
+  const appRoot = await mkdtemp(join(tmpdir(), 'sitecad-packaged-drawings-'));
+  t.after(() => rm(appRoot, { recursive: true, force: true }));
+  await cp(new URL('../drawings', import.meta.url), join(appRoot, 'drawings'), { recursive: true });
+  const files = await verifyPackagedDrawings(appRoot);
+  assert.equal(files.length, 8);
+  assert.ok(files.every(file => /^[a-f0-9]{64}$/.test(file.sha256) && file.bytes > 0));
+  const guide = join(appRoot, 'drawings/Test/테스트_안내.md');
+  await writeFile(guide, 'outdated guide');
+  await assert.rejects(verifyPackagedDrawings(appRoot), /Packaged test drawing/);
+  await rm(guide);
+  await assert.rejects(verifyPackagedDrawings(appRoot), { code: 'ENOENT' });
+});
 
 test('desktop discovery tolerates a warming debugger without hiding invalid responses', async () => {
   for (const error of [new DOMException('warming up', 'TimeoutError'), Object.assign(new TypeError('fetch failed'), {cause:{code:'ECONNREFUSED'}})]) {

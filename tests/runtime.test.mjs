@@ -15,10 +15,10 @@ function fakeChild(onRequest) {
   child.stdin = new Writable({ write(chunk, encoding, callback) { const request = JSON.parse(chunk.toString()); callback(); queueMicrotask(() => onRequest(request, message => child.stdout.write(`${JSON.stringify(message)}\n`))); } });
   return child;
 }
-async function modelRuntime({ list, events = [], holdTurn = false, intercept } = {}) {
+async function modelRuntime({ list, events = [], holdTurn = false, intercept, runtimeOptions = {} } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'sitecad-models-'));
   const calls = []; const emitted = []; let starts = 0;
-  const runtime = createCodexRuntime({ codexPath: '/app/codex', nodePath: process.execPath, mcpPath: '/app/mcp.mjs', codexHome: join(directory, 'codex'), workspace: join(directory, 'workspace'), bridgeUrl: 'http://127.0.0.1:1234', bridgeToken: 'x'.repeat(32), getAccessToken: async () => 'token', onEvent: event => emitted.push(event),
+  const runtime = createCodexRuntime({ codexPath: '/app/codex', nodePath: process.execPath, mcpPath: '/app/mcp.mjs', codexHome: join(directory, 'codex'), workspace: join(directory, 'workspace'), bridgeUrl: 'http://127.0.0.1:1234', bridgeToken: 'x'.repeat(32), getAccessToken: async () => 'token', onEvent: event => emitted.push(event), ...runtimeOptions,
     spawnImpl: () => { starts++; return fakeChild((request, send) => {
       if (!request.method || !Object.hasOwn(request, 'id')) return;
       calls.push(request);
@@ -36,9 +36,26 @@ async function modelRuntime({ list, events = [], holdTurn = false, intercept } =
         if (!holdTurn) send({ method: 'turn/completed', params: { threadId: request.params.threadId, turn: { id: 'turn', status: 'completed', items: [{ type: 'agentMessage', text: '완료' }] } } });
       }
     }); } });
-  return { runtime, calls, emitted, cleanup: async () => { await runtime.stop(); await rm(directory, { recursive: true, force: true }); } };
+  return { runtime, calls, emitted, codexHome: join(directory, 'codex'), cleanup: async () => { await runtime.stop(); await rm(directory, { recursive: true, force: true }); } };
 }
 const modelInput = { message: '모델 검증', context: { documentId: 1, revision: 0, units: 4, selection: [], entities: [] }, history: [] };
+test('compound natural workflows reach Codex as real bounded native skill inputs', async () => {
+  const f = await modelRuntime();
+  try {
+    const skills = ['quantity-review', 'design-review', 'progress-markup', 'skill-creator', 'skill-finder', 'skill-installer'].map(name => ({ name, path: join(f.codexHome, 'skills', name, 'SKILL.md') }));
+    const result = await f.runtime.chat(modelInput, { skills });
+    const turn = f.calls.find(call => call.method === 'turn/start').params;
+    assert.deepEqual(turn.input.filter(item => item.type === 'skill'), skills.map(item => ({ type: 'skill', ...item })));
+    assert.deepEqual(result.selectedSkills, skills.map(item => item.name));
+    for (const { name } of skills) assert.ok(turn.input[0].text.includes(`$${name}`));
+    const policy = f.calls.find(call => call.method === 'thread/start').params.baseInstructions;
+    assert.match(policy, /After reporting quantity-review, design-review or progress-markup results.*end with one concise Korean question/);
+    assert.match(policy, /satisfaction response.*no skill write/);
+    assert.match(policy, /update.*existing editable custom skill.*new named skill/);
+    await assert.rejects(f.runtime.chat(modelInput, { skills: [{ name: 'quantity-review', path: '/outside/SKILL.md' }] }), /스킬/);
+    await assert.rejects(f.runtime.chat(modelInput, { skills: [skills[0], skills[0]] }), /스킬/);
+  } finally { await f.cleanup(); }
+});
 test('steering targets the existing native turn without starting another or changing its guards', async () => {
   const fixture = await modelRuntime({ holdTurn: true });
   try {
@@ -147,7 +164,7 @@ test('tool streaming preserves identity, reports logical errors and excludes rea
   ] });
   try {
     const result = await fixture.runtime.chat(modelInput);
-    assert.equal(result.reply, '사용자 답변'); assert.equal(result.toolFailed, true);
+    assert.equal(result.reply, '완료'); assert.equal(result.toolFailed, true);
     assert.deepEqual(fixture.emitted.filter(event => event.type === 'tool'), [
       { type: 'tool', id: 'cad-call', server: 'sitecad', name: 'cad_context', status: 'running' },
       { type: 'tool', id: 'cad-call', server: 'sitecad', name: 'cad_context', status: 'failed' },
@@ -495,4 +512,112 @@ test('runtime fails closed for startup inventory errors and forbidden or failed 
       if (child) assert.equal(child.killed, true);
     });
   }
+});
+
+
+test('completed final messages replace commentary and abandoned draft deltas', async () => {
+  const fixture = await modelRuntime({ events: [
+    {method:'item/started',params:{item:{type:'agentMessage',id:'comment',phase:'commentary',text:''}}},
+    {method:'item/agentMessage/delta',params:{itemId:'comment',delta:'먼저 확인하겠습니다.'}},
+    {method:'item/completed',params:{item:{type:'agentMessage',id:'comment',phase:'commentary',text:'먼저 확인하겠습니다.'}}},
+    {method:'item/started',params:{item:{type:'agentMessage',id:'draft',phase:'final_answer',text:''}}},
+    {method:'item/agentMessage/delta',params:{itemId:'draft',delta:'日本語 | 중간 표 |'}},
+    {method:'item/started',params:{item:{type:'agentMessage',id:'final',phase:'final_answer',text:''}}},
+    {method:'item/agentMessage/delta',params:{itemId:'final',delta:'한국어 최종 결과'}},
+    {method:'item/completed',params:{item:{type:'agentMessage',id:'final',phase:'final_answer',text:'한국어 최종 결과'}}},
+  ] });
+  try {
+    // turn/completed snapshots are authoritative, even after completed item events.
+    const result=await fixture.runtime.chat(modelInput);
+    assert.equal(result.reply,'완료');
+    assert.ok(fixture.emitted.some(item=>item.type==='reply_start'));
+  } finally {await fixture.cleanup();}
+});
+
+test('item completed final is used when turn completion omits its items', async () => {
+  const fixture=await modelRuntime({intercept(request,send){
+    if(request.method!=='turn/start')return false;
+    send({id:request.id,result:{turn:{id:'turn'}}});
+    for(const item of [{id:'comment',phase:'commentary',text:'중간 안내'},{id:'answer',phase:'final_answer',text:'최종 표'}]){
+      send({method:'item/agentMessage/delta',params:{threadId:request.params.threadId,itemId:item.id,delta:item.text}});
+      send({method:'item/completed',params:{threadId:request.params.threadId,item:{type:'agentMessage',...item}}});
+    }
+    send({method:'turn/completed',params:{threadId:request.params.threadId,turn:{id:'turn',status:'completed',items:[]}}});
+    return true;
+  }});
+  try{assert.equal((await fixture.runtime.chat(modelInput)).reply,'최종 표');}finally{await fixture.cleanup();}
+});
+
+test('the fixed ten minute deadline rejects incomplete text but retains execution evidence',async()=>{
+  let deadline,delay,cleared;
+  const fixture=await modelRuntime({holdTurn:true,events:[
+    {method:'item/agentMessage/delta',params:{delta:'중간 표 | 미완료'}},
+    {method:'item/completed',params:{item:{id:'saved',type:'mcpToolCall',server:'sitecad',tool:'cad_save',status:'completed',result:{structuredContent:{saved:true}}}}},
+  ],runtimeOptions:{setTimeoutImpl:(callback,ms)=>{deadline=callback;delay=ms;return 'deadline';},clearTimeoutImpl:timer=>{cleared=timer;}}});
+  try{
+    const pending=fixture.runtime.chat(modelInput);
+    const failure=assert.rejects(pending,error=>{
+      assert.equal(error.code,'SITECAD_TURN_TIMEOUT');
+      assert.equal(error.execution.timeoutMs,600000);
+      assert.equal(error.details[0].tool,'cad_save');
+      assert.equal(error.reply,undefined);
+      return /10분/.test(error.message);
+    });
+    while(!fixture.emitted.some(item=>item.type==='tool'))await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(delay,600000);deadline();await failure;assert.equal(cleared,'deadline');
+  }finally{await fixture.cleanup();}
+});
+
+test('a late nested turn id cannot finish the next turn on the same native thread',async()=>{
+  let turns=0;
+  const fixture=await modelRuntime({intercept(request,send){
+    if(request.method!=='turn/start')return false;
+    const id=`turn-${++turns}`;
+    send({id:request.id,result:{turn:{id}}});
+    send({method:'turn/started',params:{threadId:request.params.threadId,turn:{id}}});
+    if(turns===2)send({method:'turn/completed',params:{threadId:request.params.threadId,turn:{id:'turn-1',status:'completed',items:[{type:'agentMessage',text:'과거 답변'}]}}});
+    send({method:'turn/completed',params:{threadId:request.params.threadId,turn:{id,status:'completed',items:[{type:'agentMessage',phase:'final_answer',text:`현재 답변 ${turns}`}]}}});
+    return true;
+  }});
+  try{
+    assert.equal((await fixture.runtime.chat(modelInput)).reply,'현재 답변 1');
+    assert.equal((await fixture.runtime.chat(modelInput)).reply,'현재 답변 2');
+  }finally{await fixture.cleanup();}
+});
+test('a completed turn with commentary only never promotes it to a final result',async()=>{
+  const fixture=await modelRuntime({intercept(request,send){
+    if(request.method!=='turn/start')return false;
+    send({id:request.id,result:{turn:{id:'turn'}}});
+    send({method:'turn/completed',params:{threadId:request.params.threadId,turn:{id:'turn',status:'completed',items:[{type:'agentMessage',phase:'commentary',text:'확인 중'}]}}});return true;
+  }});
+  try{await assert.rejects(fixture.runtime.chat(modelInput),/최종 답변/);}finally{await fixture.cleanup();}
+});
+
+for (const phase of ['commentary','final_answer']) test(`unfinished ${phase} deltas never become a final answer when completion has no items`,async()=>{
+  const fixture=await modelRuntime({intercept(request,send){
+    if(request.method!=='turn/start')return false;
+    send({id:request.id,result:{turn:{id:'turn'}}});
+    const params={threadId:request.params.threadId,turnId:'turn'};
+    send({method:'item/started',params:{...params,item:{type:'agentMessage',id:'unfinished',phase,text:''}}});
+    send({method:'item/agentMessage/delta',params:{...params,itemId:'unfinished',delta:'미완료 중간 표'}});
+    send({method:'turn/completed',params:{threadId:request.params.threadId,turn:{id:'turn',status:'completed',items:[]}}});
+    return true;
+  }});
+  try{await assert.rejects(fixture.runtime.chat(modelInput),/최종 답변/);}finally{await fixture.cleanup();}
+});
+
+test('a stale completion immediately after the next start RPC response cannot win its microtask race',async()=>{
+  let turns=0;
+  const fixture=await modelRuntime({intercept(request,send){
+    if(request.method!=='turn/start')return false;
+    const id=`race-${++turns}`;
+    send({id:request.id,result:{turn:{id}}});
+    if(turns===2)send({method:'turn/completed',params:{threadId:request.params.threadId,turn:{id:'race-1',status:'completed',items:[{type:'agentMessage',text:'과거 답변'}]}}});
+    send({method:'turn/started',params:{threadId:request.params.threadId,turn:{id}}});
+    send({method:'turn/completed',params:{threadId:request.params.threadId,turn:{id,status:'completed',items:[{type:'agentMessage',phase:'final_answer',text:`현재 답변 ${turns}`}]}}});return true;
+  }});
+  try{
+    assert.equal((await fixture.runtime.chat(modelInput)).reply,'현재 답변 1');
+    assert.equal((await fixture.runtime.chat(modelInput)).reply,'현재 답변 2');
+  }finally{await fixture.cleanup();}
 });

@@ -2,6 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createResearch, researchTools } from '../lib/research-mcp.mjs';
 
+test('PDF page requests are separately cached and source reports omit image payloads', async () => {
+  const calls = [];
+  const research = createResearch({ fetchDocument: async input => { calls.push(input); return { content: 'PDF source', images: [{ page: input.page, mimeType: 'image/jpeg', data: 'private-image-base64' }] }; } });
+  const first = await research.call('fetch', { url: 'https://example.org/rebar.pdf', page: 1 });
+  const ninth = await research.call('fetch', { url: 'https://example.org/rebar.pdf', page: 9 });
+  assert.notEqual(first.id, ninth.id);
+  assert.equal((await research.call('fetch', { url: 'https://example.org/rebar.pdf', page: 9 })).id, ninth.id);
+  assert.equal(calls.length, 2);
+  assert.doesNotMatch(JSON.stringify(research.report()), /private-image-base64/);
+  assert.deepEqual(research.report().sources[1].renderedPages, [9]);
+  for (const page of [0, 501, '9', 1.2]) await assert.rejects(research.call('fetch', { url: 'https://example.org/rebar.pdf', page }));
+});
+
 const document = { url: 'https://example.org/standard', title: 'Standard', content: 'Maximum slope 1:12', sha256: 'a'.repeat(64), retrievedAt: '2026-10-22T00:00:00Z', contentType: 'text/html', untrusted: true };
 const design = sourceId => ({ title: '경사로 개념도', assumptions: ['예시 높이 300mm'], dimensions: [{ name: '높이', value: 300, unit: 'mm', basis: 'assumption' }, { name: '경사비', value: 12, unit: 'ratio', basis: 'source', sourceId }], sourceIds: [sourceId] });
 test('research tools preserve retrieved evidence and bind design dimensions to actual sources', async () => {

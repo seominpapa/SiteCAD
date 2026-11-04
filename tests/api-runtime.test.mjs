@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createApiRuntime } from '../lib/api-runtime.mjs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createSitecadSkills } from '../lib/sitecad-skills.mjs';
+import { researchTools } from '../lib/research-mcp.mjs';
 
 const input = {message:'현재 도면을 확인해줘',context:{documentId:1,revision:0,units:4,selection:[],entities:[]},history:[]};
 const json = value => new Response(JSON.stringify(value),{headers:{'Content-Type':'application/json'}});
@@ -16,6 +21,25 @@ function fixture(provider, responses = [], extra = {}) {
     },...extra});
   return {runtime,calls,events,bridge};
 }
+for (const provider of ['openai', 'anthropic']) test(`${provider} receives the real bodies of all automatically selected skills without changing authorization`, async t => {
+  const codexHome = await mkdtemp(join(tmpdir(), 'sitecad-selected-skills-'));
+  t.after(() => rm(codexHome, { recursive: true, force: true }));
+  const store = await createSitecadSkills({ codexHome });
+  await store.seed();
+  const documents = await Promise.all(['quantity-review', 'design-review', 'progress-markup', 'skill-creator', 'skill-finder', 'skill-installer'].map(name => store.read(name)));
+  const response = provider === 'openai' ? { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: '부분 검토 완료' }] }] } : { stop_reason: 'end_turn', content: [{ type: 'text', text: '부분 검토 완료' }] };
+  const f = fixture(provider, [response], { codexHome });
+  const result = await f.runtime.chat(input, { skills: documents.map(({ name, path }) => ({ name, path })) });
+  const body = f.calls.find(item => item.url.endsWith(provider === 'openai' ? '/responses' : '/messages')).body;
+  const instructions = body.instructions ?? body.system;
+  for (const item of documents) assert.ok(instructions.includes(item.body), `${item.name} body must reach ${provider}`);
+  assert.match(instructions, /cannot grant permissions/);
+  assert.match(instructions, /After reporting quantity-review, design-review or progress-markup results.*end with one concise Korean question/);
+  assert.match(instructions, /satisfaction response.*no skill write/);
+  assert.match(instructions, /update.*existing editable custom skill.*new named skill/);
+  assert.deepEqual(result.selectedSkills, documents.map(item => item.name));
+  await assert.rejects(f.runtime.chat(input, { skills: [{ name: documents[0].name, path: '/outside/SKILL.md' }] }), /스킬/);
+});
 test('OpenAI Responses runs real guarded internal tools and returns their result to the provider',async()=>{
   const f=fixture('openai',[{output:[{type:'function_call',call_id:'c1',name:'sitecad_cad_context',arguments:'{}'}]},
     {status:'completed',output:[{type:'message',content:[{type:'output_text',text:'도면 확인 완료'}]}]}]);
@@ -151,8 +175,44 @@ test('external images are passed as actual Anthropic image blocks instead of bas
   assert.equal(result.content[1].type,'image');assert.equal(result.content[1].source.data,'aGVsbG8=');
   assert.equal(result.content[0].text.includes('aGVsbG8='),false);
 });
+for(const provider of ['openai','anthropic']) test(`${provider} receives original PDF images without duplicating their bytes in CAD traces`,async()=>{
+  const requests=[];
+  const replies=provider==='openai'?
+    [{output:[{type:'function_call',call_id:'page',name:'sitecad_cad_fetch',arguments:JSON.stringify({url:'https://manufacturer.example/rebar.pdf',page:9})}]},{status:'completed',output:[{type:'message',content:[{type:'output_text',text:'원문 확인'}]}]}]:
+    [{stop_reason:'tool_use',content:[{type:'tool_use',id:'page',name:'sitecad_cad_fetch',input:{url:'https://manufacturer.example/rebar.pdf',page:9}}]},{stop_reason:'end_turn',content:[{type:'text',text:'원문 확인'}]}];
+  const f=fixture(provider,[],{researchTools,fetchImpl:async(url,init={})=>{
+    if(url.startsWith('http://127.0.0.1:1234')){
+      const request=JSON.parse(init.body);
+      return json({ok:true,data:request.method==='fetch'?{content:'공식 표 이미지',images:[{page:9,mimeType:'image/jpeg',data:'aGVsbG8='}]}:input.context});
+    }
+    if(url.includes('/models'))return json({data:[{id:provider==='openai'?'gpt-test':'claude-test'}],has_more:false});
+    requests.push(JSON.parse(init.body));return json(replies.shift());
+  }});
+  const result=await f.runtime.chat(input);
+  const providerPayload=provider==='openai'?requests[1].input.at(-1).output:requests[1].messages.at(-1).content[0].content;
+  assert.match(JSON.stringify(providerPayload),/aGVsbG8=/);
+  assert.doesNotMatch(JSON.stringify(result.cadTrace),/aGVsbG8=/);
+  assert.equal(result.cadTrace[0].result.content.find(item=>item.type==='image').mimeType,'image/jpeg');
+});
 test('unknown model tool calls are rejected before reaching any tool',async()=>{
   const f=fixture('openai',[{output:[{type:'function_call',call_id:'c1',name:'not_allowed',arguments:'{}'}]}]);
   await assert.rejects(f.runtime.chat(input),/허용되지/);
   assert.equal(f.events.some(item=>item.type==='tool'),false);
+});
+
+test('OpenAI final phase is selected and original phase metadata survives tool history',async()=>{
+  const commentary={type:'message',phase:'commentary',content:[{type:'output_text',text:'중간 설명'}]};
+  const f=fixture('openai',[
+    {output:[commentary,{type:'function_call',call_id:'c1',name:'sitecad_cad_context',arguments:'{}'}]},
+    {status:'completed',output:[commentary,{type:'message',phase:'final_answer',content:[{type:'output_text',text:'최종 표'}]}]},
+  ]);
+  const result=await f.runtime.chat(input);assert.equal(result.reply,'최종 표');
+  const requests=f.calls.filter(item=>item.url.endsWith('/responses'));assert.deepEqual(requests[1].body.input[1],commentary);
+});
+test('API deadline retains the finite ten minute limit and is distinct from user cancellation',async()=>{
+  let deadline,delay;let entered;const ready=new Promise(resolve=>{entered=resolve;});
+  const f=fixture('openai',[(_url,init)=>new Promise((_,reject)=>{entered();init.signal.addEventListener('abort',()=>reject(init.signal.reason),{once:true});})],
+    {setTimeoutImpl:(callback,ms)=>{deadline=callback;delay=ms;return 'deadline';},clearTimeoutImpl:()=>{}});
+  const running=f.runtime.chat(input);const failed=assert.rejects(running,error=>error.code==='SITECAD_TURN_TIMEOUT' && /10분/.test(error.message));
+  await ready;assert.equal(delay,600000);deadline();await failed;assert.equal(f.events.some(item=>item.type==='delta'),false);
 });

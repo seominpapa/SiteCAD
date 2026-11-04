@@ -48,6 +48,12 @@ async function confirmClose(event) {
   } finally { closingPrompt = false; }
 }
 
+async function openTestDrawings() {
+  try {
+    if (await shell.openPath(join(appRoot, 'drawings', 'Test'))) throw Error('Sample folder unavailable');
+  } catch { dialog.showErrorBox('테스트 도면', '테스트 도면 폴더를 열지 못했습니다. 설치 파일의 무결성과 폴더 접근 권한을 확인해 주세요.'); }
+}
+
 async function start() {
   const dataDir = app.getPath('userData');
   const paths = desktopPaths(dataDir);
@@ -97,6 +103,7 @@ async function start() {
       { label: 'SiteCAD', submenu: [
         { label: '브라우저에서 열기', click: () => { void shell.openExternal(`${baseUrl}/`); } },
         { label: '저장 폴더 열기', click: () => { void controller.drawingDirectory().then(path => shell.openPath(path)).catch(() => dialog.showErrorBox('저장 폴더', '설정에서 저장 폴더와 접근 권한을 확인해 주세요.')); } },
+        { label: '테스트 도면 폴더 열기', click: () => { void openTestDrawings(); } },
         { type: 'separator' }, { role: 'quit' },
       ] },
     ]));
@@ -133,7 +140,7 @@ async function start() {
   mainWindow.on('close', confirmClose);
   mainWindow.once('ready-to-show', () => mainWindow.show());
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: 'SiteCAD', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'quit' }] },
+    { label: 'SiteCAD', submenu: [{ role: 'about' }, { label: '테스트 도면 폴더 열기', click: () => { void openTestDrawings(); } }, { type: 'separator' }, { role: 'quit' }] },
     { label: '편집', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
     { label: '보기', submenu: [{ role: 'togglefullscreen' }] },
     { label: '윈도우', submenu: [{ role: 'minimize' }, { role: 'zoom' }] },

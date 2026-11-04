@@ -557,3 +557,25 @@ test('renderer job claims expire on timeout, turn completion and cancellation', 
   },true);
  }finally{await t.close();}
 });
+
+test('a timed out turn exposes only completed verified DWG saves and records no unfinished answer',async()=>{
+  const t=await setup();let entered,fail;const started=new Promise(resolve=>{entered=resolve;});
+  t.runtime.chat=()=>new Promise((_,reject)=>{fail=reject;entered();});
+  try{
+    const {chat}=await t.controller.chatCreate();
+    const turn=t.controller.chat({message:'저장 후 검토',context,history:[],chatId:chat.id});
+    let error;
+    const failed=assert.rejects(turn,value=>{error=value;return value.code==='SITECAD_TURN_TIMEOUT';});
+    await started;
+    const saving=t.controller.callCad('save',{name:'verified.dwg',expectedContext:context});
+    const job=await t.controller.pollCad();
+    const bytes=Buffer.from('AC1032verified-dwg');
+    t.controller.completeCad(job.id,{name:'verified.dwg',dataBase64:bytes.toString('base64'),version:'AC1032',audit:{errors:0,droppedOnSave:0},context});
+    const saved=await saving;
+    fail(Object.assign(Error('10분 작업 시간 한도에 도달했습니다.'),{code:'SITECAD_TURN_TIMEOUT'}));await failed;
+    assert.deepEqual(error.savedFiles,[{name:saved.name,bytes:saved.bytes,sha256:saved.sha256,downloadUrl:saved.downloadUrl}]);
+    assert.deepEqual(await readFile(saved.path),bytes);
+    const restored=await t.controller.chatRead(chat.id);assert.doesNotMatch(JSON.stringify(restored),/중간 표|미완료 답변/);
+    assert.equal(await t.controller.pollCad({waitMs:0}),null);
+  }finally{await t.close();}
+});

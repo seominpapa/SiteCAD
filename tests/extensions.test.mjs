@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSitecadExtensions } from '../lib/sitecad-extensions.mjs';
+import { createSitecadSkills } from '../lib/sitecad-skills.mjs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 function fixture(decision = 'approve') {
   const approvals = [], installed = [], removed = [];
@@ -37,6 +41,33 @@ test('skill overwrite binds approval to actual hash and conversation access is r
   await assert.rejects(t.api.call('manage_skills',{action:'save',name:'my-skill',description:'작업',body:'steps',expectedHash:'stale'}),/변경/);
   assert.equal((await t.api.call('manage_skills',{action:'conversation'})).messages[0].role,'user');
   assert.deepEqual((await t.api.call('manage_skills',{action:'list'})).skills,[{name:'skill-creator'}]);
+});
+test('feedback changes preserve real custom skill content until exact-hash overwrite approval and keep builtin copies separate', async t => {
+  const codexHome = await mkdtemp(join(tmpdir(), 'sitecad-feedback-skills-'));
+  t.after(() => rm(codexHome, { recursive: true, force: true }));
+  const skills = await createSitecadSkills({ codexHome });
+  await skills.seed();
+  await skills.save({ name: 'my-quantity-review', description: '사용자 물량 검토', body: '기존 처리 절차' });
+  const original = await skills.read('my-quantity-review');
+  const approvals = [];
+  let decision = 'deny';
+  const api = createSitecadExtensions({ skills, onApproval: async proposal => { approvals.push(proposal); return decision; }, isCurrent: () => true, getSignal: () => undefined });
+  const update = { action: 'save', name: original.name, description: original.description, body: '사용자가 요청한 수정 절차', expectedHash: original.hash };
+  await assert.rejects(api.call('manage_skills', update), /승인/);
+  assert.equal((await skills.read(original.name)).body, original.body);
+  assert.equal(approvals[0].arguments.body, update.body);
+  assert.equal(approvals[0].arguments.expectedHash, original.hash);
+  decision = 'approve';
+  const saved = await api.call('manage_skills', update);
+  assert.equal(saved.command, '/my-quantity-review');
+  assert.equal((await skills.read(original.name)).body, update.body);
+  await assert.rejects(api.call('manage_skills', update), /변경/);
+  assert.equal(approvals.length, 2, 'A stale hash must fail before requesting another approval.');
+  const builtin = await skills.read('quantity-review');
+  const copy = await api.call('manage_skills', { action: 'save', name: 'my-quantity-copy', description: '사용자 지정 물량 검토', body: `${builtin.body}\n사용자가 승인한 추가 처리 규칙` });
+  assert.equal(copy.builtin, false);
+  assert.equal(copy.command, '/my-quantity-copy');
+  assert.equal((await skills.read(builtin.name)).hash, builtin.hash);
 });
 test('approved HTTPS servers stage while bundled presets are unavailable',async()=>{
   const t=fixture();

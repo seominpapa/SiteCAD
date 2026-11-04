@@ -9,6 +9,7 @@ export function createSkillMenu({ isBusy, onChange = () => {} }) {
   const available = () => supported && !isBusy() && !$('message-input').disabled;
 
   function sync() {
+    $('skill-reference').hidden = !supported;
     $('skill-toggle').hidden = !supported;
     $('skill-toggle').disabled = !available();
     $('skill-toggle').setAttribute('aria-expanded', String(open && supported));
@@ -18,13 +19,14 @@ export function createSkillMenu({ isBusy, onChange = () => {} }) {
     $('skill-list').replaceChildren();
     for (const skill of matches) {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'skill-choice';
-      const name = document.createElement('strong'); name.textContent = `/${skill.name}${skill.builtin ? ' · 기본' : ''}`;
+      const name = document.createElement('strong'); name.textContent = `${skill.displayName && skill.displayName !== skill.name ? `${skill.displayName} · ` : ''}/${skill.name}${skill.builtin ? ' · 기본' : ''}`;
       const description = document.createElement('span'); description.textContent = skill.description;
       button.disabled = !available();
       button.append(name, description);
       button.addEventListener('click', () => {
         if (!available()) return;
-        const args = $('message-input').value.match(/^\/\S+\s+([\s\S]*)$/u)?.[1] ?? '';
+        const value = $('message-input').value;
+        const args = value.match(/^\/\S+\s+([\s\S]*)$/u)?.[1] ?? (value.startsWith('/') ? '' : value.trim());
         $('message-input').value = `/${skill.name} ${args}`;
         open = false; sync(); onChange(); $('message-input').focus();
       });
@@ -34,7 +36,7 @@ export function createSkillMenu({ isBusy, onChange = () => {} }) {
       : loading ? '스킬 목록을 확인하고 있습니다.'
       : !skills.length ? '채팅에 “자주 쓰는 작업을 스킬로 만들어줘”라고 요청해 보세요. 스킬 만들기를 사용할 수 있습니다.'
       : !matches.length ? '일치하는 스킬이 없습니다. 설치된 명령 이름을 확인해 주세요.'
-      : '스킬을 선택하고 요청 내용을 덧붙인 뒤 전송하세요.';
+      : '슬래시 없이 자연어로 요청해도 관련 기본 스킬을 적용합니다. 직접 선택할 수도 있습니다.';
   }
 
   async function refresh() {
@@ -48,7 +50,7 @@ export function createSkillMenu({ isBusy, onChange = () => {} }) {
         skills = body.data.skills.slice(0, 128).filter(skill => {
           if (!skill || typeof skill.name !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(skill.name) || names.has(skill.name)) return false;
           names.add(skill.name); return true;
-        }).map(skill => ({ name: skill.name, description: String(skill.description ?? '').slice(0, 1024), builtin: skill.builtin === true }));
+        }).map(skill => ({ name: skill.name, displayName: typeof skill.displayName === 'string' ? skill.displayName.trim().slice(0, 128) : '', description: String(skill.description ?? '').slice(0, 1024), builtin: skill.builtin === true }));
         error = false;
       } catch { error = true; skills = []; }
       finally { loaded = true; loading = undefined; sync(); }
@@ -68,6 +70,7 @@ export function createSkillMenu({ isBusy, onChange = () => {} }) {
     sync();
   });
   $('message-input').addEventListener('keydown', event => { if (event.key === 'Escape') { open = false; sync(); } });
+  $('skill-menu').addEventListener('keydown', event => { if (event.key === 'Escape') { open = false; sync(); $('skill-toggle').focus(); } });
   return { sync, refresh, update(status) {
     supported = status.desktop === true;
     if (supported && !loaded && !loading) void refresh();

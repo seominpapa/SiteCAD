@@ -5,15 +5,16 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { copyTestDrawings } from './package-drawings.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const execute = promisify(execFile);
-// Explicit files prevent credentials, local MCP config, downloaded executables and project drawings entering releases.
+// Explicit files and curated samples exclude credentials, local MCP config and private project drawings.
 export const sourceEntries = Object.freeze([
   'package.json', 'package-lock.json', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'SOURCE_BUILD.md', 'Start SiteCAD.command', 'Start SiteCAD.cmd',
   'server.mjs', 'local-web.mjs', 'lib', 'public', 'skills', 'plan.schema.json', 'codex-models.json',
   'desktop/runtime.mjs', 'desktop/licenses', 'vendor/editor',
-  'scripts/bootstrap-local-web.sh', 'scripts/bootstrap-local-web.ps1', 'scripts/install-codex.mjs', 'scripts/install-editor.mjs', 'scripts/update-model-catalog.mjs', 'scripts/build-local-web.mjs',
+  'scripts/bootstrap-local-web.sh', 'scripts/bootstrap-local-web.ps1', 'scripts/install-codex.mjs', 'scripts/install-editor.mjs', 'scripts/update-model-catalog.mjs', 'scripts/build-local-web.mjs', 'scripts/package-drawings.mjs',
 ]);
 
 export async function buildLocalWeb({ sourceRoot = root, platform = 'darwin', outputDirectory = join(sourceRoot, 'dist'),
@@ -38,6 +39,7 @@ export async function buildLocalWeb({ sourceRoot = root, platform = 'darwin', ou
         },
       });
     }
+    await copyTestDrawings(sourceRoot, staging);
     await mkdir(join(staging, 'fixtures'));
     if ((await lstat(fixturePath)).isSymbolicLink()) throw Error('Drawing fixture must not be a symbolic link');
     await cp(fixturePath, join(staging, 'fixtures/retaining-wall.dwg'));

@@ -156,3 +156,57 @@ test('connection slash commands do not open an unmatched skill menu or consume E
   }
   assert.equal(requests.length, 1);
 });
+
+test('all six workflow references show their human names and descriptions without requiring a slash', async t => {
+  const { ids } = await fixture(t);
+  const references = [
+    ['quantity-review', '물량 산출·검증'], ['design-review', '설계기준 검토'], ['progress-markup', '기성도면 표시'],
+    ['skill-creator', '스킬 만들기'], ['skill-finder', '스킬 찾기'], ['skill-installer', '스킬 설치'],
+  ];
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ ok: true, data: { skills: references.map(([name, displayName]) =>
+    ({ name, displayName, description: `${displayName} 작업 설명`, builtin: true })) } }) });
+  const menu = createSkillMenu({ isBusy: () => false });
+  menu.update({ desktop: true }); await flush();
+  assert.equal(ids['skill-list'].children.length, references.length);
+  for (const [index, [command, label]] of references.entries()) {
+    const choice = ids['skill-list'].children[index];
+    assert.ok(choice.children[0].textContent.includes(label));
+    assert.ok(choice.children[0].textContent.includes(`/${command}`));
+    assert.equal(choice.children[1].textContent, `${label} 작업 설명`);
+  }
+  assert.match(ids['skill-status'].textContent, /자연어/);
+  ids['message-input'].value = '현재 통로박스 물량을 산출해줘';
+  await ids['skill-toggle'].listeners.click();
+  assert.equal(ids['skill-menu'].hidden, false);
+  ids['skill-list'].children[0].listeners.click();
+  assert.equal(ids['message-input'].value, '/quantity-review 현재 통로박스 물량을 산출해줘');
+});
+
+test('skill references precede the conversation and close accessibly from the menu', async t => {
+  const { ids, html } = await fixture(t);
+  assert.ok(html.indexOf('id="skill-menu"') < html.indexOf('id="messages"'));
+  const composer = html.slice(html.indexOf('<div class="composer-area">'), html.indexOf('</aside>'));
+  assert.doesNotMatch(composer, /id="skill-(?:toggle|menu)"/);
+  assert.match(composer, /id="model-choice"/);
+  const menu = createSkillMenu({ isBusy: () => false });
+  menu.update({ desktop: true }); await flush();
+  await ids['skill-toggle'].listeners.click();
+  assert.equal(ids['skill-toggle']['aria-expanded'], 'true');
+  ids['skill-menu'].listeners.keydown({ key: 'Escape' });
+  assert.equal(ids['skill-menu'].hidden, true);
+  assert.equal(ids['skill-toggle']['aria-expanded'], 'false');
+  assert.equal(ids['skill-toggle'].focused, true);
+});
+
+test('display names are bounded literal text rather than HTML or private metadata', async t => {
+  const { ids } = await fixture(t);
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ ok: true, data: { skills: [
+    { name: 'review', displayName: '<img onerror=attack()>'.repeat(20), description: '도면 검토', path: '/private/secret' },
+  ] } }) });
+  const menu = createSkillMenu({ isBusy: () => false });
+  menu.update({ desktop: true }); await flush();
+  const heading = ids['skill-list'].children[0].children[0].textContent;
+  assert.ok(heading.startsWith('<img onerror=attack()>'));
+  assert.ok(heading.length < 160);
+  assert.doesNotMatch(JSON.stringify(ids['skill-list']), /private\/secret/);
+});

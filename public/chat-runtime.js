@@ -21,7 +21,13 @@ export async function readChatStream(response, onEvent) {
       if (!value.data || typeof value.data !== 'object' || Array.isArray(value.data)) throw Error('최종 채팅 응답이 올바르지 않습니다.');
       terminal = true; result = value.data; return;
     }
-    if (value.type === 'error') throw Error(bounded(value.message, 2000) || '채팅 스트림이 중단됐습니다.');
+    if (value.type === 'error') {
+      const error = Error(bounded(value.message, 2000) || '채팅 스트림이 중단됐습니다.');
+      if (value.code === 'SITECAD_TURN_TIMEOUT') error.code = value.code;
+      if (Array.isArray(value.savedFiles)) error.savedFiles = value.savedFiles.slice(0, 64).filter(item => item && typeof item.name === 'string' && typeof item.downloadUrl === 'string').map(({name,bytes,sha256,downloadUrl}) => ({name,bytes,sha256,downloadUrl}));
+      throw error;
+    }
+    if (value.type === 'reply_start') { onEvent({ type: 'reply_start' }); return; }
     if (value.type === 'delta' && typeof value.text === 'string') {
       replies += encoder.encode(value.text).byteLength;
       if (replies > MAX_REPLY_BYTES) throw Error('답변 크기를 초과했습니다.');
@@ -143,7 +149,8 @@ export function createChatRuntime({ isBusy, onError = () => {}, onChange = () =>
     },
     event(value) {
       if (!streaming) return;
-      if (value?.type === 'delta' && typeof value.text === 'string') {
+      if (value?.type === 'reply_start') { replyText = ''; replyBytes = 0; $('chat-live-text').textContent = ''; }
+      else if (value?.type === 'delta' && typeof value.text === 'string') {
         replyBytes += encoder.encode(value.text).byteLength;
         if (replyBytes > MAX_REPLY_BYTES) throw Error('답변 크기를 초과했습니다.');
         replyText += value.text; renderChatContent($('chat-live-text'), replyText); $('chat-live-status').textContent = '답변 중';
@@ -167,7 +174,7 @@ export function createChatRuntime({ isBusy, onError = () => {}, onChange = () =>
       }
     },
     finish(capture = false) {
-      streaming = false; $('chat-live').hidden = true;
+      streaming = false; replyText = ''; replyBytes = 0; $('chat-live-text').textContent = ''; $('chat-live').hidden = true;
       if (!capture || !tools.size) return;
       const details = document.createElement('details'), summary = document.createElement('summary');
       details.className = 'chat-process'; summary.textContent = `처리 과정 · ${tools.size}건`;
@@ -176,7 +183,7 @@ export function createChatRuntime({ isBusy, onError = () => {}, onChange = () =>
       return details;
     },
     fail(message) {
-      streaming = false; $('chat-live-status').textContent = bounded(message, 1000) || '응답이 중단됐습니다. 도면 상태를 확인해 주세요.';
+      streaming = false; replyText = ''; replyBytes = 0; $('chat-live-text').textContent = ''; $('chat-live-status').textContent = bounded(message, 1000) || '응답이 중단됐습니다. 도면 상태를 확인해 주세요.';
       tools = new Map([...tools].map(([id, item]) => [id, item.status === 'running' ? { ...item, status: 'unknown' } : item]));
       for (const item of tools.values()) item.row.textContent = toolText(item);
       updateGroups();

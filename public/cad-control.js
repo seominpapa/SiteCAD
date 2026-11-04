@@ -1,7 +1,7 @@
 import { validateControlRequest, validateQueryRequest, validateDiscoverRequest, controlSchemas } from './control-schema.js';
 import { commandName, commandAccess, validateAliases } from './command-policy.js';
 import { GEO_LAYER, METADATA_PREFIX } from './geo-reference.js';
-import { mmPerUnit, mmPerUnitOrNull } from './units.js';
+import { mmPerUnitOrNull } from './units.js';
 import { prepareText, prepareDimension, isCadFontResult } from './annotations.js';
 
 const selection = value => JSON.stringify([...(value || [])].sort());
@@ -236,7 +236,7 @@ function updateHandles(cad, reply, after, previous) {
 
 export async function controlDrawing(cad, { request:input, expectedContext }, {signal} = {}) {
   let request = validateControlRequest(input);
-  const scale = mmPerUnit(expectedContext?.units);
+  const scale = mmPerUnitOrNull(expectedContext?.units);
   let state = await guarded(cad, expectedContext, signal);
   const continuation = ['input','cancel'].includes(request.op);
   const pending = pendingCommands.get(cad);
@@ -247,6 +247,7 @@ export async function controlDrawing(cad, { request:input, expectedContext }, {s
   if (request.op === 'input' && pending?.access?.name === 'MVIEW' && ['I','INSERT','INSERTVIEW','INSERT VIEW'].includes(request.text?.trim().toUpperCase())) throw Error('이 엔진의 뷰 삽입은 내부 배치를 전환합니다. 일반 뷰포트 작도나 배치 전환 도구를 사용해 주세요.');
   if (request.op === 'input') checkInput(request, state.command);
   const access = ['run','start'].includes(request.op) ? await nativeCommand(cad, request, state) : continuation ? pending.access : null;
+  if (scale === null && dimensionCommands.has(access?.name)) throw Error('자동 치수 스타일에는 확인된 도면 단위가 필요합니다. 원시 좌표의 선·해칭 편집은 사용할 수 있습니다.');
   if (request.op !== 'cancel') await protectTargets(cad, request, access);
   await stable(cad, state, expectedContext.units, signal);
   if (request.op === 'input' && request.kind === 'selection') {

@@ -5,6 +5,7 @@ import https from 'node:https';
 import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
 import { syncBuiltinESMExports } from 'node:module';
+import { deflateSync } from 'node:zlib';
 import { createWebReference } from '../lib/web-reference.mjs';
 
 const publicLookup = async () => [{ address: '93.184.216.34', family: 4 }];
@@ -89,6 +90,20 @@ test('accepts public IPv6 DNS and rejects empty DNS responses', async () => {
   await assert.rejects(reference(() => {}, async () => []).fetchDocument({ url: 'https://standards.example' }), /공개 주소/);
 });
 
+test('accepts well-known NAT64 DNS only when the embedded IPv4 is public', async () => {
+  for (const address of ['64:ff9b::3d55:62de', '0064:ff9b:0000:0000:0000:0000:3d55:62de']) {
+    const result = await reference(async (_url, options) => {
+      assert.equal(options.address, address);
+      assert.equal(options.family, 6);
+      return document('Manufacturer unit mass D13 0.995 kg/m', 'text/plain');
+    }, async () => [{ address, family: 6 }, { address: '61.85.98.222', family: 4 }]).fetchDocument({ url: 'https://standards.example/table' });
+    assert.match(result.content, /0.995 kg\/m/);
+  }
+  for (const address of ['64:ff9b::a00:1', '64:ff9b::7f00:1', '64:ff9b::a9fe:a9fe', '64:ff9b::c0a8:1', '64:ff9b::c000:201', '64:ff9b:1::3d55:62de']) {
+    await assert.rejects(reference(() => assert.fail('must not fetch'), async () => [...await publicLookup(), { address, family: 6 }]).fetchDocument({ url: 'https://standards.example' }), /공개 주소/);
+  }
+});
+
 test('revalidates redirect destinations and blocks redirects to private services', async () => {
   let calls = 0;
   const service = reference(async () => { calls++; return document(null, 'text/html', 302, { location: 'https://localhost/private' }); });
@@ -158,18 +173,22 @@ test('malformed repeated HTML tags remain linear within the document byte limit'
   }
 });
 
-function pdfFixture(text) {
-  const stream = `BT /F1 12 Tf 20 100 Td (${text}) Tj ET`;
-  const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`];
+function pdfFixture(text, imageSize) {
+  const stream = `BT /F1 12 Tf 20 100 Td (${text}) Tj ET${imageSize ? ' q 100 0 0 100 0 0 cm /Im1 Do Q' : ''}`;
+  const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>', `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << /Font << /F1 4 0 R >> ${imageSize ? '/XObject << /Im1 6 0 R >>' : ''} >> /Contents 5 0 R >>`, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`];
+  if (imageSize) {
+    const image = deflateSync(Buffer.alloc(Math.ceil(imageSize / 8) * imageSize));
+    objects.push(`<< /Type /XObject /Subtype /Image /Width ${imageSize} /Height ${imageSize} /ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /FlateDecode /Length ${image.length} >>\nstream\n${image.toString('latin1')}\nendstream`);
+  }
   let pdf = '%PDF-1.4\n';
   const offsets = [0];
   for (const [index, object] of objects.entries()) {
-    offsets.push(Buffer.byteLength(pdf));
+    offsets.push(Buffer.byteLength(pdf, 'latin1'));
     pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
   }
-  const xref = Buffer.byteLength(pdf);
-  pdf += `xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
-  return Buffer.from(pdf);
+  const xref = Buffer.byteLength(pdf, 'latin1');
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return Buffer.from(pdf, 'latin1');
 }
 
 test('extracts PDF text in a separate bounded worker and states geometry limitation', async () => {
@@ -181,7 +200,64 @@ test('extracts PDF text in a separate bounded worker and states geometry limitat
   assert.match(result.limitation, /형상·치수/);
 });
 
-test('reports damaged and scanned PDF text extraction failures explicitly', async () => {
+test('keeps text deadlines at 15 seconds and bounds PDF work within 45 seconds with timers disposed', async context => {
+  const schedule = globalThis.setTimeout;
+  const cancel = globalThis.clearTimeout;
+  const timers = [];
+  const disposed = new Set();
+  context.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+    const timer = schedule(callback, delay, ...args);
+    timers.push({ timer, delay });
+    return timer;
+  });
+  context.mock.method(globalThis, 'clearTimeout', timer => { disposed.add(timer); return cancel(timer); });
+  await reference(async () => document('standard', 'text/plain')).fetchDocument({ url: 'https://standards.example' });
+  assert.deepEqual(timers.map(({ delay }) => delay), [15_000]);
+  await reference(async () => document(pdfFixture('table'), 'application/pdf')).fetchDocument({ url: 'https://standards.example/file.pdf' });
+  assert.equal(timers[1].delay, 15_000);
+  assert.ok(timers[2].delay > 0 && timers[2].delay <= 45_000);
+  assert.ok(timers.every(({ timer }) => disposed.has(timer)));
+});
+
+test('reports damaged PDFs and returns a bounded page image when text is unavailable', async () => {
   await assert.rejects(reference(async () => document('not a PDF', 'application/pdf')).fetchDocument({ url: 'https://standards.example/criteria.pdf' }), /PDF 텍스트/);
-  await assert.rejects(reference(async () => document(pdfFixture(''), 'application/pdf')).fetchDocument({ url: 'https://standards.example/scanned.pdf' }), /스캔/);
+  const result = await reference(async () => document(pdfFixture('', 1), 'application/pdf')).fetchDocument({ url: 'https://standards.example/scanned.pdf' });
+  assert.match(result.content, /이미지/);
+  assert.equal(result.images.length, 1);
+  assert.equal(result.images[0].page, 1);
+  assert.equal(result.images[0].mimeType, 'image/jpeg');
+  assert.ok(Buffer.from(result.images[0].data, 'base64').length <= 512 * 1024);
+  assert.ok(result.images[0].width <= 1600 && result.images[0].height <= 1600);
+});
+
+test('bounds decoded PDF image pixels and warns that rendered content may be incomplete', async () => {
+  const result = await reference(async () => document(pdfFixture('', 5000), 'application/pdf')).fetchDocument({ url: 'https://standards.example/oversized-image.pdf', page: 1 });
+  const { loadImage, createCanvas } = await import('@napi-rs/canvas');
+  const image = await loadImage(Buffer.from(result.images[0].data, 'base64'));
+  const canvas = createCanvas(image.width, image.height);
+  const context = canvas.getContext('2d');
+  context.drawImage(image, 0, 0);
+  assert.deepEqual([...context.getImageData(100, image.height - 100, 1, 1).data], [255, 255, 255, 255]);
+  assert.match(result.limitation, /일부.*표시되지/);
+});
+
+test('reads a bounded PDF download attachment and renders the explicitly requested page', async () => {
+  const bytes = Buffer.concat([pdfFixture('Unit mass table'), Buffer.alloc(5 * 1024 * 1024, 32)]);
+  const result = await reference(async () => document(bytes, 'application/octet-stream', 200, { 'content-disposition': "attachment;filename*=UTF-8''rebar.pdf" })).fetchDocument({ url: 'https://standards.example/download/42', page: 1 });
+  assert.equal(result.contentType, 'application/pdf');
+  assert.equal(result.responseContentType, 'application/octet-stream');
+  assert.match(result.content, /Unit mass table/);
+  assert.equal(result.images[0].page, 1);
+  assert.equal(result.bytes, bytes.length);
+  for (const page of [0, -1, 501, 1.5, '1']) await assert.rejects(reference(() => assert.fail('must not fetch')).fetchDocument({ url: 'https://standards.example/file.pdf', page }), /페이지/);
+  await assert.rejects(reference(async () => document(pdfFixture('table'), 'application/pdf')).fetchDocument({ url: 'https://standards.example/file.pdf', page: 2 }), /페이지/);
+});
+
+test('keeps PDF byte limits and verifies binary MIME candidates by both filename and signature', async () => {
+  await assert.rejects(reference(async () => document(pdfFixture('table'), 'application/pdf', 200, { 'content-length': String(32 * 1024 * 1024 + 1) })).fetchDocument({ url: 'https://standards.example/file.pdf' }), /32MB/);
+  for (const [url, body, headers] of [
+    ['https://standards.example/download/42', pdfFixture('table'), {}],
+    ['https://standards.example/file.pdf', 'MZ executable', {}],
+    ['https://standards.example/download/42', 'not a PDF', { 'content-disposition': 'attachment; filename="rebar.pdf"' }],
+  ]) await assert.rejects(reference(async () => document(body, 'application/octet-stream', 200, headers)).fetchDocument({ url }));
 });

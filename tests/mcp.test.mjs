@@ -6,6 +6,16 @@ import { researchTools } from '../lib/research-mcp.mjs';
 
 const TEST_MCP_CREDENTIAL = 'private-value';
 
+test('cad_fetch omits structuredContent so Codex receives PDF imagery as native MCP image blocks', async () => {
+  const data = Buffer.from('verified jpeg bytes').toString('base64');
+  const handle = createMcpHandler(async () => ({ id: 'src-test', content: 'Official PDF page 9', images: [{ page: 9, mimeType: 'image/jpeg', width: 1600, height: 1100, data }] }), researchTools);
+  const result = await handle('tools/call', { name: 'cad_fetch', arguments: { url: 'https://example.org/rebar.pdf', page: 9 } });
+  assert.deepEqual(result.content[1], { type: 'image', mimeType: 'image/jpeg', data });
+  assert.equal(Object.hasOwn(result, 'structuredContent'), false);
+  assert.equal(result.content[0].text.includes(data), false);
+  assert.deepEqual(JSON.parse(result.content[0].text).images, [{ page: 9, mimeType: 'image/jpeg', width: 1600, height: 1100 }]);
+});
+
 test('research MCP schemas dispatch to the backend without requiring a CAD write context', async () => {
   const calls = [];
   const handle = createMcpHandler(async (method, args) => { calls.push([method, args]); return { source: true }; }, researchTools);

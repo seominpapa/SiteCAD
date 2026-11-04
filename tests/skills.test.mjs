@@ -18,19 +18,76 @@ test('default quantity review and skill management seed privately and preserve e
   const { store, codexHome } = await setup(t);
   await store.seed();
   const skills = await store.list();
-  assert.deepEqual(skills.map(skill => skill.name), ['quantity-review', 'skill-creator', 'skill-finder', 'skill-installer']);
+  assert.deepEqual(skills.map(skill => skill.name), ['design-review', 'progress-markup', 'quantity-review', 'skill-creator', 'skill-finder', 'skill-installer']);
   for (const skill of skills) {
     assert.equal(skill.builtin, true);
+    assert.ok(skill.displayName && skill.displayName !== skill.name);
     assert.equal(skill.path, join(codexHome, 'skills', skill.name, 'SKILL.md'));
     assert.match(skill.hash, /^[a-f0-9]{64}$/);
     if (process.platform !== 'win32') assert.equal((await stat(skill.path)).mode & 0o777, 0o600);
     assert.ok((await store.read(skill.name)).body.includes('sitecad_'));
   }
-  const changed = (await readFile(skills[0].path, 'utf8')).replace('# SiteCAD', '# Changed SiteCAD');
-  await writeFile(skills[0].path, changed);
+  const quantity = skills.find(skill => skill.name === 'quantity-review');
+  const original = await readFile(quantity.path, 'utf8');
+  const changed = `${original}\nUser-maintained quantity review policy.\n`;
+  await writeFile(quantity.path, changed);
   await store.seed();
-  assert.equal(await readFile(skills[0].path, 'utf8'), changed);
+  assert.equal(await readFile(quantity.path, 'utf8'), changed);
   await assert.rejects(store.save({ ...draft, name: 'skill-creator' }), /기본 스킬/);
+});
+
+test('six builtins resolve natural requests, names and compound work without treating source data as instructions', async t => {
+  const { store } = await setup(t);
+  await store.seed();
+  const cases = [
+    ['현재 도면의 콘크리트와 철근 물량을 산출해줘', ['quantity-review']],
+    ['철근 단위중량이 맞는지 검산해줘', ['quantity-review']],
+    ['철근 단중 검증해줘', ['quantity-review']],
+    ['벽체 콘크리트 물량 산출해줘', ['quantity-review']],
+    ['등고선으로 토공량 산정해줘', ['quantity-review']],
+    ['건축자재 수량 검증해줘', ['quantity-review']],
+    ['강봉 중량 계산해줘', ['quantity-review']],
+    ['KDS와 KCS에 맞는지 피복두께와 겹이음을 검토해줘', ['design-review']],
+    ['설계오류 찾아줘', ['design-review']],
+    ['뒷채움 경사가 맞는지 검토해줘', ['design-review']],
+    ['기초 콘크리트 타설 완료', ['progress-markup']],
+    ['기성도면 그려줘', ['progress-markup']],
+    ['이 절차를 스킬로 만들어줘', ['skill-creator']],
+    ['기존 물량 산출 스킬을 수정해줘', ['skill-creator']],
+    ['설계기준 검토 스킬 내용을 변경해줘', ['skill-creator']],
+    ['기성도면 표시 스킬의 절차를 보완해줘', ['skill-creator']],
+    ['물량검토에 맞는 스킬 찾아줘', ['skill-finder']],
+    ['이 URL의 스킬을 설치해줘 https://example.org/skill', ['skill-installer']],
+    ['물량 산출·검증 스킬을 사용해줘', ['quantity-review']],
+    ['design-review로 검토해줘', ['design-review']],
+    ['물량 산출 스킬로 도면을 수정하고 물량을 검증해줘', ['quantity-review']],
+    ['물량 계산하고 설계기준 확인한 다음 기성 청구 범위 표시해줘', ['quantity-review', 'design-review', 'progress-markup']],
+  ];
+  for (const [message, expected] of cases) {
+    const resolved = await store.resolve(message);
+    assert.deepEqual(resolved?.skills.map(item => item.name), expected, message);
+    for (const item of resolved.skills) assert.equal(item.path, (await store.read(item.name)).path);
+  }
+  for (const message of ['도면을 열어줘', '오늘 날씨 알려줘', '이전 작업 계속해줘']) assert.equal(await store.resolve(message), null, message);
+  const explicit = await store.resolve('/skill-finder 물량 산출하고 기성 표시해줘');
+  assert.equal(explicit.skill.name, 'skill-finder');
+  assert.equal(explicit.skills, undefined, 'Explicit slash input must keep its existing single-skill contract.');
+});
+
+test('builtin upgrades replace only the known shipped legacy content and preserve user edits', async t => {
+  const { store, codexHome } = await setup(t);
+  await store.seed();
+  const current = await store.read('skill-installer');
+  const shipped = await readFile(new URL('./fixtures/skill-installer-v0161.md', import.meta.url), 'utf8');
+  assert.notEqual(await readFile(current.path, 'utf8'), shipped, 'The fixture must exercise a real upgrade from the old shipped instructions.');
+  await writeFile(current.path, shipped);
+  await store.seed();
+  assert.equal((await store.read('skill-installer')).hash, current.hash);
+  const edited = `${shipped}\nUser-maintained local installation instructions.\n`;
+  await writeFile(current.path, edited);
+  await store.seed();
+  assert.equal(await readFile(current.path, 'utf8'), edited);
+  assert.equal((await store.read('skill-installer')).path, join(codexHome, 'skills', 'skill-installer', 'SKILL.md'));
 });
 
 test('quantity review is discoverable and immutable while existing private workflows survive seeding', async t => {

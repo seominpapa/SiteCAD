@@ -157,13 +157,13 @@ test('live rendering appends public text and tracks parallel tools by id without
   ui.event({ type: 'delta', text: 'late' }); assert.equal(ids['chat-live-text'].textContent.includes('late'), false);
 });
 
-test('failed streams keep partial visible output and bounded tool display until a new request begins', t => {
+test('failed streams discard incomplete answer text and retain bounded tool evidence', t => {
   const { ui, ids } = fixture(t); ui.begin(); ui.event({ type: 'delta', text: '부분 답변' });
   for (let i = 0; i < 129; i++) ui.event({ type: 'tool', id: `call-${i}`, name: 'cad_query', status: 'running' });
   assert.equal(ids['chat-live-tools'].children.length, 1);
   assert.equal(ids['chat-live-tools'].children[0].children.length, 129);
   ui.fail('연결 중단');
-  assert.equal(ids['chat-live'].hidden, false); assert.equal(ids['chat-live-text'].textContent, '부분 답변');
+  assert.equal(ids['chat-live'].hidden, false); assert.equal(ids['chat-live-text'].textContent, '');
   assert.match(ids['chat-live-status'].textContent, /연결 중단/);
   ui.begin(); assert.equal(ids['chat-live-text'].textContent, ''); assert.equal(ids['chat-live-tools'].children.length, 0);
   assert.throws(() => ui.event({ type: 'delta', text: 'x'.repeat(256 * 1024 + 1) }), /답변.*크기/);
@@ -215,4 +215,19 @@ test('NDJSON reader enforces bounded lines, events and total reply bytes', async
   await assert.rejects(readChatStream(responseFor(encode([{ type: 'delta', text: 'x'.repeat(256 * 1024 + 1) }, { type: 'result', data: {} }]), 512 * 1024), () => {}), /답변.*크기/);
   const many = encode([...Array.from({ length: 10001 }, () => ({ type: 'tool', id: 'x', name: 'tool', status: 'completed' })), { type: 'result', data: {} }]);
   await assert.rejects(readChatStream(responseFor(many, 1024 * 1024), () => {}), /횟수/);
+});
+
+test('message boundaries replace an abandoned live answer and finish removes temporary DOM text',async t=>{
+  const {ui,ids}=fixture(t);ui.begin();ui.event({type:'delta',text:'중간 표'});
+  const seen=[];
+  await readChatStream(responseFor(encode([{type:'reply_start'},{type:'delta',text:'최종 답변'},{type:'result',data:{reply:'최종 답변'}}])),value=>{seen.push(value);ui.event(value);});
+  assert.equal(ids['chat-live-text'].textContent,'최종 답변');
+  assert.equal(seen[0].type,'reply_start');
+  ui.finish();assert.equal(ids['chat-live-text'].textContent,'');
+});
+test('streamed timeout exposes only confirmed saved files alongside its safe error',async()=>{
+  const savedFiles=[{name:'완료.dwg',bytes:12,sha256:'a'.repeat(64),downloadUrl:'/api/drawings/saved.dwg'}];
+  await assert.rejects(readChatStream(responseFor(encode([{type:'error',message:'10분 제한',code:'SITECAD_TURN_TIMEOUT',savedFiles,privateToken:'private'}])),()=>{}),error=>{
+    assert.equal(error.code,'SITECAD_TURN_TIMEOUT');assert.deepEqual(error.savedFiles,savedFiles);assert.equal(error.privateToken,undefined);return true;
+  });
 });

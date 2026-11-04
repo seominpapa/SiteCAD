@@ -2,24 +2,24 @@
 
 SiteCAD는 OpenCADStudio 편집기와 AI·MCP를 연결하는 macOS(M계열)·Windows 로컬 브라우저 앱입니다. AI 계정을 연결한 뒤 채팅으로 2D 도면과 지원되는 3D 형상을 만들고 수정하거나 물량을 검토하고 DWG로 저장합니다. CAD 파일 처리와 도구 실행은 내 PC에서 이루어지며 AI 요청은 온라인 서비스를 사용합니다.
 
-**웹앱 다운로드: [Windows ZIP](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/SiteCAD-0.16.1-local-web-Windows.zip) · [Mac M계열 ZIP](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/SiteCAD-0.16.1-local-web-macOS.zip)**
+**웹앱 다운로드: [Windows ZIP](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.2/SiteCAD-0.16.2-local-web-Windows.zip) · [Mac M계열 ZIP](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.2/SiteCAD-0.16.2-local-web-macOS.zip)**
 
-**데스크탑 설치: [Windows Setup.exe](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/SiteCAD-0.16.1-Windows-x64-Setup.exe) · [Mac M계열 DMG — 미공증](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/SiteCAD-0.16.1-macOS-arm64.dmg)**
+**데스크탑 설치: [Windows Setup.exe](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.2/SiteCAD-0.16.2-Windows-x64-Setup.exe) · [Mac M계열 DMG — 미공증](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.2/SiteCAD-0.16.2-macOS-arm64.dmg)**
 
-[0.16.1 릴리스와 변경 내용](https://github.com/seominpapa/SiteCAD/releases/tag/v0.16.1) · [SHA-256](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/SHA256SUMS.txt) · [설치 파일 검증 기록](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/sitecad-verification.json) · [소스와 빌드 정보](SOURCE_BUILD.md)
+[0.16.2 릴리스와 변경 내용](https://github.com/seominpapa/SiteCAD/releases/tag/v0.16.2) · [SHA-256](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.2/SHA256SUMS.txt) · [설치 파일 검증 기록](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.2/sitecad-verification.json) · [소스와 빌드 정보](SOURCE_BUILD.md)
 
 > **Mac 데스크탑은 미공증 개발용 배포입니다.** Apple Developer 배포 인증서가 없어 기본 Gatekeeper 보안 승인을 통과하지 못합니다. Mac에서는 웹앱 ZIP 사용을 권장합니다. 앱의 CAD 실행 검사 통과는 운영체제의 보안 승인을 뜻하지 않습니다.
 
 ## 다운로드와 버전 확인
 
-**현재 배포 버전은 0.16.1입니다.** Windows의 새 설치 직후 강제 중단·재실행 문제를 수정한 패치입니다. 아래 링크에서 운영체제와 사용 방식에 맞는 파일을 바로 받습니다. GitHub Actions의 중간 ZIP을 별도로 받을 필요는 없습니다. 코드가 업데이트되어도 이미 내려받은 파일이 자동으로 바뀌지는 않습니다. 아래 기능 안내는 0.16.1 기준이며, 파일을 만든 소스 버전·설치 검사 결과·파일별 SHA-256은 릴리스의 `sitecad-verification.json`에서 확인할 수 있습니다.
+**현재 배포 버전은 0.16.2입니다.** 물량·설계·기성 스킬, 공식 PDF 원문 조회와 시간 초과 응답 정리, 옹벽·통로박스 테스트 도면을 포함한 업데이트입니다. 아래 링크에서 운영체제와 사용 방식에 맞는 파일을 바로 받습니다. GitHub Actions의 중간 ZIP을 별도로 받을 필요는 없습니다. 코드가 업데이트되어도 이미 내려받은 파일이 자동으로 바뀌지는 않습니다. 아래 기능 안내는 0.16.2 기준이며, 파일을 만든 소스 버전·설치 검사 결과·파일별 SHA-256은 릴리스의 `sitecad-verification.json`에서 확인할 수 있습니다.
 
 | 사용 방식 | 대상 | 받을 파일 | 실행 방식 |
 | --- | --- | --- | --- |
-| 웹앱 | Mac M계열 | [SiteCAD-0.16.1-local-web-macOS.zip](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/SiteCAD-0.16.1-local-web-macOS.zip) | 압축을 풀고 `Start SiteCAD.command` 실행 |
-| 웹앱 | Windows 10/11 64비트 | [SiteCAD-0.16.1-local-web-Windows.zip](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/SiteCAD-0.16.1-local-web-Windows.zip) | 모두 압축을 풀고 `Start SiteCAD.cmd` 실행 |
-| 데스크탑 | Mac M계열 | [SiteCAD-0.16.1-macOS-arm64.dmg](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/SiteCAD-0.16.1-macOS-arm64.dmg) | 미공증 개발용. 일반 사용자는 웹앱 ZIP 권장 |
-| 데스크탑 | Windows x64 | [SiteCAD-0.16.1-Windows-x64-Setup.exe](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.1/SiteCAD-0.16.1-Windows-x64-Setup.exe) | 설치 마법사로 설치 |
+| 웹앱 | Mac M계열 | [SiteCAD-0.16.2-local-web-macOS.zip](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.2/SiteCAD-0.16.2-local-web-macOS.zip) | 압축을 풀고 `Start SiteCAD.command` 실행 |
+| 웹앱 | Windows 10/11 64비트 | [SiteCAD-0.16.2-local-web-Windows.zip](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.2/SiteCAD-0.16.2-local-web-Windows.zip) | 모두 압축을 풀고 `Start SiteCAD.cmd` 실행 |
+| 데스크탑 | Mac M계열 | [SiteCAD-0.16.2-macOS-arm64.dmg](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.2/SiteCAD-0.16.2-macOS-arm64.dmg) | 미공증 개발용. 일반 사용자는 웹앱 ZIP 권장 |
+| 데스크탑 | Windows x64 | [SiteCAD-0.16.2-Windows-x64-Setup.exe](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.2/SiteCAD-0.16.2-Windows-x64-Setup.exe) | 설치 마법사로 설치 |
 
 웹앱은 기본 브라우저와 실행기 터미널을 함께 사용하고, 데스크탑은 전용 앱 창에서 사용합니다. 두 방식 모두 내 PC에서 로컬 서비스와 CAD 도구를 실행합니다. 별도 원격 서버를 준비할 필요는 없으며, 로컬 접속 주소는 다른 사용자를 위한 공개 서비스 주소가 아닙니다.
 
@@ -27,12 +27,12 @@ SiteCAD는 OpenCADStudio 편집기와 AI·MCP를 연결하는 macOS(M계열)·Wi
 
 1. 위 표에서 운영체제에 맞는 **웹앱 ZIP 또는 데스크탑 설치 파일 하나**를 누릅니다. 두 방식을 모두 설치할 필요는 없습니다.
 2. 웹앱은 받은 ZIP 전체를 폴더에 풉니다. 데스크탑은 받은 DMG 또는 Setup.exe를 바로 엽니다. 자세한 절차는 아래 운영체제별 설명을 따르세요.
-3. 파일 전체 목록과 변경 내용은 [0.16.1 릴리스](https://github.com/seominpapa/SiteCAD/releases/tag/v0.16.1)의 **Assets**에서 확인합니다. `SHA256SUMS.txt`와 `sitecad-verification.json`도 함께 제공합니다.
+3. 파일 전체 목록과 변경 내용은 [0.16.2 릴리스](https://github.com/seominpapa/SiteCAD/releases/tag/v0.16.2)의 **Assets**에서 확인합니다. `SHA256SUMS.txt`와 `sitecad-verification.json`도 함께 제공합니다.
 4. GitHub의 **Code → Download ZIP**이나 자동 생성 **Source code.zip**은 설치용 파일이 아닙니다. 일반 사용자는 위 표에 있는 파일을 선택하세요.
 
 릴리스 첨부 파일은 GitHub Actions의 **14일 보관 기간**이 적용되는 임시 Artifacts와 별도로 보관됩니다. 개발 중 빌드가 필요할 때만 [설치 파일 생성 작업](https://github.com/seominpapa/SiteCAD/actions/workflows/windows.yml)에서 Windows·macOS 검사가 모두 통과한 실행의 Artifacts를 선택하세요. Artifacts ZIP 안에는 설치용 파일이 한 번 더 들어 있으며, 실행 중이거나 실패한 작업의 파일은 사용하지 마세요.
 
-이전 버전은 [전체 릴리스 목록](https://github.com/seominpapa/SiteCAD/releases)에서 찾을 수 있습니다. 새 설치·업데이트에는 위의 0.16.1 파일을 사용하세요.
+이전 버전은 [전체 릴리스 목록](https://github.com/seominpapa/SiteCAD/releases)에서 찾을 수 있습니다. 새 설치·업데이트에는 위의 0.16.2 파일을 사용하세요.
 
 ## 웹앱 설치와 실행
 
@@ -40,7 +40,7 @@ SiteCAD는 OpenCADStudio 편집기와 AI·MCP를 연결하는 macOS(M계열)·Wi
 
 ### Mac M계열
 
-1. 위 다운로드 절차에서 `SiteCAD-0.16.1-local-web-macOS.zip`을 받습니다.
+1. 위 다운로드 절차에서 `SiteCAD-0.16.2-local-web-macOS.zip`을 받습니다.
 2. ZIP을 풀고 안의 `SiteCAD` 폴더 전체를 문서 폴더 등 **본인이 쓸 수 있는 위치**에 둡니다. 실행 파일만 따로 옮기지 마세요.
 3. `SiteCAD` 폴더의 **`Start SiteCAD.command`**를 더블클릭합니다. 터미널이 열리고 최초 준비가 진행됩니다. 완료될 때까지 창을 유지합니다.
 4. 자동으로 열린 기본 브라우저에서 CAD 화면이 준비될 때까지 기다립니다. 브라우저가 열리지 않으면 터미널에 표시된 `http://127.0.0.1:숫자/` 주소로 접속합니다. 포트 번호는 실행 시 정해지므로 예전 주소로 고정하지 마세요.
@@ -50,7 +50,7 @@ macOS가 실행을 차단하면 파일 출처를 확인하고 **시스템 설정
 
 ### Windows
 
-1. `SiteCAD-0.16.1-local-web-Windows.zip`을 받습니다.
+1. `SiteCAD-0.16.2-local-web-Windows.zip`을 받습니다.
 2. 파일 탐색기에서 ZIP을 우클릭해 **모두 압축 풀기**를 선택합니다. 문서 폴더 등 쓰기 가능한 위치에 전체를 풀고, ZIP 미리보기 안에서는 실행하지 마세요.
 3. 압축을 푼 `SiteCAD` 폴더의 **`Start SiteCAD.cmd`**를 더블클릭합니다. 실행 창이 열리고 PowerShell이 전용 실행 환경을 준비합니다. 관리자 권한은 필요하지 않습니다.
 4. 준비가 끝나면 기본 브라우저가 열립니다. 열리지 않으면 실행 창에 나온 `http://127.0.0.1:숫자/` 주소를 사용합니다. 실행 창은 작업 중 유지합니다.
@@ -73,7 +73,7 @@ Windows x64에서 설치·실행을 검증했습니다. 웹앱 실행기는 Wind
 
 ### Mac M계열 — 미공증 개발용 DMG
 
-1. 위 표에서 `SiteCAD-0.16.1-macOS-arm64.dmg`를 다운로드합니다.
+1. 위 표에서 `SiteCAD-0.16.2-macOS-arm64.dmg`를 다운로드합니다.
 2. DMG를 더블클릭하고 창 안의 **`SiteCAD.app`을 Applications(응용 프로그램) 바로가기로 드래그**합니다.
 3. 복사가 끝나면 DMG를 추출하고 **응용 프로그램 → SiteCAD**에서 실행합니다. DMG 안의 앱을 계속 실행하는 방식은 사용하지 마세요.
 4. 이 파일은 현재 Gatekeeper 보안 승인에 실패합니다. 일반 사용자는 웹앱 ZIP을 사용하세요. 개발용 앱의 실행 여부는 파일 출처와 조직 정책을 확인해 사용자가 직접 판단해야 합니다. 실행기가 보안 설정이나 격리 속성을 자동으로 해제하지 않습니다.
@@ -82,7 +82,7 @@ Windows x64에서 설치·실행을 검증했습니다. 웹앱 실행기는 Wind
 
 ### Windows x64 — Setup.exe
 
-1. 위 표에서 `SiteCAD-0.16.1-Windows-x64-Setup.exe`를 다운로드합니다.
+1. 위 표에서 `SiteCAD-0.16.2-Windows-x64-Setup.exe`를 다운로드합니다.
 2. 설치 파일을 실행합니다. 출처 확인 경고가 나타나면 GitHub 저장소와 받은 파일을 확인하고 운영체제 안내에 따라 진행합니다.
 3. 설치 마법사에서 라이선스와 설치 위치를 확인합니다. 기본 경로는 **`%LOCALAPPDATA%\Programs\SiteCAD`**이며 현재 사용자 계정에 설치하므로 관리자 권한이 필요하지 않습니다.
 4. 설치 후 **시작 메뉴 또는 바탕 화면의 SiteCAD**를 엽니다. 별도 실행 창을 유지할 필요는 없습니다.
@@ -102,6 +102,12 @@ Windows x64에서 설치·실행을 검증했습니다. 웹앱 실행기는 Wind
 등록 뒤 **이 연결 사용 → 모델 목록·연결 확인 → 모델 목록 불러오기 → 모델 선택 → 선택 모델 적용** 순서로 진행합니다. 연결 확인은 모델 목록에 접근할 수 있는지 검사하며, 실제 답변 생성 권한·잔액까지 보증하지 않습니다. 키를 일반 채팅에 붙여 넣지 마세요. 작업 중에는 공급자·키·외부 연결을 변경할 수 없습니다.
 
 CAD 화면이 준비되고 AI 연결을 마치면 빈 채팅의 **“높이 2m 콘크리트 옹벽 도면 만들어줘”**, **“물량 검증해줘”**, **“설계기준 맞는지 확인해줘”** 중 하나를 누르거나 원하는 요청을 직접 입력합니다. 예시를 누르면 입력창에 들어가므로 내용을 확인한 뒤 전송하세요.
+
+## 옹벽·통로박스 스킬 테스트
+
+0.16.2에는 옹벽 3개와 통로박스 4개, 구조물별 **입력 프롬프트·예상 답변 6쌍**을 담은 [테스트 안내](drawings/Test/테스트_안내.md)가 포함됩니다. 웹앱 ZIP은 압축을 푼 `SiteCAD/drawings/Test/`에서 찾고, 데스크탑은 앱 메뉴의 **테스트 도면 폴더 열기**를 사용합니다. 데스크탑의 테스트 도면은 앱에 포함된 예제이며 사용자가 설정한 저장 폴더와 별도입니다. 원본을 열어 시험한 뒤 쓰기 가능한 저장 폴더에 다른 이름으로 저장하세요.
+
+`normal` 도면에서 물량 산출·기성 표시를 시작하고, `noncompliant` 도면에서 피복·뒤채움재·다짐·철근 이음·단중 불일치를 검토합니다. `foundation-progress`는 기초 타설 기성 표시의 비교 예시입니다. 슬래시 없이 자연어로 요청할 수 있습니다. 안내의 예상 답변은 시험 가정으로 계산한 비교값이며, 실행 시 기준·단중 원문을 실제 조회한 결과와 구분해야 합니다. 교육용 도면으로 구조·지반 안전계산 및 시공승인은 받지 않았습니다.
 
 ## 업데이트·백업·삭제
 
@@ -182,13 +188,15 @@ KCSC 전용 실행 환경 자동 설치는 **Apple Silicon Mac과 Windows x64·A
 
 채팅의 **모델** 버튼 또는 설정 → LLM에서 **사용 중인 연결의 모델 목록**을 조회하고 다음 요청의 모델을 선택합니다. ChatGPT OAuth는 고정 Codex 버전의 카탈로그를, API·Claude 연결은 해당 제공자의 모델 목록을 사용합니다. 카탈로그 표시는 계정별 실행 권한을 보증하지 않으며, 실제 요청에서 확인합니다. 모델 선택은 현재 화면에 유지합니다. 도구 진행 상태와 답변을 표시하며 토큰 단위 스트리밍 여부는 연결 방식에 따라 다릅니다. 처리 과정은 기본 접힌 큰 묶음으로 제공하고 펼친 경우에만 개별 내용을 확인하며, 승인 요청은 바로 표시합니다. 완료된 과정은 현재 응답에 접힌 기록으로 남기고, 기존 도면 변경 감지·저장 검증을 통과한 최종 응답만 완료 처리합니다. 내부 추론이나 비밀 도구 인수·결과는 진행 영역에 표시하지 않습니다. 연결이 끊기면 작업을 취소하고 부분 결과를 확인하도록 안내하며 자동 재실행하지 않습니다.
 
-0.16.1에서는 AI 작업 중에도 같은 입력창에 보충·수정할 내용을 쓰고 **추가 지시**로 실행 중인 작업에 전달할 수 있습니다. 수락된 지시는 같은 채팅 기록에 남습니다. 작업이 끝나기 직전이면 전달이 거절될 수 있으며, 이때 입력은 유지됩니다. **정지**는 이후 실행을 중단하고 미완료 명령을 정리하지만 이미 반영된 객체를 자동으로 되돌리지 않습니다. 스킬·연결 등록 안내는 입력창 아래에 있으며, 스킬 실행과 MCP/API 등록은 현재 작업을 마친 뒤 요청합니다.
+한 요청의 작업 시간은 최대 10분입니다. 시간 초과 시 미완성 답변과 표를 최종 결과에서 제외하고 중단 안내와 도구 실행 기록을 남깁니다. 이미 적용된 도면 변경을 되돌리지는 않으므로 현재 도면과 저장 상태를 확인한 뒤 이어서 요청하세요. 참고 원문 조회는 텍스트 최대 4MiB, PDF 최대 32MiB를 지원하며 이미지로 된 표는 해당 PDF 페이지를 읽어 검증합니다. 원문 파일을 가져왔다는 사실만으로 표의 수치나 기준 적합성을 확인한 것은 아닙니다.
+
+0.16.2에서는 AI 작업 중에도 같은 입력창에 보충·수정할 내용을 쓰고 **추가 지시**로 실행 중인 작업에 전달할 수 있습니다. 수락된 지시는 같은 채팅 기록에 남습니다. 작업이 끝나기 직전이면 전달이 거절될 수 있으며, 이때 입력은 유지됩니다. **정지**는 이후 실행을 중단하고 미완료 명령을 정리하지만 이미 반영된 객체를 자동으로 되돌리지 않습니다. 스킬·연결 등록 안내는 입력창 아래에 있으며, 스킬 실행과 MCP/API 등록은 현재 작업을 마친 뒤 요청합니다.
 
 ChatGPT OAuth에서 사용하는 Codex 0.163.0의 번들 카탈로그는 11개 중 표시 대상 8개를 제공합니다. 웹검색 도구가 유지되도록 전체 메타데이터를 보존한 채 `use_responses_lite:false`로 생성합니다. 이 수치는 API·Claude 모델 목록의 개수를 뜻하지 않습니다. Codex 버전을 변경하면 `node scripts/update-model-catalog.mjs`로 같은 실행 파일의 카탈로그를 다시 생성하고 모델·웹검색 회귀를 확인합니다.
 
 채팅 패널 경계의 **화살표**로 접고 엽니다. **새 채팅**과 기록 선택으로 대화를 나누고, **삭제 → 삭제 확인**으로 선택한 채팅 기록만 삭제합니다. 마지막 기록을 삭제하면 빈 채팅을 만듭니다. 빈 채팅에만 시작 예시 세 개를 표시하며 클릭하면 입력창에 들어갑니다. 대화별 Codex 스레드를 따로 저장하고 재실행 시 복원하며, 대화 본문은 SiteCAD 전용 `chat-sessions/`에 보관합니다. 채팅을 바꿔도 현재 CAD 도면은 유지됩니다. 이전 대화의 객체 핸들이 현재 도면과 일치한다고 가정하지 않습니다. 기록의 텍스트에 포함된 표는 다시 표시하지만 별도 물량 보고서·출처 카드·다운로드 링크·처리 과정은 다시 구성하지 않습니다. 채팅은 최대 100개, 채팅당 메시지 500개까지 보관합니다.
 
-물량·기준 검토의 표 형식 답변은 채팅창에서 실제 표로 표시합니다. 실시간 응답과 과거 채팅에도 적용하며 좁은 패널에서는 표를 가로로 스크롤합니다. 결과가 원하는 내용과 다르면 답변 아래 **원하는 결과가 아닌가요? → 처리 방법 알려주기**를 눌러 다른 점과 원하는 절차를 작성해 보내세요. AI는 부족한 처리 규칙을 확인하고 정리한 절차의 스킬 등록 여부를 묻습니다. 실패만으로 스킬을 자동 저장하거나 앱·MCP 코드를 수정하지 않습니다. 기존 스킬 덮어쓰기 승인도 유지합니다.
+물량·기준 검토의 표 형식 답변은 채팅창에서 실제 표로 표시합니다. 실시간 응답과 과거 채팅에도 적용하며 좁은 패널에서는 표를 가로로 스크롤합니다. 답변 뒤에는 **결과가 맞나요? 바꿀 처리 방법을 알려주세요. → 처리 방법 알려주기**가 표시됩니다. AI는 부족한 처리 규칙을 확인하고 기존 사용자 스킬 수정 또는 새 스킬 등록 여부를 묻습니다. 기본 스킬은 새 이름으로 복사하며, 기존 사용자 스킬 수정에는 현재 원문 해시와 덮어쓰기 승인이 필요합니다. 불만족만으로 스킬을 자동 저장하거나 앱·MCP 코드를 수정하지 않습니다.
 
 - `/mcp`: 설정 → MCP 안내로 연결합니다. 별도 설치 폼은 만들지 않으며 주소와 설치 요청은 채팅에서 전달합니다.
 - GitHub MCP URL과 “설치해줘”: 공개 저장소·고정 커밋과 npm 배포 원본·버전·SHA-512를 확인한 뒤 정확한 실행 파일과 인수를 승인받습니다. 범용 자동 설치 대상은 같은 GitHub 저장소를 표시하는 **npm 배포 Node MCP**입니다. KCSC는 위의 전용 Python 설치 경로를 지원합니다. 다른 소스 빌드·Python MCP·임의 셸 설치 명령은 지원하지 않으며 필요한 별도 실행 환경은 수동 설정합니다. npm 설치 스크립트는 실행하지 않습니다.
@@ -198,13 +206,24 @@ ChatGPT OAuth에서 사용하는 Codex 0.163.0의 번들 카탈로그는 11개 �
 - “지형 원본 등록해줘”: 채팅 카드에서 SHP·DBF·PRJ 또는 GeoJSON을 선택합니다.
 - “지금까지 작업을 `site-check` 스킬로 만들어줘”: 현재 대화의 작업을 재사용 가능한 지침으로 저장합니다. **스킬목록(/)** 목록에서 선택하거나 `/site-check 요청 내용`으로 실행합니다. ChatGPT OAuth에서는 Codex 네이티브 `skill` 입력으로, OpenAI API·Claude 연결에서는 같은 `SKILL.md` 본문을 AI 지침에 포함해 전달합니다. 기존 스킬 수정은 원문 해시 확인과 덮어쓰기 승인이 필요합니다.
 
-`skill-creator`·`skill-finder`·`skill-installer`를 기본 제공합니다. SiteCAD 관리 도구에 맞춘 번들 지침이며 외부 마켓플레이스 패키지를 설치한 것으로 표시하지 않습니다. 기본 스킬은 첫 실행에 `codex-home/skills/`에 준비하며 사용자 스킬을 덮어쓰지 않습니다. `skill-finder`는 설치된 스킬을 검색하고, 외부 후보 조사는 웹검색으로 진행합니다. `skill-installer`는 검토한 지침을 SiteCAD 스킬로 저장하며 임의 저장소의 스크립트를 실행하지 않습니다.
+채팅 상단 **스킬목록(/)**에 다음 기본 스킬의 이름과 설명을 표시합니다. 슬래시 없이도 명확한 자연어 요청에 맞는 기본 스킬을 전달하며, 여러 검토를 함께 요청하면 관련 스킬을 함께 전달합니다. 자동 선택이 되지 않은 표현은 AI가 설치 목록을 조회할 수 있고, 목록에서 직접 선택할 수도 있습니다.
+
+| 스킬 | 자연어 요청 예 | 처리 범위 |
+|---|---|---|
+| 물량 산출·검증 (`quantity-review`) | 콘크리트·철근 물량 검증해줘 | 치수·축척·기호·본수·가공길이를 연결하고 산출표와 대조. 표가 없어도 확인 가능한 수량 산출. 단위중량은 독립 근거로 확인 |
+| 설계기준 검토 (`design-review`) | 피복과 겹이음이 KDS·KCS에 맞는지 확인해줘 | 실제 KCSC MCP 조항과 도면을 비교하고 미확인·불일치 구분. 구조 안전성 전체 승인 제외 |
+| 기성도면 표시 (`progress-markup`) | 기초콘크리트 타설분 기성 표시하고 물량 산출해줘 | 별도 레이어에 해칭·선·주석 표시. 실제 설치된 기초근·벽체/기둥 세움철근과 선행 공정 포함, 후속 공정과 기청구 중복 구분 |
+| 스킬 만들기 (`skill-creator`) | 이 절차를 스킬로 만들어줘 / 기존 스킬을 수정해줘 | 재사용 지침 작성과 승인된 저장·해시 확인 갱신 |
+| 스킬 찾기 (`skill-finder`) | 철근 검토에 맞는 스킬 찾아줘 | 실제 설치된 스킬 검색과 사용 예 안내 |
+| 스킬 설치 (`skill-installer`) | 이 스킬 지침을 설치해줘 | 제공 지침·공식 문서를 검토하고 승인된 저장·연결 절차 사용 |
+
+SiteCAD 관리 도구에 맞춘 번들 지침이며 외부 마켓플레이스 패키지를 설치한 것으로 표시하지 않습니다. 기본 스킬은 첫 실행에 `codex-home/skills/`에 준비하고, 알려진 구번들과 정확히 같은 물량·설치 지침만 갱신합니다. 사용자 수정본은 보존합니다. 외부 후보 조사는 웹검색·원문 조회가 필요하며, 스킬 설치는 임의 저장소의 스크립트를 실행하지 않습니다. 스킬은 도구 권한이나 외부 MCP 호출별 승인을 추가하지 않습니다.
 
 설치 승인은 프로그램의 지속적인 등록·실행에 대한 동의입니다. 외부 MCP는 운영체제 사용자 권한으로 실행되며 Codex의 읽기 전용 샌드박스와 별개입니다. 설치·등록은 현재 채팅 작업 종료 후 적용하고 실제 MCP 도구 목록을 확인한 경우만 연결 완료로 표시합니다. 인증 키가 필요하면 실행 대기로 보관하고, 그 밖의 연결 실패는 새 등록을 되돌려 기존 설정을 보존합니다. 성공·실패 결과는 설정의 설치 기록에 남깁니다. 추가한 서버는 다음 메시지부터 사용할 수 있으며 이후 외부 도구 호출에는 기존 1회 승인이 계속 적용됩니다.
 
 3D 측정의 `mesh.volume`·`mesh.surface_area`는 삼각형으로 나눈 형상의 근사값이며 DWG를 다시 열면 분할 정밀도에 따라 달라질 수 있습니다. 정확한 커널 질량 특성으로 표시하지 않습니다. 현재 엔진은 재개방한 일부 ACIS 입체의 경계를 0으로 반환하므로 이 값은 위치·정렬 검증에 사용할 수 없습니다. 로컬 검증에서는 저장한 동일 DWG를 AutoCAD에서 열어 실제 솔리드 체적·좌표와 `AUDIT`를 별도로 확인했습니다.
 
-전국 지형 자동 확보, 로그인 포털 자료의 자동 다운로드, DEM 래스터·지표면 메쉬, 스캔/지도 이미지 형상 추출, 구조 설계 적합성 판단, 별도 파라메트릭 3D 설계·조립 이력 시스템 및 다중 사용자는 현재 범위에 포함하지 않습니다. 지원 명령 연결이 모든 3D 형상의 호환성을 보증하지는 않습니다. 필지·지형의 출처·좌표계·표고 기준·정확도를 확인해야 하며 공인 측량 경계나 설계 승인을 대신하지 않습니다.
+전국 지형 자동 확보, 로그인 포털 자료의 자동 다운로드, DEM 래스터·지표면 메쉬, 스캔/지도 이미지 형상 추출, 구조계산에 따른 전체 안전성 승인, 별도 파라메트릭 3D 설계·조립 이력 시스템 및 다중 사용자는 현재 범위에 포함하지 않습니다. 지원 명령 연결이 모든 3D 형상의 호환성을 보증하지는 않습니다. 필지·지형의 출처·좌표계·표고 기준·정확도를 확인해야 하며 공인 측량 경계나 설계 승인을 대신하지 않습니다.
 
 ## 데이터와 보안
 

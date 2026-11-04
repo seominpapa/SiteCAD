@@ -317,3 +317,12 @@ test('desktop runtime routes require local origin or a private MCP token and ret
     assert.equal((await request('/api/chat',{...payload,chatId:'foreign'})).status,400);
   } finally { await t.close(); }
 });
+
+test('stream timeout reports the fixed deadline and confirmed saves without leaking runtime errors',async()=>{
+  const savedFiles=[{name:'saved.dwg',bytes:10,sha256:'a'.repeat(64),downloadUrl:'/api/drawings/saved.dwg'}];
+  const t=await setup({desktop:{status:async()=>({oauth:{connected:true}}),chat:async()=>{throw Object.assign(Error('private-secret'),{code:'SITECAD_TURN_TIMEOUT',savedFiles,execution:{timeoutMs:600000}});}}});
+  try{
+    const response=await t.request('/api/chat',{method:'POST',headers:{Accept:'application/x-ndjson'},body:JSON.stringify(payload)});
+    const record=JSON.parse((await response.text()).trim());assert.equal(record.type,'error');assert.equal(record.code,'SITECAD_TURN_TIMEOUT');assert.match(record.message,/10분/);assert.deepEqual(record.savedFiles,savedFiles);assert.doesNotMatch(JSON.stringify(record),/private-secret|"type":"result"/);
+  }finally{await t.close();}
+});

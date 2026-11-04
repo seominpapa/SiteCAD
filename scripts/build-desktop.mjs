@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { installCodex, verifyCodexInstallation } from './install-codex.mjs';
+import { copyTestDrawings } from './package-drawings.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const execute = promisify(execFile);
@@ -60,7 +61,7 @@ export async function buildDesktop({ arch = process.arch, archivePath, dmg = tru
   const staging = await mkdtemp(join(tmpdir(), 'sitecad-package-'));
   const output = join(root, 'dist');
   try {
-    for (const name of ['LICENSE', 'THIRD_PARTY_NOTICES.md', 'README.md', 'SOURCE_BUILD.md', 'server.mjs', 'lib', 'public', 'skills', 'vendor/editor', 'plan.schema.json', 'codex-models.json', 'desktop/main.mjs', 'desktop/runtime.mjs', 'desktop/licenses', 'desktop/sitecad.iss', 'scripts/install-codex.mjs', 'scripts/update-model-catalog.mjs', 'scripts/install-editor.mjs', 'scripts/build-desktop.mjs']) {
+    for (const name of ['LICENSE', 'THIRD_PARTY_NOTICES.md', 'README.md', 'SOURCE_BUILD.md', 'server.mjs', 'lib', 'public', 'skills', 'vendor/editor', 'plan.schema.json', 'codex-models.json', 'desktop/main.mjs', 'desktop/runtime.mjs', 'desktop/licenses', 'desktop/sitecad.iss', 'scripts/install-codex.mjs', 'scripts/update-model-catalog.mjs', 'scripts/install-editor.mjs', 'scripts/build-desktop.mjs', 'scripts/package-drawings.mjs']) {
       await mkdir(dirname(join(staging, name)), { recursive: true });
       await cp(join(root, name), join(staging, name), { recursive: true, dereference: false, errorOnExist: true,
         filter: async path => {
@@ -70,6 +71,7 @@ export async function buildDesktop({ arch = process.arch, archivePath, dmg = tru
         },
       });
     }
+    await copyTestDrawings(root, staging);
     await mkdir(join(staging, 'fixtures'));
     if ((await lstat(join(root, 'fixtures/retaining-wall.dwg'))).isSymbolicLink()) throw Error('Drawing fixture must not be a symbolic link');
     await cp(join(root, 'fixtures/retaining-wall.dwg'), join(staging, 'fixtures/retaining-wall.dwg'));

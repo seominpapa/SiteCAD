@@ -60,11 +60,12 @@
 .chat-session-controls select:focus-visible{outline:3px solid #74b9b0;outline-offset:2px}
 .chat-session-controls button{font-size:11px;padding:6px 9px}
 #chat-history-status{flex-basis:100%;margin:0;font-size:9px;color:var(--muted);line-height:1.6}
+.skill-reference{flex:none;padding:9px 18px;border-bottom:1px solid #edf0ef;background:#fbfcfb;min-width:0}.skill-reference .skill-menu-controls{margin-bottom:0}.skill-reference-note{font-size:10px;color:var(--muted)}.skill-reference .skill-menu{margin:8px 0 0}
 .skill-menu-controls{display:flex;justify-content:flex-start;margin-bottom:7px}
 #skill-toggle{font-size:10px;padding:5px 9px}
 .skill-menu{margin-bottom:9px;border:1px solid var(--line);border-radius:7px;background:#fff;padding:9px}
 #skill-status{font-size:10px;color:var(--muted);line-height:1.6;margin:0 0 6px}
-#skill-list{display:flex;flex-direction:column;gap:4px;max-height:185px;overflow-y:auto}
+#skill-list{display:flex;flex-direction:column;gap:4px;max-height:min(185px,22dvh);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
 .skill-choice{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;white-space:normal;width:100%;font-size:10px;padding:7px 8px;overflow-wrap:anywhere}
 .skill-choice strong{font-size:11px}.skill-choice span{color:var(--muted);line-height:1.5}
 @media(max-width:760px){.workspace.chat-collapsed .editor-stage{height:calc(100dvh - 195px);min-height:290px}}

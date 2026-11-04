@@ -488,11 +488,66 @@ test('creation never inherits the protected georeference current layer', async (
   await controlDrawing(cad, { request: { op: 'entities_create', entities: [{ type: 'Point', location: [0, 0], layer: 'AI_DRAFT' }] }, expectedContext: base });
 });
 
-test('unknown and unsupported drawing units are rejected before any mutation', async () => {
-  for (const units of [0,17,24]) {
-    const {cad,base,calls}=engine({units});
-    await assert.rejects(controlDrawing(cad,{request:{op:'entities_create',entities:[{type:'Point',location:[0,0]}]},expectedContext:base}),/단위/);
+test('raw line and progress hatch creation preserve unitless coordinates without guessing a physical scale', async () => {
+  for (const entity of [
+    {type:'Line',start:[0,0,0],end:[2600,300,0],layer:'PROGRESS_01'},
+    {type:'Hatch',boundary:[[0,0],[2600,0],[2600,300],[0,300]],solid:false,pattern:'ANSI31',pattern_scale:50,pattern_angle_deg:45,layer:'PROGRESS_01'},
+  ]) {
+    const {cad,base,calls}=engine({units:0});
+    const before=structuredClone(base);
+    const result=await controlDrawing(cad,{request:{op:'entities_create',entities:[entity]},expectedContext:base});
+    const writes=calls.filter(call=>call.protocol===1);
+    assert.equal(writes.length,1);
+    assert.equal(writes[0].op,'entities_create');
+    assert.deepEqual(writes[0].entities,[entity]);
+    assert.equal(result.units,0);
+    assert.equal(result.mmPerDrawingUnit,null);
+    assert.equal(result.status,'completed');
+    assert.deepEqual(base,before);
+    assert.deepEqual((await cad.snapshot()).selection,[]);
+  }
+  for (const units of [17,24]) {
+    const {cad,base}=engine({units});
+    const result=await controlDrawing(cad,{request:{op:'entities_create',entities:[{type:'Point',location:[1,2]}]},expectedContext:base});
+    assert.equal(result.units,units);
+    assert.equal(result.mmPerDrawingUnit,null);
+  }
+});
+
+test('unitless edits retain stale context, units, active command, cancellation and georeference protections', async () => {
+  const request={op:'entities_create',entities:[{type:'Line',start:[0,0],end:[1,2],layer:'PROGRESS_01'}]};
+  for (const change of [{document_id:2},{revision:4},{geometry_revision:6},{selection:['A']},{layout:'Layout1'},{command:{name:'LINE'}}]) {
+    const {cad,base,calls,setState}=engine({units:0});setState(change);
+    await assert.rejects(controlDrawing(cad,{request,expectedContext:base}),/변경|진행 중/);
     assert.equal(calls.some(call=>call.protocol===1),false);
+  }
+  const changed=engine({units:0});const native=changed.cad.request;
+  changed.cad.request=async request=>request.op==='header'?{ok:true,insertion_units:4}:native(request);
+  await assert.rejects(controlDrawing(changed.cad,{request,expectedContext:changed.base}),/단위.*변경/);
+  assert.equal(changed.calls.some(call=>call.protocol===1),false);
+  const aborted=engine({units:0});
+  await assert.rejects(controlDrawing(aborted.cad,{request,expectedContext:aborted.base},{signal:AbortSignal.abort()}),/취소/);
+  assert.equal(aborted.calls.length,0);
+  const protectedDrawing=engine({units:0,anchored:true});
+  await assert.rejects(controlDrawing(protectedDrawing.cad,{request:{op:'entities_transform',handles:['FE'],action:'move',vector:[1,0]},expectedContext:protectedDrawing.base}),/공간 기준/);
+  assert.equal(protectedDrawing.calls.some(call=>call.protocol===1),false);
+});
+
+test('unknown physical scale stops automatic dimension setup before creating a partial dimension', async () => {
+  for (const units of [0,17,24]) {
+    for (const request of [{op:'start',cmd:'DIMLINEAR'},{op:'run',cmd:'DIMLINEAR 0,0 2600,0 0,-300'}]) {
+      const {cad,base,calls}=engine({units});
+      await assert.rejects(controlDrawing(cad,{request,expectedContext:base}),/단위/);
+      assert.equal(calls.some(call=>call.protocol===1),false);
+    }
+  }
+});
+
+test('invalid unit identifiers are rejected before raw edits rather than treated as unitless', async () => {
+  for (const units of [undefined,null,-1,25,999,4.5,'4',NaN]) {
+    const {cad,base,calls}=engine({units});
+    await assert.rejects(controlDrawing(cad,{request:{op:'entities_create',entities:[{type:'Point',location:[0,0]}]},expectedContext:{...base,units}}),/단위/);
+    assert.equal(calls.length,0);
   }
 });
 

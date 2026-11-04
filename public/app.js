@@ -292,16 +292,16 @@ function appendMessage(role, text, { error = false, details, progress, reports =
   if (role === 'assistant') {
     const followup = document.createElement('details'), summary = document.createElement('summary');
     followup.className = 'chat-review-followup'; followup.open = error;
-    summary.textContent = '원하는 결과가 아닌가요?';
+    summary.textContent = '결과가 맞나요? 바꿀 처리 방법을 알려주세요.';
     const question = document.createElement('p');
-    question.textContent = '어떤 부분이 다르거나 빠졌나요? 원하는 처리 방법을 알려주세요. 단위·스케일·기호 연결·계산 범위 등 필요한 내용을 확인한 뒤, 다음에도 쓸 방법은 동의를 받아 스킬로 등록할 수 있습니다.';
+    question.textContent = '어떤 부분이 다르거나 빠졌나요? 원하는 처리 방법을 알려주세요. 단위·스케일·기호 연결·계산 범위 등을 확인하고, 동의를 받은 뒤 기존 스킬을 수정하거나 새 스킬로 등록할 수 있습니다.';
     const button = document.createElement('button'); button.type = 'button'; button.textContent = '처리 방법 알려주기'; button.setAttribute('data-chat-feedback', '');
     button.disabled = isBusy() || !ready || !connected;
     button.addEventListener('click', () => {
       if (isBusy() || !ready || !connected) return;
       const input = $('message-input');
       if (input.value.trim()) { notice('작성 중인 내용에 원하는 처리 방법을 추가해서 보내주세요.'); input.focus(); return; }
-      input.value = `아래 답변이 원하는 내용과 달라.\n대상 답변: ${text.slice(0, 700)}\n\n다르게 처리할 부분: \n원하는 처리 방법: \n먼저 필요한 내용을 확인하고, 처리 절차가 정리되면 스킬 등록 여부를 물어봐줘.`;
+      input.value = `아래 답변이 원하는 내용과 달라.\n대상 답변: ${text.slice(0, 700)}\n\n다르게 처리할 부분: \n원하는 처리 방법: \n먼저 이번에 사용한 스킬과 필요한 내용을 확인해줘. 처리 절차가 정리되면 기존 스킬을 수정할지 새 스킬로 등록할지 물어보고, 내 동의를 받은 뒤 저장해줘.`;
       updateControls(); input.focus();
     });
     followup.append(summary, question, button); article.append(followup);
@@ -387,7 +387,7 @@ async function submitMessage(event) {
     updateControls();
     await steeringRequest;
     if (desktop) chatRuntime.fail('응답이 중단됐습니다. 도면 상태를 확인한 뒤 다시 요청해 주세요.');
-    appendMessage('assistant', errorMessage(error), { error: true, progress: chatRuntime.finish(true) });
+    appendMessage('assistant', errorMessage(error), { error: true, progress: chatRuntime.finish(true), savedFiles: error.savedFiles });
     if (!stopRequested && !$('message-input').value.trim()) $('message-input').value = message;
   } finally {
     if (desktop) {
