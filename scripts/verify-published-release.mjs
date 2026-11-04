@@ -43,15 +43,22 @@ async function digest(file) {
   for await (const chunk of createReadStream(file)) hash.update(chunk);
   return hash.digest('hex');
 }
+export function githubMetadataRequest(path, env = process.env) {
+  assert.ok([`releases/tags/${releaseTag}`, `git/ref/tags/${releaseTag}`].includes(path), 'Fixed GitHub metadata endpoint required');
+  if (env.GITHUB_TOKEN && (env.CI !== 'true' || env.GITHUB_ACTIONS !== 'true')) throw Error('GitHub metadata authorization requires hosted CI.');
+  return { url: `https://api.github.com/repos/seominpapa/SiteCAD/${path}`, options: {
+    headers: { 'User-Agent': 'SiteCAD-first-install-verification', ...(env.GITHUB_TOKEN ? { Authorization: `Bearer ${env.GITHUB_TOKEN}` } : {}) },
+    redirect: 'error', signal: AbortSignal.timeout(30000),
+  } };
+}
 async function githubJson(path) {
-  const response = await fetch(`https://api.github.com/repos/seominpapa/SiteCAD/${path}`, {
-    headers: { 'User-Agent': 'SiteCAD-first-install-verification' }, signal: AbortSignal.timeout(30000),
-  });
-  assert.equal(response.status, 200, `Public GitHub metadata failed: ${path}`);
+  const { url, options } = githubMetadataRequest(path);
+  const response = await fetch(url, options);
+  assert.equal(response.status, 200, `GitHub metadata failed: ${path}`);
   return response.json();
 }
-async function download(name, directory, metadata) {
-  const response = await fetch(releaseBase + name, { signal: AbortSignal.timeout(600000) });
+export async function downloadPublishedAsset(name, directory, metadata, fetchImpl = fetch) {
+  const response = await fetchImpl(releaseBase + name, { signal: AbortSignal.timeout(600000) });
   assert.equal(response.status, 200, `Public download failed: ${name}`);
   const file = join(directory, name);
   await pipeline(Readable.fromWeb(response.body), createWriteStream(file, { flags: 'wx' }));
@@ -76,13 +83,14 @@ export async function preparePublishedRelease() {
   assert.equal(metadata.tag_name, releaseTag);
   assert.equal(metadata.draft, false);
   assert.equal(metadata.prerelease, false);
-  const reports = await Promise.all(['SHA256SUMS.txt', 'sitecad-verification.json', ...assetNames(process.platform)].map(name => download(name, directory, metadata)));
+  const reports = await Promise.all(['SHA256SUMS.txt', 'sitecad-verification.json', ...assetNames(process.platform)].map(name => downloadPublishedAsset(name, directory, metadata)));
   const sums = checksumEntries(await readFile(join(directory, 'SHA256SUMS.txt'), 'utf8'));
   for (const report of reports.filter(item => item.name !== 'SHA256SUMS.txt')) assert.equal(report.sha256, sums.get(report.name), `Published checksum mismatch: ${report.name}`);
   const evidence = JSON.parse(await readFile(join(directory, 'sitecad-verification.json'), 'utf8'));
   const commit = publishedSourceCommit(ref, evidence);
   await writeFile(join(output, 'published-downloads.json'), `${JSON.stringify({ release: releaseTag, commit, platform: process.platform,
     arch: process.arch, downloadedAt: new Date().toISOString(), assets: reports, desktopProfileAbsent: true,
+    metadataAuthentication: process.env.GITHUB_TOKEN ? 'GitHub Actions token' : 'anonymous',
     limitations: ['Programmatic public downloads do not reproduce browser quarantine, Gatekeeper, or SmartScreen dialogs.',
       'Mac DMG is a development build without distributor notarization; trust diagnostics are recorded separately.'] }, null, 2)}\n`);
   console.log(`Public ${releaseTag} downloads verified for ${process.platform}/${process.arch}; no installer rebuild performed.`);

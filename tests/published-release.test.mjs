@@ -1,6 +1,57 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assetNames, checksumEntries, preparePublishedRelease, publishedSourceCommit, releaseBase, releaseVersion } from '../scripts/verify-published-release.mjs';
+import { createHash } from 'node:crypto';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { assetNames, checksumEntries, downloadPublishedAsset, githubMetadataRequest, preparePublishedRelease, publishedSourceCommit, releaseBase, releaseVersion } from '../scripts/verify-published-release.mjs';
+
+test('GitHub metadata authorization is restricted to fixed API endpoints on hosted CI without redirects', () => {
+  const token = ['test', 'only'].join('-');
+  const env = { CI: 'true', GITHUB_ACTIONS: 'true', GITHUB_TOKEN: token };
+  for (const path of ['releases/tags/v0.16.3', 'git/ref/tags/v0.16.3']) {
+    const request = githubMetadataRequest(path, env);
+    assert.equal(request.url, `https://api.github.com/repos/seominpapa/SiteCAD/${path}`);
+    assert.equal(request.options.headers.Authorization, `Bearer ${token}`);
+    assert.equal(request.options.redirect, 'error');
+  }
+  assert.equal(githubMetadataRequest('releases/tags/v0.16.3', {}).options.headers.Authorization, undefined);
+  for (const flags of [{}, { CI: 'true' }, { GITHUB_ACTIONS: 'true' }]) {
+    assert.throws(() => githubMetadataRequest('releases/tags/v0.16.3', { ...flags, GITHUB_TOKEN: token }), /hosted CI/);
+  }
+  for (const path of ['https://example.test/private', '../private', 'releases/tags/v0.16.3?redirect=other', 'releases/tags/v0.16.2']) {
+    assert.throws(() => githubMetadataRequest(path, env), /Fixed GitHub metadata/);
+  }
+});
+
+test('release asset downloads remain anonymous even when metadata uses a GitHub token', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'sitecad-public-download-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const previous = process.env.GITHUB_TOKEN;
+  const token = ['test', 'only'].join('-');
+  process.env.GITHUB_TOKEN = token;
+  t.after(() => { if (previous === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = previous; });
+  const name = 'sitecad-verification.json', bytes = Buffer.from('{"version":"0.16.3"}');
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const metadata = { assets: [{ name, state: 'uploaded', size: bytes.length, digest: `sha256:${sha256}` }] };
+  const report = await downloadPublishedAsset(name, directory, metadata, async (url, options) => {
+    assert.equal(url, releaseBase + name);
+    assert.equal(options.headers, undefined);
+    assert.equal(options.credentials, undefined);
+    assert.ok(!JSON.stringify(options).includes(token));
+    assert.doesNotMatch(JSON.stringify(options), /Authorization/);
+    return new Response(bytes);
+  });
+  assert.equal(report.anonymousDownload, true);
+  assert.equal(await readFile(join(directory, name), 'utf8'), bytes.toString());
+});
+
+test('public verification uses the default branch tools and confines the token to the metadata step', async () => {
+  const workflow = await readFile(new URL('../.github/workflows/published-release.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /ref: \$\{\{ github\.event\.repository\.default_branch \}\}/);
+  assert.equal(workflow.split('GITHUB_TOKEN:').length - 1, 1);
+  assert.match(workflow, /- name: Download public release assets[^\n]*\n        env:\n          GITHUB_TOKEN: \$\{\{ github\.token \}\}\n        run: node scripts\/verify-published-release\.mjs/);
+});
 
 test('published download checks accept only the fixed supported release files', () => {
   assert.equal(releaseVersion, '0.16.3');
