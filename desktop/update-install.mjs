@@ -1,12 +1,19 @@
 import { spawn, execFile } from 'node:child_process';
 import { constants } from 'node:fs';
-import { access, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, chmod } from 'node:fs/promises';
+import { access, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, chmod, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve, win32 } from 'node:path';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import { randomUUID } from 'node:crypto';
 
 const execute = promisify(execFile);
+// The first PowerShell needs a console host; its Start-Process child breaks away
+// from Node's parent-owned Windows job and does not lock the installed app.
+const windowsBootstrap = `$ErrorActionPreference = 'Stop'
+$helper = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $env:SITECAD_UPDATE_CODE) -WindowStyle Hidden -PassThru
+[System.IO.File]::WriteAllText(($env:SITECAD_UPDATE_PID + '.tmp'), [string]$helper.Id)
+[System.IO.File]::Move(($env:SITECAD_UPDATE_PID + '.tmp'), $env:SITECAD_UPDATE_PID)
+`;
 const failure = () => Error('업데이트를 준비하지 못했습니다. 앱을 설치한 폴더의 쓰기 권한과 설치 파일을 확인해 주세요. 기존 도면과 설정은 변경하지 않았습니다.');
 function checkedPath(path) {
   if (typeof path !== 'string' || !isAbsolute(path) || path.length > 4096 || /[\x00-\x1f\x7f]/.test(path)) throw failure();
@@ -25,16 +32,28 @@ function helperEnvironment(values) {
   return { ...environment, PATH: process.platform === 'win32' ? `${systemRoot}\\System32;${systemRoot}` : '/usr/bin:/bin:/usr/sbin:/sbin', ...values };
 }
 
-async function startHelper({ command, args, environment, readyFile, cwd, spawnImpl, readyTimeoutMs }) {
-  const child = spawnImpl(command, args, { cwd, env: helperEnvironment(environment), detached: true, windowsHide: true, shell: false, stdio: ['ignore', 'ignore', 'pipe'] });
-  let spawnError, stderr = '';
+async function startHelper({ command, args, environment, readyFile, cwd, spawnImpl, readyTimeoutMs, platform, parentPid }) {
+  const child = spawnImpl(command, args, { cwd, env: helperEnvironment(environment), detached: platform !== 'win32', windowsHide: true, shell: false, stdio: ['ignore', 'ignore', 'pipe'] });
+  let spawnError, helperPid, stderr = '';
   child.stderr?.on('data', chunk => { stderr = (stderr + String(chunk)).slice(0, 4096); });
   child.once('error', error => { spawnError = error; });
   const deadline = Date.now() + readyTimeoutMs;
   try {
     while (Date.now() < deadline) {
-      if (spawnError || child.exitCode != null) throw failure();
-      if (await readFile(readyFile, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; }) === 'ready') {
+      if (spawnError || child.exitCode != null && !(platform === 'win32' && child.exitCode === 0)) throw failure();
+      if (platform === 'win32') {
+        const text = await readFile(environment.SITECAD_UPDATE_PID, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
+        if (text) {
+          const candidate = Number(text);
+          if (!/^\d+$/.test(text) || !Number.isInteger(candidate) || candidate <= 1 || candidate > 2147483647 || [process.pid, parentPid].includes(candidate)) throw failure();
+          helperPid = candidate;
+        }
+      }
+      if (await readFile(readyFile, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; }) === 'ready' && (platform !== 'win32' || helperPid)) {
+        if (platform === 'win32') {
+          await writeFile(`${environment.SITECAD_UPDATE_ARMED}.tmp`, 'install', { flag: 'wx', mode: 0o600 });
+          await rename(`${environment.SITECAD_UPDATE_ARMED}.tmp`, environment.SITECAD_UPDATE_ARMED);
+        }
         child.stderr?.unref?.();
         child.unref();
         return;
@@ -43,6 +62,9 @@ async function startHelper({ command, args, environment, readyFile, cwd, spawnIm
     }
     throw failure();
   } catch (error) {
+    if (helperPid && helperPid !== process.pid && helperPid !== parentPid) {
+      try { process.kill(helperPid); } catch { /* The unarmed helper also expires after 30 seconds. */ }
+    }
     child.kill();
     const wrapped = failure();
     wrapped.cause = { phase: 'helper-start', exitCode: child.exitCode, signal: child.signalCode ?? null, spawnCode: spawnError?.code ?? null, stderr };
@@ -105,7 +127,7 @@ async function stageMac({ file, executable, job, version, executeCommand }) {
 }
 
 export async function prepareUpdateInstall({ file, version, executable, updatesDir, platform = process.platform, arch = process.arch, parentPid = process.pid },
-  { executeCommand = execute, spawnImpl = spawn, readyTimeoutMs = 5000 } = {}) {
+  { executeCommand = execute, spawnImpl = spawn, readyTimeoutMs = 15000 } = {}) {
   if (!/^\d+\.\d+\.\d+$/.test(version ?? '') || !Number.isSafeInteger(parentPid) || parentPid <= 0 ||
     !(platform === 'darwin' && arch === 'arm64' || platform === 'win32' && arch === 'x64')) throw failure();
   file = checkedPath(file); executable = checkedPath(executable); updatesDir = checkedPath(updatesDir);
@@ -141,12 +163,13 @@ export async function prepareUpdateInstall({ file, version, executable, updatesD
         } else {
           const systemRoot = process.env.SystemRoot || process.env.SYSTEMROOT || process.env.WINDIR || 'C:\\Windows';
           command = win32.join(systemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe');
-          args = ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(await readFile(helper, 'utf8'), 'utf16le').toString('base64')];
+          args = ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(windowsBootstrap, 'utf16le').toString('base64')];
           environment = { SITECAD_UPDATE_PARENT: String(parentPid), SITECAD_UPDATE_INSTALLER: file, SITECAD_UPDATE_DESTINATION: dirname(executable),
             SITECAD_UPDATE_RESULT: resultFile, SITECAD_UPDATE_VERSION: version, SITECAD_UPDATE_READY: readyFile, SITECAD_UPDATE_DOWNLOAD: managedDownload,
-            SITECAD_UPDATE_ARGUMENTS: JSON.stringify(windowsUpdateArguments(dirname(executable))) };
+            SITECAD_UPDATE_ARGUMENTS: JSON.stringify(windowsUpdateArguments(dirname(executable))), SITECAD_UPDATE_PID: join(job, 'helper.pid'),
+            SITECAD_UPDATE_ARMED: join(job, 'armed'), SITECAD_UPDATE_CODE: Buffer.from(await readFile(helper, 'utf8'), 'utf16le').toString('base64') };
         }
-        await startHelper({ command, args, environment, readyFile, cwd: job, spawnImpl, readyTimeoutMs });
+        await startHelper({ command, args, environment, readyFile, cwd: job, spawnImpl, readyTimeoutMs, platform, parentPid });
         armed = true;
       },
       async cleanup() {

@@ -5,6 +5,7 @@ import { cp, mkdir, mkdtemp, readFile, realpath, readdir, rm, stat, symlink, wri
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync, spawn } from 'node:child_process';
+import { setTimeout as delay } from 'node:timers/promises';
 import { prepareUpdateInstall, windowsUpdateArguments } from '../desktop/update-install.mjs';
 
 async function fixture(t, platform = 'darwin') {
@@ -21,6 +22,11 @@ async function fixture(t, platform = 'darwin') {
   await mkdir(join(directory, 'drawings'));
   await writeFile(join(directory, 'drawings', '사용자.dwg'), 'drawing fixture');
   return { directory, file, executable, updatesDir, version: '0.16.3', platform, arch: platform === 'darwin' ? 'arm64' : 'x64', parentPid: process.pid };
+}
+
+async function acknowledgeFakeHelper(environment) {
+  if (environment.SITECAD_UPDATE_PID) await writeFile(environment.SITECAD_UPDATE_PID, '2147483646');
+  await writeFile(environment.SITECAD_UPDATE_READY, 'ready');
 }
 
 function fakeCommands(options, { version = '0.16.3', identifier = 'com.sitecad.desktop', arch = 'arm64', fail } = {}) {
@@ -108,8 +114,8 @@ test('Windows preparation leaves existing app intact, uses a private helper with
     const child = new EventEmitter();
     child.unref = () => {};
     child.kill = () => {};
-    child.exitCode = null;
-    queueMicrotask(() => { void writeFile(spawnOptions.env.SITECAD_UPDATE_READY, 'ready'); });
+    child.exitCode = 0; // The short bootstrap may exit before the independent helper acknowledges.
+    queueMicrotask(() => { void acknowledgeFakeHelper(spawnOptions.env); });
     return child;
   };
   const prepared = await prepareUpdateInstall(options, { spawnImpl });
@@ -122,9 +128,13 @@ test('Windows preparation leaves existing app intact, uses a private helper with
   assert.equal(launched.options.env.SITECAD_UPDATE_INSTALLER, options.file);
   assert.equal(launched.options.env.SITECAD_UPDATE_DESTINATION, join(options.executable, '..'));
   assert.equal(launched.options.shell, false);
+  assert.equal(launched.options.detached, false, 'Windows PowerShell must retain a usable console host until script startup');
   assert.equal(launched.options.env.ACCESS_TOKEN, undefined);
   assert.equal(launched.options.env.OPENAI_API_KEY, undefined);
   assert.ok(!code.includes('ExecutionPolicy'));
+  assert.match(code, /Start-Process/);
+  assert.equal(await readFile(launched.options.env.SITECAD_UPDATE_ARMED, 'utf8'), 'install');
+  assert.match(Buffer.from(launched.options.env.SITECAD_UPDATE_CODE, 'base64').toString('utf16le'), /SITECAD_UPDATE_ARMED/);
   await prepared.cleanup();
   assert.equal(await readFile(options.file, 'utf8'), 'verified package fixture');
   assert.equal(await readFile(options.executable, 'utf8'), 'old executable');
@@ -147,6 +157,24 @@ test('helper startup failure and acknowledgement timeout do not replace the runn
   }
 });
 
+test('a ready file without an independent helper PID never arms an orphaned Windows install', async t => {
+  const options = await fixture(t, 'win32');
+  let environment;
+  const prepared = await prepareUpdateInstall(options, { readyTimeoutMs: 30, spawnImpl: (_command, _args, settings) => {
+    environment = settings.env;
+    const child = new EventEmitter();
+    child.exitCode = 0;
+    child.kill = () => {};
+    child.unref = () => {};
+    queueMicrotask(() => { void writeFile(environment.SITECAD_UPDATE_READY, 'ready'); });
+    return child;
+  } });
+  await assert.rejects(prepared.install());
+  await assert.rejects(stat(environment.SITECAD_UPDATE_ARMED), { code: 'ENOENT' });
+  assert.equal(await readFile(options.executable, 'utf8'), 'old executable');
+  await prepared.cleanup();
+});
+
 test('managed download cleanup is limited to the update cache and uses the same tested installer arguments', async t => {
   const options = await fixture(t, 'win32');
   const download = join(options.updatesDir, 'download-private');
@@ -160,7 +188,7 @@ test('managed download cleanup is limited to the update cache and uses the same 
     child.unref = () => {};
     child.kill = () => {};
     child.exitCode = null;
-    queueMicrotask(() => { void writeFile(environment.SITECAD_UPDATE_READY, 'ready'); });
+    queueMicrotask(() => { void acknowledgeFakeHelper(environment); });
     return child;
   } });
   await prepared.install();
@@ -221,25 +249,41 @@ test('helper startup errors retain bounded diagnostics only in cause and keep th
 });
 
 
-test('real Windows helper acknowledges startup and waits for its parent before touching the installer', { skip: process.platform !== 'win32', timeout: 15000 }, async t => {
+test('real Windows helper survives the spawning Node parent exit and waits before touching the installer', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
   const options = await fixture(t, 'win32');
-  let helper;
-  const prepared = await prepareUpdateInstall(options, { readyTimeoutMs: 10000, spawnImpl: (command, args, settings) => {
-    helper = spawn(command, args, settings);
-    return helper;
-  } });
+  const moduleUrl = new URL('../desktop/update-install.mjs', import.meta.url).href;
+  const source = `import { prepareUpdateInstall } from ${JSON.stringify(moduleUrl)};
+const prepared = await prepareUpdateInstall(JSON.parse(process.env.SITECAD_TEST_OPTIONS));
+await prepared.install();`;
+  let helperPid;
+  const runner = spawn(process.execPath, ['--input-type=module', '-e', source], {
+    env: { ...process.env, SITECAD_TEST_OPTIONS: JSON.stringify(options) }, stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  let diagnostics = '';
+  runner.stderr.on('data', chunk => { diagnostics = (diagnostics + String(chunk)).slice(0, 5000); });
+  const findHelper = async () => {
+    for (const name of await readdir(options.updatesDir)) {
+      if (name.startsWith('install-')) {
+        const text = await readFile(join(options.updatesDir, name, 'helper.pid'), 'utf8').catch(() => '');
+        if (/^\d+$/.test(text)) return Number(text);
+      }
+    }
+  };
   try {
-    await prepared.install();
-    assert.equal(helper.exitCode, null);
+    const code = await new Promise((resolve, reject) => { runner.once('error', reject); runner.once('exit', resolve); });
+    helperPid = await findHelper();
+    assert.equal(code, 0, diagnostics);
+    assert.ok(Number.isInteger(helperPid) && helperPid > 1 && helperPid !== process.pid);
+    await delay(1000);
+    process.kill(helperPid, 0); // The real spawning Node process has exited; its helper must remain alive.
     assert.equal(await readFile(options.executable, 'utf8'), 'old executable');
     assert.equal(await readFile(options.file, 'utf8'), 'verified package fixture');
-    await assert.rejects(stat(prepared.resultFile), { code: 'ENOENT' });
+    await assert.rejects(stat(join(options.updatesDir, 'install-result.json')), { code: 'ENOENT' });
   } finally {
-    if (helper && helper.exitCode === null) {
-      const stopped = new Promise(resolve => helper.once('exit', resolve));
-      helper.kill(); // Stop only this sacrificial helper while the test parent remains alive.
-      await stopped;
+    helperPid ??= await findHelper();
+    if (helperPid > 1 && helperPid !== process.pid && helperPid !== runner.pid) {
+      try { process.kill(helperPid); } catch (error) { if (error.code !== 'ESRCH') throw error; }
     }
-    await prepared.cleanup();
+    if (runner.exitCode === null) runner.kill();
   }
 });

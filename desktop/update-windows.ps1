@@ -6,6 +6,7 @@ $result = $env:SITECAD_UPDATE_RESULT
 $version = $env:SITECAD_UPDATE_VERSION
 $ready = $env:SITECAD_UPDATE_READY
 $download = $env:SITECAD_UPDATE_DOWNLOAD
+$armed = $env:SITECAD_UPDATE_ARMED
 $installerRunning = $false
 function Remove-Download {
   if (!$download -or $installerRunning) { return }
@@ -30,6 +31,12 @@ function Record-Result($status, $code, $launchedPid = $null) {
 try {
   if ($parentId -le 0 -or $version -notmatch '^\d+\.\d+\.\d+$' -or !$installer -or !$destination -or $destination.Contains('"')) { throw 'Invalid update parameters' }
   [System.IO.File]::WriteAllText($ready, 'ready')
+  $armDeadline = [DateTime]::UtcNow.AddSeconds(30)
+  while (!(Test-Path -LiteralPath $armed)) {
+    if ([DateTime]::UtcNow -ge $armDeadline) { exit 1 }
+    Start-Sleep -Milliseconds 100
+  }
+  if ([System.IO.File]::ReadAllText($armed) -ne 'install') { exit 1 }
   $deadline = [DateTime]::UtcNow.AddSeconds(120)
   while (Get-Process -Id $parentId -ErrorAction SilentlyContinue) {
     if ([DateTime]::UtcNow -ge $deadline) { Record-Result 'failed' 'parent-running'; exit 1 }
