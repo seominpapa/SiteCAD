@@ -45,7 +45,10 @@ export function upgradeErrorDetails(error) {
   const cause = error.cause && typeof error.cause === 'object' ? {
     phase: text(error.cause.phase), exitCode: Number.isSafeInteger(error.cause.exitCode) ? error.cause.exitCode : null,
     signal: text(error.cause.signal) ?? null, spawnCode: text(error.cause.spawnCode) ?? null,
-    stderr: text(error.cause.stderr, 4096),
+    stderr: text(error.cause.stderr, 4096), stdout: text(error.cause.stdout, 4096),
+    bootstrapPhase: ['bootstrap-start', 'helper-started', 'pid-written'].includes(error.cause.bootstrapPhase) ? error.cause.bootstrapPhase : undefined,
+    hasPid: typeof error.cause.hasPid === 'boolean' ? error.cause.hasPid : undefined,
+    hasReady: typeof error.cause.hasReady === 'boolean' ? error.cause.hasReady : undefined,
   } : undefined;
   return { error: text(error.message, 4096), code: text(error.code), cause };
 }

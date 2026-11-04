@@ -9,19 +9,32 @@ test('upgrade failure details retain bounded helper startup evidence without cre
   const error = Object.assign(Error('Helper failed'), { code: 'SITECAD_HELPER', cause: {
     phase: 'helper-start', exitCode: 1, signal: null, spawnCode: 'ENOENT',
     stderr: `${'x'.repeat(5000)}\nParserError api_key=secret-value Bearer bearer-secret https://example.test/private?token=secret`,
+    stdout: `${'y'.repeat(5000)}\nBootstrap api_key=output-secret`, bootstrapPhase: 'pid-written', hasPid: true, hasReady: false,
     args: ['private encoded script'], env: { PRIVATE_SENTINEL: 'environment-secret' },
   } });
   const diagnostic = upgradeErrorDetails(error);
   assert.equal(diagnostic.error, 'Helper failed');
   assert.equal(diagnostic.code, 'SITECAD_HELPER');
-  assert.deepEqual(Object.keys(diagnostic.cause), ['phase', 'exitCode', 'signal', 'spawnCode', 'stderr']);
+  assert.deepEqual(Object.keys(diagnostic.cause), ['phase', 'exitCode', 'signal', 'spawnCode', 'stderr', 'stdout', 'bootstrapPhase', 'hasPid', 'hasReady']);
   assert.equal(diagnostic.cause.phase, 'helper-start');
   assert.equal(diagnostic.cause.exitCode, 1);
   assert.equal(diagnostic.cause.signal, null);
   assert.equal(diagnostic.cause.spawnCode, 'ENOENT');
   assert.equal(diagnostic.cause.stderr.length, 4096);
   assert.match(diagnostic.cause.stderr, /ParserError api_key=\[redacted\] Bearer \[redacted\] \[redacted URL\]/);
-  assert.doesNotMatch(JSON.stringify(diagnostic), /secret-value|bearer-secret|private encoded script|environment-secret|token=secret/);
+  assert.equal(diagnostic.cause.stdout.length, 4096);
+  assert.match(diagnostic.cause.stdout, /Bootstrap api_key=\[redacted\]/);
+  assert.equal(diagnostic.cause.bootstrapPhase, 'pid-written');
+  assert.equal(diagnostic.cause.hasPid, true);
+  assert.equal(diagnostic.cause.hasReady, false);
+  assert.doesNotMatch(JSON.stringify(diagnostic), /secret-value|bearer-secret|output-secret|private encoded script|environment-secret|token=secret/);
+  for (const marker of ['bootstrap-start', 'helper-started', 'pid-written']) {
+    assert.equal(upgradeErrorDetails({ cause: { bootstrapPhase: marker } }).cause.bootstrapPhase, marker);
+  }
+  const invalid = upgradeErrorDetails({ cause: { bootstrapPhase: 'unexpected secret marker', hasPid: 'true', hasReady: 1 } }).cause;
+  assert.equal(invalid.bootstrapPhase, undefined);
+  assert.equal(invalid.hasPid, undefined);
+  assert.equal(invalid.hasReady, undefined);
   assert.deepEqual(upgradeErrorDetails(Error('Other failure')), { error: 'Other failure', code: undefined, cause: undefined });
 });
 
