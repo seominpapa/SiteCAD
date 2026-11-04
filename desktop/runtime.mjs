@@ -1,5 +1,5 @@
-import { copyFile, mkdir, readFile, rename, rm, chmod, writeFile } from 'node:fs/promises';
-import { isAbsolute, dirname, join } from 'node:path';
+import { copyFile, mkdir, readFile, rename, rm, chmod, writeFile, realpath } from 'node:fs/promises';
+import { isAbsolute, dirname, join, relative, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileSha256, verifyCodexInstallation } from '../scripts/install-codex.mjs';
 
@@ -11,6 +11,12 @@ export function desktopPaths(dataDir) {
     runtime: join(dataDir, 'runtime'),
     secrets: join(dataDir, 'credentials.enc'),
   };
+}
+
+export async function drawingFolderInBundle(bundle, drawings) {
+  const [appPath, drawingPath] = await Promise.all([realpath(bundle), realpath(drawings)]);
+  const path = relative(appPath, drawingPath);
+  return path === '' || path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path);
 }
 
 export function isAllowedAuthUrl(value) {

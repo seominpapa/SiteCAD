@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { desktopPaths, isAllowedAuthUrl, createSecureStore, installBundledCodex } from '../desktop/runtime.mjs';
+import { desktopPaths, isAllowedAuthUrl, createSecureStore, installBundledCodex, drawingFolderInBundle } from '../desktop/runtime.mjs';
 import { CODEX_VERSION, codexTarget, extractCodexArchive, installCodex, windowsCodexFiles } from '../scripts/install-codex.mjs';
 
 const tar = process.platform === 'win32' ? join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : '/usr/bin/tar';
@@ -22,6 +22,21 @@ test('desktop paths isolate runtime, workspace and Codex settings under app data
   for (const value of Object.values(paths)) assert.equal(dirname(value), directory);
   assert.equal(paths.codexHome, join(directory, 'codex-home'));
   assert.throws(() => desktopPaths('relative'));
+});
+
+test('updating a Mac bundle refuses selected drawings inside it, including folder aliases', async t => {
+  const directory = await temp(t), app = join(directory, 'SiteCAD.app');
+  const inside = join(app, 'Contents', 'my drawings'), outside = join(directory, 'drawings');
+  await mkdir(inside, { recursive: true });
+  await mkdir(outside);
+  assert.equal(await drawingFolderInBundle(app, inside), true);
+  assert.equal(await drawingFolderInBundle(app, app), true);
+  assert.equal(await drawingFolderInBundle(app, outside), false);
+  if (process.platform !== 'win32') {
+    const alias = join(directory, 'aliased drawings');
+    await symlink(inside, alias);
+    assert.equal(await drawingFolderInBundle(app, alias), true);
+  }
 });
 
 test('only exact OpenAI browser authentication hosts and HTTPS are allowed', () => {

@@ -1,4 +1,4 @@
-name: Published 0.16.2 first-install verification
+name: Published 0.16.3 first-install verification
 on:
   workflow_dispatch:
 permissions:
@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: v0.16.2
+          ref: v0.16.3
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24.22.1'
@@ -30,7 +30,7 @@ jobs:
         shell: bash
         env:
           SITECAD_TEST_FRESH_INSTALL: '1'
-          SITECAD_TEST_RELEASE_ARCHIVE: ${{ github.workspace }}/dist/published-release-downloads/SiteCAD-0.16.2-local-web-${{ matrix.platform }}.zip
+          SITECAD_TEST_RELEASE_ARCHIVE: ${{ github.workspace }}/dist/published-release-downloads/SiteCAD-0.16.3-local-web-${{ matrix.platform }}.zip
           SITECAD_TEST_EVIDENCE_DIR: ${{ github.workspace }}/dist/verification
         run: |
           set -euo pipefail
@@ -40,7 +40,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          dmg="$PWD/dist/published-release-downloads/SiteCAD-0.16.2-macOS-arm64.dmg"
+          dmg="$PWD/dist/published-release-downloads/SiteCAD-0.16.3-macOS-arm64.dmg"
           mount="$RUNNER_TEMP/sitecad-published-dmg"
           hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mount"
           trap 'hdiutil detach "$mount"' EXIT
@@ -59,7 +59,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $setup = (Resolve-Path 'dist/published-release-downloads/SiteCAD-0.16.2-Windows-x64-Setup.exe').Path
+          $setup = (Resolve-Path 'dist/published-release-downloads/SiteCAD-0.16.3-Windows-x64-Setup.exe').Path
           Get-AuthenticodeSignature $setup | Select-Object Status,StatusMessage | ConvertTo-Json | Out-File dist/verification/windows-signature.json
           $destination = Join-Path $env:RUNNER_TEMP '설치 확인 SiteCAD'
           $install = Start-Process $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$destination`"") -Wait -PassThru
@@ -79,6 +79,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: SiteCAD-public-first-install-${{ matrix.platform }}-v0.16.2-${{ github.run_id }}
+          name: SiteCAD-public-first-install-${{ matrix.platform }}-v0.16.3-${{ github.run_id }}
           path: dist/verification/
           retention-days: 14

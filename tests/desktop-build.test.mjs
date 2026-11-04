@@ -30,6 +30,7 @@ test('desktop packaging retains production native optional dependencies and make
   assert.match(source, /npm_execpath/);
   assert.match(source, /installCodex\(\{[^}]*platform/);
   assert.match(source, /'desktop\/sitecad\.iss'/);
+  for (const name of ['desktop/updater.mjs', 'desktop/update-install.mjs', 'desktop/update-mac.sh', 'desktop/update-windows.ps1']) assert.ok(source.includes(`'${name}'`));
 });
 
 test('Windows packaging provides explicit publisher metadata without requiring an author in the source manifest', async () => {

@@ -4,8 +4,10 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from '../server.mjs';
 import { createDesktopController } from '../lib/desktop-controller.mjs';
-import { createSecureStore, desktopPaths, installBundledCodex, isAllowedAuthUrl } from './runtime.mjs';
+import { createSecureStore, desktopPaths, installBundledCodex, isAllowedAuthUrl, drawingFolderInBundle } from './runtime.mjs';
 import { createBrowserAccess } from '../lib/browser-access.mjs';
+import { createDesktopUpdater } from './updater.mjs';
+import { prepareUpdateInstall } from './update-install.mjs';
 
 const appRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const browserMode = process.argv.includes('--browser');
@@ -16,12 +18,18 @@ let mainWindow;
 let server;
 let controller;
 let closing = false;
+let exitReady = false;
 let closingPrompt = false;
 let baseUrl;
+let updater;
+let updateHandoff = false;
 const primary = app.requestSingleInstanceLock();
 if (!primary) app.quit();
 
 async function closeServices() {
+  // The handoff itself runs inside the updater; only ordinary shutdown can join it.
+  if (updateHandoff) void updater?.cancel();
+  else await updater?.cancel();
   await controller?.close().catch(() => {});
   if (server) await new Promise(resolveClose => {
     server.close(resolveClose);
@@ -30,9 +38,9 @@ async function closeServices() {
 }
 
 async function confirmClose(event) {
-  if (closing) return;
+  if (exitReady) return;
   event.preventDefault();
-  if (closingPrompt) return;
+  if (closing || closingPrompt || updateHandoff) return;
   closingPrompt = true;
   try {
     const options = {
@@ -44,8 +52,46 @@ async function confirmClose(event) {
     if (result.response !== 1) return;
     closing = true;
     await closeServices();
+    exitReady = true;
     app.quit();
   } finally { closingPrompt = false; }
+}
+
+async function updateMessage(options) {
+  if (closing || closingPrompt || updateHandoff) return { response: options.cancelId ?? 0 };
+  closingPrompt = true;
+  try { return await dialog.showMessageBox(mainWindow, options); }
+  finally { closingPrompt = false; }
+}
+
+function startUpdater(dataDir) {
+  if (!app.isPackaged || browserMode) return;
+  const executable = app.getPath('exe'), updatesDir = join(dataDir, 'updates');
+  updater = createDesktopUpdater({ currentVersion: app.getVersion(), platform: process.platform, arch: process.arch, updatesDir,
+    showMessage: updateMessage,
+    isClosing: () => closing || updateHandoff,
+    onProgress: value => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setProgressBar(value); },
+    canInstall: async () => {
+      if (process.platform === 'darwin' && await drawingFolderInBundle(resolve(dirname(executable), '../..'), await controller.drawingDirectory())) {
+        await updateMessage({ type: 'warning', title: '도면 저장 위치 변경 필요', message: '선택한 도면 폴더가 앱 내부에 있습니다.',
+          detail: '도면과 보조 파일을 앱 바깥으로 옮기고 설정에서 새 저장 폴더를 선택한 다음 업데이트해 주세요. 도면 보호를 위해 설치를 중단했습니다.', buttons: ['확인'] });
+        return false;
+      }
+      return true;
+    },
+    prepareInstall: ({ file, version }) => prepareUpdateInstall({ file, version, executable, updatesDir }),
+    install: async prepared => {
+      updateHandoff = true;
+      try {
+        await prepared.install();
+        closing = true;
+        await closeServices();
+        exitReady = true;
+        app.quit();
+      } finally { updateHandoff = false; }
+    },
+  });
+  void updater.check().catch(() => console.warn('SiteCAD 업데이트 확인을 마치지 못했습니다. 현재 앱은 계속 사용할 수 있습니다.'));
 }
 
 async function openTestDrawings() {
@@ -140,12 +186,13 @@ async function start() {
   mainWindow.on('close', confirmClose);
   mainWindow.once('ready-to-show', () => mainWindow.show());
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: 'SiteCAD', submenu: [{ role: 'about' }, { label: '테스트 도면 폴더 열기', click: () => { void openTestDrawings(); } }, { type: 'separator' }, { role: 'quit' }] },
+    { label: 'SiteCAD', submenu: [{ role: 'about' }, { label: '업데이트 확인', enabled: app.isPackaged, click: () => { void updater?.check({ manual: true }).catch(() => console.warn('SiteCAD 업데이트 확인 실패')); } }, { label: '테스트 도면 폴더 열기', click: () => { void openTestDrawings(); } }, { type: 'separator' }, { role: 'quit' }] },
     { label: '편집', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
     { label: '보기', submenu: [{ role: 'togglefullscreen' }] },
     { label: '윈도우', submenu: [{ role: 'minimize' }, { role: 'zoom' }] },
   ]));
   await mainWindow.loadURL(`${baseUrl}/`);
+  startUpdater(dataDir);
 }
 
 if (primary) {
@@ -155,13 +202,14 @@ if (primary) {
     else { if (mainWindow?.isMinimized()) mainWindow.restore(); mainWindow?.focus(); }
   });
   app.on('activate', () => { if (browserMode && baseUrl) void shell.openExternal(`${baseUrl}/`); });
-  app.on('before-quit', event => { if ((mainWindow || browserMode) && !closing) void confirmClose(event); });
+  app.on('before-quit', event => { if ((mainWindow || browserMode) && !exitReady) void confirmClose(event); });
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => app.quit());
-  app.on('window-all-closed', () => { if (closing) app.quit(); });
+  app.on('window-all-closed', () => { if (exitReady) app.quit(); });
   app.whenReady().then(start).catch(async () => {
     await closeServices();
     dialog.showErrorBox('SiteCAD 실행 오류', '로컬 실행 환경을 준비하지 못했습니다. 설치 파일의 무결성과 macOS 키체인 상태를 확인한 뒤 다시 실행해 주세요.');
     closing = true;
+    exitReady = true;
     app.quit();
   });
 }

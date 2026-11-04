@@ -61,7 +61,7 @@ export async function buildDesktop({ arch = process.arch, archivePath, dmg = tru
   const staging = await mkdtemp(join(tmpdir(), 'sitecad-package-'));
   const output = join(root, 'dist');
   try {
-    for (const name of ['LICENSE', 'THIRD_PARTY_NOTICES.md', 'README.md', 'SOURCE_BUILD.md', 'server.mjs', 'lib', 'public', 'skills', 'vendor/editor', 'plan.schema.json', 'codex-models.json', 'desktop/main.mjs', 'desktop/runtime.mjs', 'desktop/licenses', 'desktop/sitecad.iss', 'scripts/install-codex.mjs', 'scripts/update-model-catalog.mjs', 'scripts/install-editor.mjs', 'scripts/build-desktop.mjs', 'scripts/package-drawings.mjs']) {
+    for (const name of ['LICENSE', 'THIRD_PARTY_NOTICES.md', 'README.md', 'SOURCE_BUILD.md', 'server.mjs', 'lib', 'public', 'skills', 'vendor/editor', 'plan.schema.json', 'codex-models.json', 'desktop/main.mjs', 'desktop/runtime.mjs', 'desktop/updater.mjs', 'desktop/update-install.mjs', 'desktop/update-mac.sh', 'desktop/update-windows.ps1', 'desktop/licenses', 'desktop/sitecad.iss', 'scripts/install-codex.mjs', 'scripts/update-model-catalog.mjs', 'scripts/install-editor.mjs', 'scripts/build-desktop.mjs', 'scripts/package-drawings.mjs']) {
       await mkdir(dirname(join(staging, name)), { recursive: true });
       await cp(join(root, name), join(staging, name), { recursive: true, dereference: false, errorOnExist: true,
         filter: async path => {
