@@ -26,14 +26,16 @@ function helperEnvironment(values) {
 }
 
 async function startHelper({ command, args, environment, readyFile, cwd, spawnImpl, readyTimeoutMs }) {
-  const child = spawnImpl(command, args, { cwd, env: helperEnvironment(environment), detached: true, windowsHide: true, shell: false, stdio: 'ignore' });
-  let spawnError;
+  const child = spawnImpl(command, args, { cwd, env: helperEnvironment(environment), detached: true, windowsHide: true, shell: false, stdio: ['ignore', 'ignore', 'pipe'] });
+  let spawnError, stderr = '';
+  child.stderr?.on('data', chunk => { stderr = (stderr + String(chunk)).slice(0, 4096); });
   child.once('error', error => { spawnError = error; });
   const deadline = Date.now() + readyTimeoutMs;
   try {
     while (Date.now() < deadline) {
       if (spawnError || child.exitCode != null) throw failure();
       if (await readFile(readyFile, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; }) === 'ready') {
+        child.stderr?.unref?.();
         child.unref();
         return;
       }
@@ -42,7 +44,9 @@ async function startHelper({ command, args, environment, readyFile, cwd, spawnIm
     throw failure();
   } catch (error) {
     child.kill();
-    throw error;
+    const wrapped = failure();
+    wrapped.cause = { phase: 'helper-start', exitCode: child.exitCode, signal: child.signalCode ?? null, spawnCode: spawnError?.code ?? null, stderr };
+    throw wrapped;
   }
 }
 

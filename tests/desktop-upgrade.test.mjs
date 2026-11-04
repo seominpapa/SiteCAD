@@ -3,7 +3,27 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileFingerprints, matchingMacDesktopProcesses, requireHostedUpgrade, upgradePaths, verifyFileFingerprints } from '../scripts/verify-desktop-upgrade.mjs';
+import { fileFingerprints, matchingMacDesktopProcesses, requireHostedUpgrade, upgradeErrorDetails, upgradePaths, verifyFileFingerprints } from '../scripts/verify-desktop-upgrade.mjs';
+
+test('upgrade failure details retain bounded helper startup evidence without credentials or unrelated fields', () => {
+  const error = Object.assign(Error('Helper failed'), { code: 'SITECAD_HELPER', cause: {
+    phase: 'helper-start', exitCode: 1, signal: null, spawnCode: 'ENOENT',
+    stderr: `${'x'.repeat(5000)}\nParserError api_key=secret-value Bearer bearer-secret https://example.test/private?token=secret`,
+    args: ['private encoded script'], env: { PRIVATE_SENTINEL: 'environment-secret' },
+  } });
+  const diagnostic = upgradeErrorDetails(error);
+  assert.equal(diagnostic.error, 'Helper failed');
+  assert.equal(diagnostic.code, 'SITECAD_HELPER');
+  assert.deepEqual(Object.keys(diagnostic.cause), ['phase', 'exitCode', 'signal', 'spawnCode', 'stderr']);
+  assert.equal(diagnostic.cause.phase, 'helper-start');
+  assert.equal(diagnostic.cause.exitCode, 1);
+  assert.equal(diagnostic.cause.signal, null);
+  assert.equal(diagnostic.cause.spawnCode, 'ENOENT');
+  assert.equal(diagnostic.cause.stderr.length, 4096);
+  assert.match(diagnostic.cause.stderr, /ParserError api_key=\[redacted\] Bearer \[redacted\] \[redacted URL\]/);
+  assert.doesNotMatch(JSON.stringify(diagnostic), /secret-value|bearer-secret|private encoded script|environment-secret|token=secret/);
+  assert.deepEqual(upgradeErrorDetails(Error('Other failure')), { error: 'Other failure', code: undefined, cause: undefined });
+});
 
 test('Mac relaunch discovery accepts canonical Unicode paths but rejects other SiteCAD bundles', async () => {
   const expected = '/private/tmp/설치 확인 SiteCAD/SiteCAD.app/Contents/MacOS/SiteCAD';

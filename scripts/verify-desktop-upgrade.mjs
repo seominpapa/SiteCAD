@@ -40,6 +40,16 @@ export async function verifyFileFingerprints(files, expected) {
   assert.deepEqual(await fileFingerprints(files), expected, 'Existing drawings or settings changed during the upgrade');
 }
 
+export function upgradeErrorDetails(error) {
+  const text = (value, limit = 128) => typeof value === 'string' ? sanitizeDiagnostic(value).slice(-limit) : undefined;
+  const cause = error.cause && typeof error.cause === 'object' ? {
+    phase: text(error.cause.phase), exitCode: Number.isSafeInteger(error.cause.exitCode) ? error.cause.exitCode : null,
+    signal: text(error.cause.signal) ?? null, spawnCode: text(error.cause.spawnCode) ?? null,
+    stderr: text(error.cause.stderr, 4096),
+  } : undefined;
+  return { error: text(error.message, 4096), code: text(error.code), cause };
+}
+
 async function until(action, label, timeout = 240000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
@@ -192,7 +202,7 @@ export async function verifyDesktopUpgrade() {
     return proof;
   } catch (error) {
     const processes = process.platform === 'darwin' ? await macProcessSnapshot().then(macDesktopProcesses).catch(snapshotError => ({ error: snapshotError.message })) : undefined;
-    const diagnostic = sanitizeDiagnostic(JSON.stringify({ stage, error: error.message, expectedExecutable: paths.executable, result, processes }, null, 2));
+    const diagnostic = sanitizeDiagnostic(JSON.stringify({ stage, ...upgradeErrorDetails(error), expectedExecutable: paths.executable, result, processes }, null, 2));
     await writeFile(join(output, 'desktop-upgrade-failure.json'), `${diagnostic}\n`).catch(() => console.error('Could not save desktop upgrade diagnostic'));
     console.error(diagnostic);
     throw error;

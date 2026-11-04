@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { cp, mkdir, mkdtemp, readFile, realpath, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { prepareUpdateInstall, windowsUpdateArguments } from '../desktop/update-install.mjs';
 
 async function fixture(t, platform = 'darwin') {
@@ -190,4 +190,56 @@ test('native helpers never kill the parent, alter OS trust, remove drawings or e
   assert.match(win, /MessageBox/);
   assert.match(win, /Remove-Download/);
   if (process.platform !== 'win32') execFileSync('/bin/sh', ['-n', new URL('../desktop/update-mac.sh', import.meta.url).pathname]);
+});
+
+
+test('helper startup errors retain bounded diagnostics only in cause and keep the user message generic', async t => {
+  const options = await fixture(t, 'win32');
+  const child = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.exitCode = null;
+  child.signalCode = null;
+  child.unref = () => {};
+  child.kill = () => {};
+  const prepared = await prepareUpdateInstall(options, { spawnImpl: (_command, _args, settings) => {
+    assert.equal(settings.stdio[2], 'pipe');
+    queueMicrotask(() => {
+      child.stderr.emit('data', Buffer.from('Windows helper parse failure ' + 'x'.repeat(10000)));
+      child.exitCode = 1;
+    });
+    return child;
+  } });
+  await assert.rejects(prepared.install(), error => {
+    assert.doesNotMatch(error.message, /parse failure/);
+    assert.equal(error.cause.phase, 'helper-start');
+    assert.equal(error.cause.exitCode, 1);
+    assert.match(error.cause.stderr, /^Windows helper parse failure/);
+    assert.ok(error.cause.stderr.length <= 4096);
+    return true;
+  });
+  await prepared.cleanup();
+});
+
+
+test('real Windows helper acknowledges startup and waits for its parent before touching the installer', { skip: process.platform !== 'win32', timeout: 15000 }, async t => {
+  const options = await fixture(t, 'win32');
+  let helper;
+  const prepared = await prepareUpdateInstall(options, { readyTimeoutMs: 10000, spawnImpl: (command, args, settings) => {
+    helper = spawn(command, args, settings);
+    return helper;
+  } });
+  try {
+    await prepared.install();
+    assert.equal(helper.exitCode, null);
+    assert.equal(await readFile(options.executable, 'utf8'), 'old executable');
+    assert.equal(await readFile(options.file, 'utf8'), 'verified package fixture');
+    await assert.rejects(stat(prepared.resultFile), { code: 'ENOENT' });
+  } finally {
+    if (helper && helper.exitCode === null) {
+      const stopped = new Promise(resolve => helper.once('exit', resolve));
+      helper.kill(); // Stop only this sacrificial helper while the test parent remains alive.
+      await stopped;
+    }
+    await prepared.cleanup();
+  }
 });

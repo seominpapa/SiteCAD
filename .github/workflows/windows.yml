@@ -28,6 +28,8 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Install pinned Codex for catalog and runtime verification
         run: node scripts/install-codex.mjs runtime
+      - name: Check native update helper startup before packaging
+        run: node --test tests/desktop-update-install.test.mjs
       - name: Unit, integration and fresh native launcher installation
         shell: bash
         run: |
