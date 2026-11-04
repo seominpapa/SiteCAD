@@ -69,7 +69,8 @@ test('Mac staging validates bundle identity, version, architecture and integrity
   assert.equal(await readFile(join(staged, 'Contents/MacOS/SiteCAD'), 'utf8'), 'new executable');
   assert.ok(commands.calls.some(call => call.command.endsWith('/codesign') && call.args.includes('--strict')));
   const copy = commands.calls.find(call => call.command.endsWith('/ditto'));
-  assert.equal(copy.options.env?.PATH, '/usr/bin:/bin:/usr/sbin:/sbin');
+  const systemRoot = process.env.SystemRoot || process.env.SYSTEMROOT || process.env.WINDIR || 'C:\\Windows';
+  assert.equal(copy.options.env?.PATH, process.platform === 'win32' ? `${systemRoot}\\System32;${systemRoot}` : '/usr/bin:/bin:/usr/sbin:/sbin');
   assert.equal(copy.options.env.DITTONORSRC, undefined);
   assert.ok(commands.calls.some(call => call.command.endsWith('/hdiutil') && call.args[0] === 'detach'));
   await prepared.cleanup();

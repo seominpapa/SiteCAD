@@ -3,7 +3,21 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileFingerprints, requireHostedUpgrade, upgradePaths, verifyFileFingerprints } from '../scripts/verify-desktop-upgrade.mjs';
+import { fileFingerprints, matchingMacDesktopProcesses, requireHostedUpgrade, upgradePaths, verifyFileFingerprints } from '../scripts/verify-desktop-upgrade.mjs';
+
+test('Mac relaunch discovery accepts canonical Unicode paths but rejects other SiteCAD bundles', async () => {
+  const expected = '/private/tmp/설치 확인 SiteCAD/SiteCAD.app/Contents/MacOS/SiteCAD';
+  const observed = expected.normalize('NFD').replace('/private/tmp/', '/tmp/');
+  const other = '/private/tmp/.SiteCAD-previous-123.app/Contents/MacOS/SiteCAD';
+  const stdout = `  123 ${observed}\n  124 ${other}\n  125 ${expected} Helper\n  126 /other/SiteCAD.app/Contents/MacOS/SiteCAD\n`;
+  const canonicalize = async path => path.replace(/^\/tmp\//, '/private/tmp/');
+  assert.deepEqual(await matchingMacDesktopProcesses(stdout, expected, canonicalize), [{ pid: 123, executable: observed }]);
+  assert.deepEqual(await matchingMacDesktopProcesses('  123 /gone/SiteCAD', expected, async path => {
+    if (path.includes('/gone/')) throw Object.assign(Error('Process exited'), { code: 'ENOENT' });
+    return path;
+  }), []);
+  await assert.rejects(matchingMacDesktopProcesses(` 123 ${expected}`, expected, async () => { throw Error('Unexpected filesystem failure'); }), /filesystem failure/);
+});
 
 test('desktop upgrade verification only permits a supported clean hosted CI machine', () => {
   const hosted = { CI: 'true', GITHUB_ACTIONS: 'true', RUNNER_TEMP: tmpdir() };
