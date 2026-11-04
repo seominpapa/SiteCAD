@@ -7,11 +7,16 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { randomUUID } from 'node:crypto';
 
 const execute = promisify(execFile);
-// The first PowerShell needs a console host; its Start-Process child breaks away
+// The first PowerShell needs a console host; its native process child breaks away
 // from Node's parent-owned Windows job and does not lock the installed app.
 const windowsBootstrap = `$ErrorActionPreference = 'Stop'
 [System.IO.File]::WriteAllText($env:SITECAD_UPDATE_PHASE, 'bootstrap-start')
-$helper = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $env:SITECAD_UPDATE_CODE) -WindowStyle Hidden -PassThru
+$start = [System.Diagnostics.ProcessStartInfo]::new()
+$start.FileName = [System.IO.Path]::Combine($PSHOME, 'powershell.exe')
+$start.Arguments = '-NoProfile -NonInteractive -EncodedCommand ' + $env:SITECAD_UPDATE_CODE
+$start.UseShellExecute = $false
+$start.CreateNoWindow = $true
+$helper = [System.Diagnostics.Process]::Start($start)
 [System.IO.File]::WriteAllText($env:SITECAD_UPDATE_PHASE, 'helper-started')
 [System.IO.File]::WriteAllText(($env:SITECAD_UPDATE_PID + '.tmp'), [string]$helper.Id)
 [System.IO.File]::Move(($env:SITECAD_UPDATE_PID + '.tmp'), $env:SITECAD_UPDATE_PID)

@@ -157,7 +157,9 @@ test('Windows preparation leaves existing app intact, uses a private helper with
   assert.equal(launched.options.env.ACCESS_TOKEN, undefined);
   assert.equal(launched.options.env.OPENAI_API_KEY, undefined);
   assert.ok(!code.includes('ExecutionPolicy'));
-  assert.match(code, /Start-Process/);
+  assert.match(code, /ProcessStartInfo/);
+  assert.match(code, /UseShellExecute = \$false/);
+  assert.match(code, /CreateNoWindow = \$true/);
   assert.equal(await readFile(launched.options.env.SITECAD_UPDATE_ARMED, 'utf8'), 'install');
   assert.match(Buffer.from(launched.options.env.SITECAD_UPDATE_CODE, 'base64').toString('utf16le'), /SITECAD_UPDATE_ARMED/);
   await prepared.cleanup();
@@ -281,7 +283,7 @@ test('helper startup errors retain bounded diagnostics only in cause and keep th
 });
 
 
-test('Windows PowerShell static startup probe compares inherited and curated environments and stdin handles', { skip: process.platform !== 'win32', timeout: 25000 }, async t => {
+test('Windows PowerShell startup probes compare module-free code, cmdlet startup, and window flags', { skip: process.platform !== 'win32', timeout: 100000 }, async t => {
   const options = await fixture(t, 'win32');
   let captured;
   const prepared = await prepareUpdateInstall(options, { spawnImpl: (command, args, settings) => {
@@ -294,22 +296,24 @@ test('Windows PowerShell static startup probe compares inherited and curated env
     return child;
   } });
   await prepared.install();
-  const code = Buffer.from("Write-Output 'sitecad-powershell-probe'; exit 7", 'utf16le').toString('base64');
+  const direct = Buffer.from("[Console]::Out.WriteLine('sitecad-powershell-probe'); exit 7", 'utf16le').toString('base64');
+  const cmdlet = Buffer.from("Write-Output 'sitecad-powershell-probe'; exit 7", 'utf16le').toString('base64');
   const variants = [
-    { name: 'inherited-pipe', env: process.env, stdin: 'pipe' },
-    { name: 'curated-pipe', env: captured.settings.env, stdin: 'pipe' },
-    { name: 'curated-ignore', env: captured.settings.env, stdin: 'ignore' },
+    { name: 'baseline-direct', env: process.env, windowsHide: false, nonInteractive: false, code: direct },
+    { name: 'curated-direct', env: captured.settings.env, windowsHide: true, nonInteractive: true, code: direct },
+    { name: 'curated-cmdlet', env: captured.settings.env, windowsHide: true, nonInteractive: true, code: cmdlet },
   ];
   const proofs = variants.map(variant => {
-    const result = spawnSync(captured.command, ['-NoProfile', '-NonInteractive', '-EncodedCommand', code], {
-      env: variant.env, cwd: options.updatesDir, detached: false, windowsHide: true,
-      stdio: [variant.stdin, 'pipe', 'pipe'], encoding: 'utf8', input: variant.stdin === 'pipe' ? '' : undefined, timeout: 5000,
+    const started = Date.now();
+    const result = spawnSync(captured.command, ['-NoProfile', ...(variant.nonInteractive ? ['-NonInteractive'] : []), '-EncodedCommand', variant.code], {
+      env: variant.env, cwd: options.updatesDir, detached: false, windowsHide: variant.windowsHide,
+      stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf8', input: '', timeout: 30000,
     });
-    return { name: variant.name, status: result.status, error: result.error?.code, stdout: result.stdout?.slice(0, 4096), stderr: result.stderr?.slice(0, 4096) };
+    return { name: variant.name, durationMs: Date.now() - started, status: result.status, error: result.error?.code, stdout: result.stdout?.slice(0, 4096), stderr: result.stderr?.slice(0, 4096) };
   });
   console.log('PowerShell static startup probes: ' + JSON.stringify(proofs));
-  assert.equal(proofs[0].status, 7, 'PowerShell baseline must execute static encoded code');
-  assert.equal(proofs[1].status, 7, 'Curated environment with a closed stdin pipe must execute static encoded code');
+  assert.equal(proofs[0].status, 7, 'PowerShell baseline must execute module-free encoded code');
+  assert.equal(proofs[1].status, 7, 'Curated hidden PowerShell must execute module-free encoded code');
 });
 
 test('real Windows helper survives the spawning Node parent exit and waits before touching the installer', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
