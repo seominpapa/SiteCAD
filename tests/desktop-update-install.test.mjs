@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { cp, mkdir, mkdtemp, readFile, realpath, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { prepareUpdateInstall, windowsUpdateArguments } from '../desktop/update-install.mjs';
 
@@ -97,6 +97,30 @@ test('Mac rejects wrong metadata, incompatible architecture, failed signatures a
   }
 });
 
+test('Mac helper receives staged paths as arguments and runs independently without touching the original app', async t => {
+  const options = await fixture(t);
+  let launched;
+  const prepared = await prepareUpdateInstall(options, { ...fakeCommands(options), spawnImpl: (command, args, settings) => {
+    launched = { command, args, settings };
+    const child = new EventEmitter();
+    child.exitCode = null;
+    child.kill = () => {};
+    child.unref = () => {};
+    child.stdout = new EventEmitter();
+    child.stdout.unref = () => {};
+    child.stderr = new EventEmitter();
+    child.stderr.unref = () => {};
+    queueMicrotask(() => { void writeFile(args[7], 'ready'); });
+    return child;
+  } });
+  await prepared.install();
+  assert.equal(launched.command, '/bin/sh');
+  assert.equal(launched.settings.detached, true);
+  assert.equal(launched.settings.stdio[0], 'ignore');
+  assert.equal(launched.args[2], join(options.executable, '../../..'));
+  assert.equal(await readFile(options.executable, 'utf8'), 'old executable');
+});
+
 test('Mac refuses a symlink installation and app translocation before staging', { skip: process.platform === 'win32' }, async t => {
   const options = await fixture(t);
   const app = join(options.executable, '../../..');
@@ -128,6 +152,7 @@ test('Windows preparation leaves existing app intact, uses a private helper with
   assert.equal(launched.options.env.SITECAD_UPDATE_INSTALLER, options.file);
   assert.equal(launched.options.env.SITECAD_UPDATE_DESTINATION, join(options.executable, '..'));
   assert.equal(launched.options.shell, false);
+  assert.equal(launched.options.stdio[0], 'pipe');
   assert.equal(launched.options.detached, false, 'Windows PowerShell must retain a usable console host until script startup');
   assert.equal(launched.options.env.ACCESS_TOKEN, undefined);
   assert.equal(launched.options.env.OPENAI_API_KEY, undefined);
@@ -225,6 +250,7 @@ test('helper startup errors retain bounded diagnostics only in cause and keep th
   const options = await fixture(t, 'win32');
   const child = new EventEmitter();
   child.stderr = new EventEmitter();
+  child.stdout = new EventEmitter();
   child.exitCode = null;
   child.signalCode = null;
   child.unref = () => {};
@@ -233,6 +259,7 @@ test('helper startup errors retain bounded diagnostics only in cause and keep th
     assert.equal(settings.stdio[2], 'pipe');
     queueMicrotask(() => {
       child.stderr.emit('data', Buffer.from('Windows helper parse failure ' + 'x'.repeat(10000)));
+      child.stdout.emit('data', Buffer.from('Windows helper output ' + 'x'.repeat(10000)));
       child.exitCode = 1;
     });
     return child;
@@ -243,11 +270,47 @@ test('helper startup errors retain bounded diagnostics only in cause and keep th
     assert.equal(error.cause.exitCode, 1);
     assert.match(error.cause.stderr, /^Windows helper parse failure/);
     assert.ok(error.cause.stderr.length <= 4096);
+    assert.match(error.cause.stdout, /^Windows helper output/);
+    assert.ok(error.cause.stdout.length <= 4096);
+    assert.equal(error.cause.bootstrapPhase, '');
+    assert.equal(error.cause.hasPid, false);
+    assert.equal(error.cause.hasReady, false);
     return true;
   });
   await prepared.cleanup();
 });
 
+
+test('Windows PowerShell static startup probe compares inherited and curated environments and stdin handles', { skip: process.platform !== 'win32', timeout: 25000 }, async t => {
+  const options = await fixture(t, 'win32');
+  let captured;
+  const prepared = await prepareUpdateInstall(options, { spawnImpl: (command, args, settings) => {
+    captured = { command, settings };
+    const child = new EventEmitter();
+    child.exitCode = 0;
+    child.kill = () => {};
+    child.unref = () => {};
+    queueMicrotask(() => { void acknowledgeFakeHelper(settings.env); });
+    return child;
+  } });
+  await prepared.install();
+  const code = Buffer.from("Write-Output 'sitecad-powershell-probe'; exit 7", 'utf16le').toString('base64');
+  const variants = [
+    { name: 'inherited-pipe', env: process.env, stdin: 'pipe' },
+    { name: 'curated-pipe', env: captured.settings.env, stdin: 'pipe' },
+    { name: 'curated-ignore', env: captured.settings.env, stdin: 'ignore' },
+  ];
+  const proofs = variants.map(variant => {
+    const result = spawnSync(captured.command, ['-NoProfile', '-NonInteractive', '-EncodedCommand', code], {
+      env: variant.env, cwd: options.updatesDir, detached: false, windowsHide: true,
+      stdio: [variant.stdin, 'pipe', 'pipe'], encoding: 'utf8', input: variant.stdin === 'pipe' ? '' : undefined, timeout: 5000,
+    });
+    return { name: variant.name, status: result.status, error: result.error?.code, stdout: result.stdout?.slice(0, 4096), stderr: result.stderr?.slice(0, 4096) };
+  });
+  console.log('PowerShell static startup probes: ' + JSON.stringify(proofs));
+  assert.equal(proofs[0].status, 7, 'PowerShell baseline must execute static encoded code');
+  assert.equal(proofs[1].status, 7, 'Curated environment with a closed stdin pipe must execute static encoded code');
+});
 
 test('real Windows helper survives the spawning Node parent exit and waits before touching the installer', { skip: process.platform !== 'win32', timeout: 30000 }, async t => {
   const options = await fixture(t, 'win32');

@@ -10,9 +10,12 @@ const execute = promisify(execFile);
 // The first PowerShell needs a console host; its Start-Process child breaks away
 // from Node's parent-owned Windows job and does not lock the installed app.
 const windowsBootstrap = `$ErrorActionPreference = 'Stop'
+[System.IO.File]::WriteAllText($env:SITECAD_UPDATE_PHASE, 'bootstrap-start')
 $helper = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $env:SITECAD_UPDATE_CODE) -WindowStyle Hidden -PassThru
+[System.IO.File]::WriteAllText($env:SITECAD_UPDATE_PHASE, 'helper-started')
 [System.IO.File]::WriteAllText(($env:SITECAD_UPDATE_PID + '.tmp'), [string]$helper.Id)
 [System.IO.File]::Move(($env:SITECAD_UPDATE_PID + '.tmp'), $env:SITECAD_UPDATE_PID)
+[System.IO.File]::WriteAllText($env:SITECAD_UPDATE_PHASE, 'pid-written')
 `;
 const failure = () => Error('업데이트를 준비하지 못했습니다. 앱을 설치한 폴더의 쓰기 권한과 설치 파일을 확인해 주세요. 기존 도면과 설정은 변경하지 않았습니다.');
 function checkedPath(path) {
@@ -33,8 +36,11 @@ function helperEnvironment(values) {
 }
 
 async function startHelper({ command, args, environment, readyFile, cwd, spawnImpl, readyTimeoutMs, platform, parentPid }) {
-  const child = spawnImpl(command, args, { cwd, env: helperEnvironment(environment), detached: platform !== 'win32', windowsHide: true, shell: false, stdio: ['ignore', 'ignore', 'pipe'] });
-  let spawnError, helperPid, stderr = '';
+  const child = spawnImpl(command, args, { cwd, env: helperEnvironment(environment), detached: platform !== 'win32', windowsHide: true, shell: false, stdio: [platform === 'win32' ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
+  let spawnError, helperPid, stderr = '', stdout = '';
+  child.stdin?.on('error', () => {});
+  child.stdin?.end();
+  child.stdout?.on('data', chunk => { stdout = (stdout + String(chunk)).slice(0, 4096); });
   child.stderr?.on('data', chunk => { stderr = (stderr + String(chunk)).slice(0, 4096); });
   child.once('error', error => { spawnError = error; });
   const deadline = Date.now() + readyTimeoutMs;
@@ -55,6 +61,7 @@ async function startHelper({ command, args, environment, readyFile, cwd, spawnIm
           await rename(`${environment.SITECAD_UPDATE_ARMED}.tmp`, environment.SITECAD_UPDATE_ARMED);
         }
         child.stderr?.unref?.();
+        child.stdout?.unref?.();
         child.unref();
         return;
       }
@@ -67,7 +74,9 @@ async function startHelper({ command, args, environment, readyFile, cwd, spawnIm
     }
     child.kill();
     const wrapped = failure();
-    wrapped.cause = { phase: 'helper-start', exitCode: child.exitCode, signal: child.signalCode ?? null, spawnCode: spawnError?.code ?? null, stderr };
+    wrapped.cause = { phase: 'helper-start', exitCode: child.exitCode, signal: child.signalCode ?? null, spawnCode: spawnError?.code ?? null, stderr, stdout,
+      bootstrapPhase: platform === 'win32' ? (await readFile(environment.SITECAD_UPDATE_PHASE, 'utf8').catch(() => '')).slice(0, 32) : '',
+      hasPid: Boolean(helperPid), hasReady: await readFile(readyFile, 'utf8').then(text => text === 'ready').catch(() => false) };
     throw wrapped;
   }
 }
@@ -166,7 +175,7 @@ export async function prepareUpdateInstall({ file, version, executable, updatesD
           args = ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(windowsBootstrap, 'utf16le').toString('base64')];
           environment = { SITECAD_UPDATE_PARENT: String(parentPid), SITECAD_UPDATE_INSTALLER: file, SITECAD_UPDATE_DESTINATION: dirname(executable),
             SITECAD_UPDATE_RESULT: resultFile, SITECAD_UPDATE_VERSION: version, SITECAD_UPDATE_READY: readyFile, SITECAD_UPDATE_DOWNLOAD: managedDownload,
-            SITECAD_UPDATE_ARGUMENTS: JSON.stringify(windowsUpdateArguments(dirname(executable))), SITECAD_UPDATE_PID: join(job, 'helper.pid'),
+            SITECAD_UPDATE_ARGUMENTS: JSON.stringify(windowsUpdateArguments(dirname(executable))), SITECAD_UPDATE_PID: join(job, 'helper.pid'), SITECAD_UPDATE_PHASE: join(job, 'phase'),
             SITECAD_UPDATE_ARMED: join(job, 'armed'), SITECAD_UPDATE_CODE: Buffer.from(await readFile(helper, 'utf8'), 'utf16le').toString('base64') };
         }
         await startHelper({ command, args, environment, readyFile, cwd: job, spawnImpl, readyTimeoutMs, platform, parentPid });
