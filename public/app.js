@@ -2,6 +2,7 @@ import { CadEditor } from './cad.js';
 import { desktopRequest, executeDesktopCad, startDesktopBridge } from './desktop.js';
 import { appendProvenance, createMcpSettings } from './mcp-settings.js';
 import { createSkillMenu } from './skills.js';
+import { createSkillShare } from './skill-share.js';
 import { createChatPanel } from './chat-panel.js';
 import { createChatSessionsUI } from './chat-sessions.js';
 import { createChatConnections, parseConnectionCommand } from './chat-connections.js';
@@ -34,12 +35,14 @@ let unsaved = false;
 let stopBridge;
 let authPending = false;
 let connectionBusy = false;
-const isBusy = () => busy || connectionBusy || browserFrozen || steeringPending || cancelPending;
+let skillSharing = false;
+const isBusy = () => busy || connectionBusy || skillSharing || browserFrozen || steeringPending || cancelPending;
 const mcpSettings = createMcpSettings({ isBusy, notify: notice });
 const chatConnections = createChatConnections({ isBusy: () => busy || browserFrozen || steeringPending || cancelPending, notify: notice,
   onPending(value) { connectionBusy = value; updateControls(); }, onChange: () => settings.refresh(),
   onOpenSettings: (tab, id) => settings.open(tab, id) });
 const skillMenu = createSkillMenu({ isBusy, onChange: updateControls });
+const skillShare = createSkillShare({ isBusy, getChatId: () => activeChatId ?? chatSessions.currentId(), onPending(value) { skillSharing = value; updateControls(); } });
 const chatPanel = createChatPanel();
 const chatRuntime = createChatRuntime({ isBusy, onError: message => notice(message, true), onChange: updateControls });
 const settings = createSettings({isBusy,onChange:async({llmChanged}={})=>{
@@ -87,6 +90,7 @@ function updateControls() {
   mcpSettings.sync();
   chatConnections.sync();
   skillMenu.sync();
+  skillShare.sync();
   chatSessions.sync();
   chatRuntime.sync();
   settings.sync();
@@ -190,6 +194,7 @@ async function checkConnection() {
     chatPanel.update(body.data);
     chatRuntime.update(body.data);
     settings.update(body.data);
+    skillShare.update(body.data);
     if (desktop) await chatSessions.init();
     if (body.data.editorInstalled === false) notice('OpenCADStudio 파일이 준비되지 않았습니다. 프로젝트 실행 안내를 확인해 주세요.', true);
   } catch (error) {

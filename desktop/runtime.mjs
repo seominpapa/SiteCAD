@@ -26,6 +26,18 @@ export function isAllowedAuthUrl(value) {
   } catch { return false; }
 }
 
+export function skillShareDownload(name, url, base) {
+  return /^SiteCAD-skills-\d+\.\d+\.\d+-\d{8}\.zip$/.test(name) && typeof url === 'string' && url.startsWith(`blob:${base}/`);
+}
+
+export function isAllowedSkillShareMail(value) {
+  try {
+    const url = new URL(value);
+    return value.length <= 2048 && url.protocol === 'mailto:' && url.pathname === 'seominpapa@gmail.com' && !url.hash &&
+      [...url.searchParams].every(([key, text]) => ['subject', 'body'].includes(key) && !/[\r\n\0]/.test(text));
+  } catch { return false; }
+}
+
 export function createSecureStore({ file, safeStorage }) {
   function requireKeychain() {
     if (!safeStorage.isEncryptionAvailable()) throw Error('macOS Keychain is unavailable. Unlock the login keychain and restart SiteCAD.');

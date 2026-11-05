@@ -17,6 +17,21 @@ function fixture(decision = 'approve') {
   const api = createSitecadExtensions({skills,installer,registry,onApproval:async value => {approvals.push(value); return decision;},isCurrent:()=>true,getSignal:()=>new AbortController().signal,getConversation:async()=>[{role:'user',text:'이 대화를 스킬로'}]});
   return {api,approvals,installed,removed};
 }
+test('skill creation and overwrite preserve contextual explanation in the save and approval payloads', async () => {
+  const background = { situation: '도면 검토', problem: '직경 연결 누락', changeReason: '범례 먼저 조회', examplePrompt: '철근량 확인해줘', expectedResult: '직경별 비교표' };
+  const t = fixture();
+  const draft = { action: 'save', name: 'my-review', description: '철근 검토', body: '범례를 조회합니다.', background };
+  assert.deepEqual((await t.api.call('manage_skills', draft)).background, background);
+  await t.api.call('manage_skills', { ...draft, expectedHash: 'old' });
+  assert.deepEqual(t.approvals[0].arguments.background, background);
+});
+test('skills saved without background derive it from actual requests and never invent verification',async()=>{
+  const t=fixture();
+  const saved=await t.api.call('manage_skills',{action:'save',name:'my-review',description:'철근 검토',body:'범례를 조회합니다.'});
+  assert.equal(saved.background.examplePrompt,'이 대화를 스킬로');
+  assert.match(saved.background.problem,/미확인/);
+  assert.match(saved.background.changeReason,/my-review/);
+});
 test('managed MCP install waits for consent, stages registration, and cleanup removes unused files',async()=>{
   const t=fixture();
   assert.equal((await t.api.call('manage_mcp',{action:'inspect',url:'https://github.com/example/tool'})).planId,'plan');

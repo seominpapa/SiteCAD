@@ -26,7 +26,7 @@ function fixture() {
     currentId: () => 'test-chat', isPending: () => false, begin() {}, finish() {}, fail() {}, event() {}, selectedModel() {} });
   const document = { getElementById: id => { assert.ok(ids[id], id); return ids[id]; }, querySelectorAll: () => [], createElement: tag => Object.assign(new Element(), {tagName: tag, ownerDocument: document}) };
   const context = vm.createContext({ document, renderChatContent,
-    CadEditor: class {}, createMcpSettings: stub, createSkillMenu: stub, createChatPanel: stub, createChatRuntime: stub, createSettings: stub,
+    CadEditor: class {}, createMcpSettings: stub, createSkillMenu: stub, createSkillShare: stub, createChatPanel: stub, createChatRuntime: stub, createSettings: stub,
     createChatConnections: stub, createChatSessionsUI: options => {
       let selectedChat = 'test-chat';
       const select = () => { if (!options.isBusy()) { selectedChat = 'new-chat'; options.onSelect({messages:[]}); } };

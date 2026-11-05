@@ -13,7 +13,7 @@ import { sanitizeDiagnostic, verifyDesktop } from './verify-desktop.mjs';
 
 const execute = promisify(execFile);
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const previousVersion = '0.16.2';
+const previousVersion = '0.16.3';
 
 export function requireHostedUpgrade(env = process.env, platform = process.platform, arch = process.arch) {
   if (env.CI !== 'true' || env.GITHUB_ACTIONS !== 'true' || !isAbsolute(env.RUNNER_TEMP ?? '')) throw Error('Desktop upgrade verification requires a clean hosted CI machine.');

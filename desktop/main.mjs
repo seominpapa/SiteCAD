@@ -4,7 +4,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from '../server.mjs';
 import { createDesktopController } from '../lib/desktop-controller.mjs';
-import { createSecureStore, desktopPaths, installBundledCodex, isAllowedAuthUrl, drawingFolderInBundle } from './runtime.mjs';
+import { createSecureStore, desktopPaths, installBundledCodex, isAllowedAuthUrl, drawingFolderInBundle, skillShareDownload, isAllowedSkillShareMail } from './runtime.mjs';
 import { createBrowserAccess } from '../lib/browser-access.mjs';
 import { createDesktopUpdater } from './updater.mjs';
 import { prepareUpdateInstall } from './update-install.mjs';
@@ -165,7 +165,7 @@ async function start() {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     try {
       const target = new URL(url);
-      if (target.protocol === 'https:' && !target.username && !target.password) void shell.openExternal(target.href).catch(() => {});
+      if (target.protocol === 'https:' && !target.username && !target.password || isAllowedSkillShareMail(url)) void shell.openExternal(target.href).catch(() => {});
     } catch { /* Invalid reference URLs are ignored. */ }
     return { action: 'deny' };
   });
@@ -179,6 +179,10 @@ async function start() {
   mainWindow.webContents.session.setPermissionCheckHandler(() => false);
   mainWindow.webContents.session.on('will-download', (event, item) => {
     const suggested = item.getFilename().replace(/[^\p{L}\p{N}_. -]/gu, '_');
+    if (skillShareDownload(suggested, item.getURL(), baseUrl)) {
+      item.setSaveDialogOptions({ title: '스킬 개선안 ZIP 저장', defaultPath: join(app.getPath('downloads'), suggested), filters: [{ name: '스킬 ZIP', extensions: ['zip'] }] });
+      return;
+    }
     if (!/\.dwg$/i.test(suggested)) { event.preventDefault(); return; }
     // Chromium owns the Blob bytes; use its native Save As flow without granting renderer filesystem access.
     item.setSaveDialogOptions({ title: 'DWG 도면 저장', defaultPath: join(controller.storageStatus().path, suggested), filters: [{ name: 'AutoCAD DWG', extensions: ['dwg'] }] });

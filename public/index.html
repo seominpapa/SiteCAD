@@ -36,7 +36,7 @@
       <aside id="sitecad-chat-panel" class="chat-panel" aria-labelledby="chat-title">
         <button id="chat-collapse" class="chat-edge-toggle chat-edge-close" type="button" aria-label="채팅 접기" title="채팅 접기" aria-controls="sitecad-chat-panel" aria-expanded="true">›</button>
         <div class="chat-heading"><div><p class="eyebrow">DRAWING ASSISTANT</p><h2 id="chat-title">도면에 요청하기</h2></div><span class="local-label">LOCAL</span></div>
-        <div id="skill-reference" class="skill-reference" hidden><div class="skill-menu-controls"><button id="skill-toggle" type="button" aria-expanded="false" aria-controls="skill-menu" hidden>스킬목록(/)</button><span class="skill-reference-note">자연어 요청도 지원</span></div><section id="skill-menu" class="skill-menu" aria-label="설치된 스킬" hidden><p id="skill-status" role="status"></p><div id="skill-list"></div></section></div>
+        <div id="skill-reference" class="skill-reference" hidden><div class="skill-menu-controls"><button id="skill-toggle" type="button" aria-expanded="false" aria-controls="skill-menu" hidden>스킬목록(/)</button><span class="skill-reference-note">자연어 요청도 지원</span></div><section id="skill-menu" class="skill-menu" aria-label="설치된 스킬" hidden><p id="skill-status" role="status"></p><div id="skill-list"></div><button id="skill-share-open" type="button" aria-haspopup="dialog" aria-controls="skill-share-dialog" hidden>전체 스킬 ZIP 내보내기</button></section></div>
         <div id="chat-session-controls" class="chat-session-controls" hidden><label class="sr-only" for="chat-select">채팅 선택</label><select id="chat-select" aria-label="채팅 선택" disabled><option>채팅을 준비하고 있습니다</option></select><button id="chat-new" type="button" disabled>새 채팅</button><button id="chat-delete" type="button" disabled>삭제</button><p id="chat-history-status" role="status" aria-live="polite"></p></div>
         <div id="auth-help" class="auth-help" hidden><strong>AI 연결이 필요합니다.</strong><p>설정에서 사용할 AI 서비스와 로그인 또는 API 키 연결을 선택해 주세요.</p></div>
         <div id="messages" class="messages" role="log" aria-label="도면 작업 대화" aria-live="polite" aria-relevant="additions">
@@ -77,6 +77,25 @@
         <p id="model-description" class="model-description"></p>
         <p id="model-notice" class="model-notice" role="status"></p>
         <div class="model-dialog-actions"><button id="models-refresh" type="button" disabled>목록 새로 고침</button><button id="model-apply" class="primary" type="button" disabled>이 모델 사용</button></div>
+      </div>
+    </dialog>
+    <dialog id="skill-share-dialog" class="model-dialog" aria-labelledby="skill-share-title">
+      <div class="mcp-dialog-heading"><h2 id="skill-share-title">스킬 개선안 내보내기</h2><button id="skill-share-close" type="button" aria-label="스킬 내보내기 닫기">닫기</button></div>
+      <div class="model-dialog-content skill-share-content">
+        <p>스킬 폴더 전체와 스킬별 개선 배경 문서를 ZIP으로 저장합니다. 현재 대화와 스킬 기록에서 사용 상황, 문제와 변경 이유를 자동으로 정리합니다. 별도 질문에 답하거나 설명을 입력할 필요가 없습니다.</p>
+        <p>로그인·API 설정·전체 채팅 기록·도면은 포함하지 않습니다. 설명에는 현재 대화에서 필요한 요청·결과가 요약됩니다. 스킬이나 설명에 개인정보·현장 정보가 있을 수 있으므로 보내기 전에 ZIP 내용을 확인해 주세요.</p>
+        <form id="skill-share-form">
+          <dl class="skill-share-preview" aria-label="자동 생성된 개선 배경">
+            <dt>사용 상황</dt><dd id="skill-share-situation"></dd>
+            <dt>발생한 문제</dt><dd id="skill-share-problem"></dd>
+            <dt>생성·수정 이유와 변경 내용</dt><dd id="skill-share-changeReason"></dd>
+            <dt>사용자 요청 예시</dt><dd id="skill-share-examplePrompt"></dd>
+            <dt>기대 결과·확인 결과·미확인 사항</dt><dd id="skill-share-expectedResult"></dd>
+          </dl>
+          <button id="skill-share-download" class="primary" type="submit">설명 문서와 전체 스킬 ZIP 다운로드</button>
+        </form>
+        <p id="skill-share-notice" class="model-notice" role="status"></p>
+        <a id="skill-share-email" target="_blank" rel="noopener noreferrer" hidden>seominpapa@gmail.com으로 메일 작성 · ZIP 직접 첨부</a>
       </div>
     </dialog>
     <dialog id="settings-dialog" aria-labelledby="settings-title">
