@@ -25,16 +25,16 @@ async function setup(t,{connected=true,pluginFactory,referenceSecretStore,refere
 }
 test('skill sharing reads the most recent recorded background and packages the local skills without a runtime',async t=>{
   const {controller,dataDir,calls}=await setup(t);
-  assert.match((await controller.skillsExportContext()).background.examplePrompt,/미기록/);
+  assert.ok((await controller.skillsExport({})).bytes.includes(Buffer.from('미기록')));
   const {createSitecadSkills}=await import('../lib/sitecad-skills.mjs');
   const skills=await createSitecadSkills({codexHome:join(dataDir,'codex-home')});
   const background={situation:'철근량 검증',problem:'기호별 직경 연결 누락',changeReason:'범례부터 조회',examplePrompt:'철근량 검증해줘',expectedResult:'직경별 비교표'};
   await skills.save({name:'field-review',description:'현장 검토',body:'도면 범례를 조회합니다.',background});
-  assert.deepEqual(await controller.skillsExportContext(),{background});
   const archive=await controller.skillsExport({});
   assert.match(archive.name,/^SiteCAD-skills-\d+\.\d+\.\d+-\d{8}\.zip$/);
   assert.equal(archive.bytes.readUInt32LE(0),0x04034b50);
   assert.ok(archive.bytes.includes(Buffer.from('개선배경/field-review.md')));
+  for(const value of Object.values(background))assert.ok(archive.bytes.includes(Buffer.from(value)));
   assert.equal(calls.length,0);
   await assert.rejects(controller.skillsExport(background),/설정/);
 });
@@ -47,11 +47,9 @@ test('skill report records the current user request automatically without a back
   });
   const request='철근 직경을 범례와 대조하도록 스킬을 만들어줘';
   await controller.chat({chatId:chat.id,message:request,context,history:[]});
-  const result=await controller.skillsExportContext({chatId:chat.id});
-  assert.equal(result.background.examplePrompt,request);
-  assert.match(result.background.problem,/미확인/);
   const archive=await controller.skillsExport({chatId:chat.id});
   assert.ok(archive.bytes.includes(Buffer.from(request)));
+  assert.ok(archive.bytes.includes(Buffer.from('미확인')));
 });
 test('default skills and explicit native invocation remain inside SiteCAD; chat history is per session',async t=>{
   const {controller,calls}=await setup(t);

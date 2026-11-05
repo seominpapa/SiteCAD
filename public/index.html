@@ -82,20 +82,12 @@
     <dialog id="skill-share-dialog" class="model-dialog" aria-labelledby="skill-share-title">
       <div class="mcp-dialog-heading"><h2 id="skill-share-title">스킬 개선안 내보내기</h2><button id="skill-share-close" type="button" aria-label="스킬 내보내기 닫기">닫기</button></div>
       <div class="model-dialog-content skill-share-content">
-        <p>스킬 폴더 전체와 스킬별 개선 배경 문서를 ZIP으로 저장합니다. 현재 대화와 스킬 기록에서 사용 상황, 문제와 변경 이유를 자동으로 정리합니다. 별도 질문에 답하거나 설명을 입력할 필요가 없습니다.</p>
-        <p>로그인·API 설정·전체 채팅 기록·도면은 포함하지 않습니다. 설명에는 현재 대화에서 필요한 요청·결과가 요약됩니다. 스킬이나 설명에 개인정보·현장 정보가 있을 수 있으므로 보내기 전에 ZIP 내용을 확인해 주세요.</p>
+        <p>스킬 폴더 전체와 스킬별 생성·수정 배경 문서를 자동으로 묶어 ZIP으로 저장합니다.</p>
+        <p>저장한 ZIP을 <strong>seominpapa@gmail.com</strong>으로 직접 첨부해 보내 주세요. 이메일은 자동 발송되지 않습니다.</p>
         <form id="skill-share-form">
-          <dl class="skill-share-preview" aria-label="자동 생성된 개선 배경">
-            <dt>사용 상황</dt><dd id="skill-share-situation"></dd>
-            <dt>발생한 문제</dt><dd id="skill-share-problem"></dd>
-            <dt>생성·수정 이유와 변경 내용</dt><dd id="skill-share-changeReason"></dd>
-            <dt>사용자 요청 예시</dt><dd id="skill-share-examplePrompt"></dd>
-            <dt>기대 결과·확인 결과·미확인 사항</dt><dd id="skill-share-expectedResult"></dd>
-          </dl>
-          <button id="skill-share-download" class="primary" type="submit">설명 문서와 전체 스킬 ZIP 다운로드</button>
+          <button id="skill-share-download" class="primary" type="submit">ZIP 저장</button>
         </form>
         <p id="skill-share-notice" class="model-notice" role="status"></p>
-        <a id="skill-share-email" target="_blank" rel="noopener noreferrer" hidden>seominpapa@gmail.com으로 메일 작성 · ZIP 직접 첨부</a>
       </div>
     </dialog>
     <dialog id="settings-dialog" aria-labelledby="settings-title">

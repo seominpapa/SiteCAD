@@ -98,6 +98,8 @@ jobs:
           if ($uninstall.ExitCode -ne 0 -or !(Test-Path "$destination\drawings\preserve.txt")) { throw 'Uninstaller removed a user drawing or failed' }
           @{ installed=$true; forcedRestart=$true; normalRestart=$true; closeConfirmationVerified=$true; uninstallSucceeded=$true; userDrawingPreserved=$true } | ConvertTo-Json | Out-File dist/verification/windows-install.json
       - name: Upgrade previous public desktop and preserve drawings and settings
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/verify-desktop-upgrade.mjs
       - name: Save platform installers and verification evidence
         if: always()

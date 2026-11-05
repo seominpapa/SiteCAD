@@ -7,7 +7,6 @@ const background = { situation: '철근 도면 검토', problem: '기호를 직�
 test('skill ZIP export uses an owner-checked same-origin POST and binary attachment', async t => {
   const calls = [];
   const app = createApp({ desktop: {
-    skillsExportContext: async () => ({ background }),
     skillsExport: async input => { calls.push(input); return { name: 'SiteCAD-skills-0.16.4.zip', bytes: Buffer.from('PK\x03\x04zip') }; },
   } });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
@@ -15,7 +14,6 @@ test('skill ZIP export uses an owner-checked same-origin POST and binary attachm
   const base = `http://127.0.0.1:${app.address().port}`;
   const input = {chatId:'selected-chat'};
   const post = headers => fetch(`${base}/api/desktop/skills/export`, { method: 'POST', headers, body: JSON.stringify(input) });
-  assert.deepEqual((await (await fetch(`${base}/api/desktop/skills/export-context`,{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify(input)})).json()).data, { background });
   assert.equal((await fetch(`${base}/api/desktop/skills/export`)).status, 403);
   assert.equal((await post({ Origin: 'https://elsewhere.example', 'Content-Type': 'application/json' })).status, 403);
   assert.equal((await post({ Origin: base, 'Content-Type': 'text/plain' })).status, 415);

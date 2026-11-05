@@ -4,7 +4,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from '../server.mjs';
 import { createDesktopController } from '../lib/desktop-controller.mjs';
-import { createSecureStore, desktopPaths, installBundledCodex, isAllowedAuthUrl, drawingFolderInBundle, skillShareDownload, isAllowedSkillShareMail } from './runtime.mjs';
+import { createSecureStore, desktopPaths, installBundledCodex, isAllowedAuthUrl, drawingFolderInBundle, skillShareDownload } from './runtime.mjs';
 import { createBrowserAccess } from '../lib/browser-access.mjs';
 import { createDesktopUpdater } from './updater.mjs';
 import { prepareUpdateInstall } from './update-install.mjs';
@@ -165,7 +165,7 @@ async function start() {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     try {
       const target = new URL(url);
-      if (target.protocol === 'https:' && !target.username && !target.password || isAllowedSkillShareMail(url)) void shell.openExternal(target.href).catch(() => {});
+      if (target.protocol === 'https:' && !target.username && !target.password) void shell.openExternal(target.href).catch(() => {});
     } catch { /* Invalid reference URLs are ignored. */ }
     return { action: 'deny' };
   });

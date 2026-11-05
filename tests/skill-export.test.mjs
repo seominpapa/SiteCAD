@@ -95,6 +95,15 @@ test('requires explicit bounded explanation fields and trusted app metadata', as
   }
   for (const metadata of [{ ...options, codexHome: '.' }, { ...options, version: '../unsafe' }, { ...options, version: '' }]) await assert.rejects(exportSkills(metadata, explanation));
 });
+test('multiple improved skills retain separate explanations in a single ZIP',async t=>{
+  const {options,codexHome}=await fixture(t);
+  const store=await createSitecadSkills({codexHome});
+  for(const [name,problem] of [['rebar-check','철근 직경 연결 누락'],['earthwork-check','횡단면 축척 불일치']])await store.save({name,description:problem,body:'검토 절차',background:{...explanation,problem}});
+  const entries=readZip((await exportSkills(options,explanation)).bytes);
+  assert.match(entries.get('개선배경/rebar-check.md').toString(),/철근 직경 연결 누락/);
+  assert.match(entries.get('개선배경/earthwork-check.md').toString(),/횡단면 축척 불일치/);
+  assert.doesNotMatch(entries.get('개선배경/rebar-check.md').toString(),/횡단면 축척 불일치/);
+});
 
 test('rejects symlinks in roots and nested resources rather than leaking their targets', async t => {
   const { options, root, codexHome, skills } = await fixture(t);

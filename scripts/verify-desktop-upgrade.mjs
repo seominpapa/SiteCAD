@@ -15,6 +15,13 @@ const execute = promisify(execFile);
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const previousVersion = '0.16.3';
 
+export function upgradeMetadataRequest(env = process.env) {
+  if (env.GITHUB_TOKEN && (env.CI !== 'true' || env.GITHUB_ACTIONS !== 'true')) throw Error('GitHub metadata authorization requires hosted CI.');
+  return { url: `https://api.github.com/repos/seominpapa/SiteCAD/releases/tags/v${previousVersion}`, options: {
+    headers: { 'User-Agent': 'SiteCAD-native-upgrade-verification', ...(env.GITHUB_TOKEN ? { Authorization: `Bearer ${env.GITHUB_TOKEN}` } : {}) }, redirect: 'error', signal: AbortSignal.timeout(30000),
+  } };
+}
+
 export function requireHostedUpgrade(env = process.env, platform = process.platform, arch = process.arch) {
   if (env.CI !== 'true' || env.GITHUB_ACTIONS !== 'true' || !isAbsolute(env.RUNNER_TEMP ?? '')) throw Error('Desktop upgrade verification requires a clean hosted CI machine.');
   if (!(platform === 'darwin' && arch === 'arm64' || platform === 'win32' && arch === 'x64')) throw Error('Desktop upgrade verification requires a supported platform.');
@@ -145,9 +152,8 @@ export async function verifyDesktopUpgrade() {
   const secret = join(profile, `upgrade-credential-${basename(directory)}.enc`);
   let parent, prepared, result, stage = 'previous public installer';
   try {
-    const response = await fetch(`https://api.github.com/repos/seominpapa/SiteCAD/releases/tags/v${previousVersion}`, {
-      headers: { 'User-Agent': 'SiteCAD-native-upgrade-verification' }, redirect: 'error', signal: AbortSignal.timeout(30000),
-    });
+    const metadata = upgradeMetadataRequest();
+    const response = await fetch(metadata.url, metadata.options);
     assert.equal(response.status, 200, 'Previous public installer metadata must be available');
     const release = await response.json();
     assert.equal(release.tag_name, `v${previousVersion}`);

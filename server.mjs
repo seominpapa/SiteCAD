@@ -147,7 +147,6 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
     if (req.headers['content-type']?.split(';')[0].trim() !== 'application/json') throw error('JSON 요청만 지원합니다.', 415);
     const body = await readBody(req, path === '/api/desktop/cad/result' ? 42 * 1024 * 1024 : 128 * 1024);
     browserAccess?.assertOwner(req);
-    if (path === '/api/desktop/skills/export-context') return respond(res, 200, { ok: true, data: await desktop.skillsExportContext(body) });
     if (path === '/api/desktop/skills/export') {
       const archive = await desktop.skillsExport(body);
       res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Length': archive.bytes.length, 'Content-Disposition': `attachment; filename="${archive.name}"`, 'Cache-Control': 'no-store' });
