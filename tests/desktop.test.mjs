@@ -63,9 +63,9 @@ test('unavailable keychain and malformed encrypted files fail closed', async t =
   const directory = await temp(t);
   const file = join(directory, 'credentials');
   const store = createSecureStore({ file, safeStorage: { isEncryptionAvailable: () => false } });
-  await assert.rejects(store.write({ secret: true }), /Keychain/);
+  await assert.rejects(store.write({ secret: true }), { code: 'SITECAD_ENCRYPTION_UNAVAILABLE' });
   await writeFile(file, 'corrupted');
-  await assert.rejects(store.read(), /Keychain/);
+  await assert.rejects(store.read(), { code: 'SITECAD_ENCRYPTION_UNAVAILABLE' });
 });
 
 test('Codex targets are pinned to official architecture-specific published hashes', () => {
@@ -139,7 +139,7 @@ test('corrupted encrypted credentials never return plaintext or an empty valid s
   const file = join(directory, 'credentials');
   await writeFile(file, 'broken');
   const store = createSecureStore({ file, safeStorage: { isEncryptionAvailable: () => true, decryptString: () => { throw Error('raw crypto detail'); } } });
-  await assert.rejects(store.read(), error => error.message.includes('could not be opened') && !error.message.includes('crypto'));
+  await assert.rejects(store.read(), error => error.code === 'SITECAD_CREDENTIALS_DECRYPT' && !error.message.includes('raw crypto detail'));
 });
 
 

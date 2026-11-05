@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
+import { homedir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { stopProcessTree } from '../lib/mcp-launcher.mjs';
 import { testDrawingNames } from './package-drawings.mjs';
@@ -22,6 +23,29 @@ export async function verifyPackagedDrawings(appRoot) {
 export const sanitizeDiagnostic = value => String(value ?? '').replace(/(?:https?|wss?):\/\/[^\s"'<>]+/gi, '[redacted URL]')
   .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, 'Bearer [redacted]')
   .replace(/((?:access[_-]?token|refresh[_-]?token|api[_-]?key|authorization)["']?\s*[=:]\s*["']?)[^\s"',;]+/gi, '$1[redacted]');
+
+export async function verifyDesktopSecretStore({ baseUrl, dataDir, fetchImpl = fetch }) {
+  if (process.env.CI !== 'true') throw Error('Desktop credential verification requires a clean CI profile.');
+  if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(baseUrl) || !isAbsolute(dataDir ?? '')) throw Error('Provide a local desktop URL and absolute CI profile.');
+  const file = join(dataDir, 'llm-secrets.enc');
+  const previous = await readFile(file).catch(error => { if (error.code !== 'ENOENT') throw error; return null; });
+  const request = async (path, options) => {
+    const response = await fetchImpl(`${baseUrl}/api/desktop/llm${path}`, { ...options, redirect: 'error', signal: AbortSignal.timeout(15000) });
+    assert.equal(response.status, 200, 'Desktop encrypted credential request failed');
+    const result = await response.json();
+    assert.equal(result.ok, true);
+    assert.equal(result.data.active, 'openai-oauth', 'Synthetic API key must never become the active inference provider');
+    return result.data;
+  };
+  const before = await request('');
+  if (previous) assert.equal(before.connections.find(item => item.id === 'openai-api')?.configured, true, 'Previously saved encrypted key must decrypt after restart');
+  const apiKey = randomUUID();
+  const after = await request('/save', { method: 'POST', headers: { Origin: baseUrl, 'Content-Type': 'application/json' }, body: JSON.stringify({ id: 'openai-api', apiKey }) });
+  assert.equal(after.connections.find(item => item.id === 'openai-api')?.configured, true);
+  const bytes = await readFile(file);
+  assert.ok(bytes.length > 0 && !bytes.includes(apiKey) && !bytes.includes('"keys"'), 'Credential file must not contain plaintext');
+  return { encryptedWriteVerified: true, previousEncryptedReadVerified: Boolean(previous) };
+}
 const readyExpression = `(() => {
   const frame=document.querySelector('#editor');
   let editor;
@@ -171,6 +195,9 @@ export async function verifyDesktop({ executable, outputDirectory, normalClose =
     const status = await statusResponse.json();
     assert.equal(status.ok, true); assert.equal(status.data.desktop, true);
     assert.equal(status.data.oauth.connected, false, 'Clean VM must not inherit real AI credentials');
+    stage = 'native encrypted credential write and previous-session read';
+    const dataDir = process.platform === 'win32' ? join(process.env.APPDATA, 'SiteCAD') : join(homedir(), 'Library', 'Application Support', 'SiteCAD');
+    const encryptedCredentials = await verifyDesktopSecretStore({ baseUrl, dataDir });
     const modules = {};
     for (const name of ['chat-content.js', 'settings.js']) {
       const response = await fetch(`${baseUrl}/${name}`, { signal: AbortSignal.timeout(5000) });
@@ -185,7 +212,7 @@ export async function verifyDesktop({ executable, outputDirectory, normalClose =
     const screenshot = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
     await writeFile(join(outputDirectory, 'desktop.png'), Buffer.from(screenshot.data, 'base64'));
     const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-    const report = { version, platform: process.platform, arch: process.arch, ...view, modules, testDrawings, anonymousProfile: true,
+    const report = { version, platform: process.platform, arch: process.arch, ...view, modules, testDrawings, anonymousProfile: true, encryptedCredentials,
       startupMs: Date.now() - startedAt, discoveryAttempts,
       shutdownMethod: normalClose ? 'native close confirmation' : 'forced process-tree termination',
       limitations: ['No AI inference or authenticated external API/MCP calls', 'No drawing modification or DWG round-trip test'] };

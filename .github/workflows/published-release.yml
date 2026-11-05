@@ -1,4 +1,4 @@
-name: Published 0.16.4 first-install verification
+name: Published 0.16.5 first-install verification
 on:
   workflow_dispatch:
 permissions:
@@ -32,7 +32,7 @@ jobs:
         shell: bash
         env:
           SITECAD_TEST_FRESH_INSTALL: '1'
-          SITECAD_TEST_RELEASE_ARCHIVE: ${{ github.workspace }}/dist/published-release-downloads/SiteCAD-0.16.4-local-web-${{ matrix.platform }}.zip
+          SITECAD_TEST_RELEASE_ARCHIVE: ${{ github.workspace }}/dist/published-release-downloads/SiteCAD-0.16.5-local-web-${{ matrix.platform }}.zip
           SITECAD_TEST_EVIDENCE_DIR: ${{ github.workspace }}/dist/verification
         run: |
           set -euo pipefail
@@ -42,7 +42,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          dmg="$PWD/dist/published-release-downloads/SiteCAD-0.16.4-macOS-arm64.dmg"
+          dmg="$PWD/dist/published-release-downloads/SiteCAD-0.16.5-macOS-arm64.dmg"
           mount="$RUNNER_TEMP/sitecad-published-dmg"
           hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mount"
           trap 'hdiutil detach "$mount"' EXIT
@@ -61,7 +61,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $setup = (Resolve-Path 'dist/published-release-downloads/SiteCAD-0.16.4-Windows-x64-Setup.exe').Path
+          $setup = (Resolve-Path 'dist/published-release-downloads/SiteCAD-0.16.5-Windows-x64-Setup.exe').Path
           Get-AuthenticodeSignature $setup | Select-Object Status,StatusMessage | ConvertTo-Json | Out-File dist/verification/windows-signature.json
           $destination = Join-Path $env:RUNNER_TEMP '설치 확인 SiteCAD'
           $install = Start-Process $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$destination`"") -Wait -PassThru
@@ -81,6 +81,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: SiteCAD-public-first-install-${{ matrix.platform }}-v0.16.4-${{ github.run_id }}
+          name: SiteCAD-public-first-install-${{ matrix.platform }}-v0.16.5-${{ github.run_id }}
           path: dist/verification/
           retention-days: 14

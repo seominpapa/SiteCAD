@@ -13,7 +13,7 @@ import { sanitizeDiagnostic, verifyDesktop } from './verify-desktop.mjs';
 
 const execute = promisify(execFile);
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const previousVersion = '0.16.3';
+const previousVersion = '0.16.4';
 
 export function upgradeMetadataRequest(env = process.env) {
   if (env.GITHUB_TOKEN && (env.CI !== 'true' || env.GITHUB_ACTIONS !== 'true')) throw Error('GitHub metadata authorization requires hosted CI.');

@@ -4,7 +4,7 @@ Updated by SiteCAD contributors on 2026-11-04. SiteCAD is provided under GNU GPL
 
 ## SiteCAD source
 
-The application sources and installer scripts are included in the local-web ZIP and published at https://github.com/seominpapa/SiteCAD. Select the tag matching the downloaded release. The reviewed public v0.14.0 source tag is `aab72f02ae3bf9529c54a3f6162244478f264894`. SiteCAD 0.16.4 is the source/build target described here. Use its matching tag and SHA256SUMS.txt once its release is published; source changes or CI artifacts alone do not establish a public release or a verified upgrade.
+The application sources and installer scripts are included in the local-web ZIP and published at https://github.com/seominpapa/SiteCAD. Select the tag matching the downloaded release. The reviewed public v0.14.0 source tag is `aab72f02ae3bf9529c54a3f6162244478f264894`. SiteCAD 0.16.5 is the source/build target described here. Use its matching tag and SHA256SUMS.txt once its release is published; source changes or CI artifacts alone do not establish a public release or a verified upgrade.
 
 Starting with version 0.16.2, builds bundle only the seven named test DWGs and their guide from `drawings/Test/`, through the explicit allowlist in `scripts/package-drawings.mjs`. Other drawings and private project files are excluded. The local-web ZIP exposes that folder directly; desktop installers retain it inside the app resources and provide a menu item to open it. Builds do not copy examples over user drawings or change the selected save folder. The guide's expected answers are test oracles, not evidence of live LLM or KDS/KCS approval.
 
@@ -16,7 +16,7 @@ Starting with 0.16.3, the packaged desktop checks only the fixed official `seomi
 
 The application name, bundle identifier, Windows AppId and `SiteCAD` userData location stay unchanged. The update does not reset drawing-storage selection, custom drawing folders, settings or encrypted credentials. A drawing folder selected inside the Mac `.app` bundle prevents automatic installation until the user moves it outside and selects the new folder. Read-only/translocated Mac applications or nonwritable installation locations require the documented manual installation fallback. OS trust and Keychain access may require user approval even when existing encrypted files are preserved.
 
-Version 0.16.2 and older desktop builds do not contain this updater: users must install 0.16.4 manually once (the updater is available since 0.16.3). Local-web ZIPs remain manually updated. New updater code/tests are distinct from native upgrade acceptance, browser-origin security prompts and real-account credential migration; consult the matching release's actual verification evidence. No Apple Developer distribution credentials are bundled or newly established by this feature.
+Version 0.16.2 and older desktop builds do not contain this updater: users must install 0.16.5 manually once (the updater is available since 0.16.3). Local-web ZIPs remain manually updated. New updater code/tests are distinct from native upgrade acceptance, browser-origin security prompts and real-account credential migration; consult the matching release's actual verification evidence. No Apple Developer distribution credentials are bundled or newly established by this feature.
 
 ## macOS distributor signing and notarization
 

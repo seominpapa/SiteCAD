@@ -7,7 +7,7 @@ import { fileFingerprints, matchingMacDesktopProcesses, requireHostedUpgrade, up
 
 test('upgrade CI authorizes only fixed previous-release metadata without putting credentials in asset URLs',()=>{
   const request=upgradeMetadataRequest({CI:'true',GITHUB_ACTIONS:'true',GITHUB_TOKEN:'synthetic-ci-token'});
-  assert.equal(request.url,'https://api.github.com/repos/seominpapa/SiteCAD/releases/tags/v0.16.3');
+  assert.equal(request.url,'https://api.github.com/repos/seominpapa/SiteCAD/releases/tags/v0.16.4');
   assert.equal(request.options.headers.Authorization,'Bearer synthetic-ci-token');
   assert.equal(request.options.redirect,'error');
   assert.equal(upgradeMetadataRequest({}).options.headers.Authorization,undefined);

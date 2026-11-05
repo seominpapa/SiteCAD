@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { closeWindowsDesktop, findDesktopPage, sanitizeDiagnostic, stopDesktop, verifyDesktop, verifyPackagedDrawings } from '../scripts/verify-desktop.mjs';
+import { closeWindowsDesktop, findDesktopPage, sanitizeDiagnostic, stopDesktop, verifyDesktop, verifyPackagedDrawings, verifyDesktopSecretStore } from '../scripts/verify-desktop.mjs';
 
 test('final desktop bundles retain the exact curated drawings and guide, and reject modified or missing files', async t => {
   const appRoot = await mkdtemp(join(tmpdir(), 'sitecad-packaged-drawings-'));
@@ -86,4 +86,50 @@ test('desktop verification rejects relative executables before starting any proc
   process.env.CI = 'true';
   try { await assert.rejects(verifyDesktop({ executable: 'SiteCAD.exe', outputDirectory: '/tmp/unused' }), /absolute executable/); }
   finally { if (previous === undefined) delete process.env.CI; else process.env.CI = previous; }
+});
+
+test('installed desktop credential check writes encrypted bytes and verifies configured state on restart', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'sitecad-desktop-secret-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const previous = process.env.CI;
+  process.env.CI = 'true';
+  let configured = false, writes = 0;
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    calls.push(url);
+    if (options?.method === 'POST') {
+      assert.equal(options.headers.Origin, 'http://127.0.0.1:49155');
+      assert.equal(JSON.parse(options.body).id, 'openai-api');
+      assert.ok(JSON.parse(options.body).apiKey.length >= 16);
+      configured = true; writes++;
+      await writeFile(join(directory, 'llm-secrets.enc'), 'encrypted-fixture-only');
+    }
+    return Response.json({ ok: true, data: { active: 'openai-oauth', connections: [{ id: 'openai-api', configured }] } });
+  };
+  try {
+    const options = { baseUrl: 'http://127.0.0.1:49155', dataDir: directory, fetchImpl };
+    assert.deepEqual(await verifyDesktopSecretStore(options), { encryptedWriteVerified: true, previousEncryptedReadVerified: false });
+    assert.deepEqual(await verifyDesktopSecretStore(options), { encryptedWriteVerified: true, previousEncryptedReadVerified: true });
+    assert.equal(writes, 2);
+    assert.ok(calls.every(url => url.startsWith('http://127.0.0.1:49155/api/desktop/llm')));
+    configured = false;
+    await assert.rejects(verifyDesktopSecretStore(options), /Previously saved/);
+    assert.equal(writes, 2, 'Do not overwrite a credential that failed to decrypt');
+  } finally { if (previous === undefined) delete process.env.CI; else process.env.CI = previous; }
+});
+
+test('installed desktop credential check rejects personal profiles, plaintext output and remote endpoints', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'sitecad-desktop-secret-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const previous = process.env.CI;
+  try {
+    delete process.env.CI;
+    await assert.rejects(verifyDesktopSecretStore({ baseUrl: 'http://127.0.0.1:49155', dataDir: directory }), /clean CI/);
+    process.env.CI = 'true';
+    await assert.rejects(verifyDesktopSecretStore({ baseUrl: 'https://example.test', dataDir: directory }), /local desktop/);
+    await assert.rejects(verifyDesktopSecretStore({ baseUrl: 'http://127.0.0.1:49155', dataDir: directory, fetchImpl: async (_url, options) => {
+      if (options?.body) await writeFile(join(directory, 'llm-secrets.enc'), options.body);
+      return Response.json({ ok: true, data: { active: 'openai-oauth', connections: [{ id: 'openai-api', configured: Boolean(options?.body) }] } });
+    } }), /plaintext/);
+  } finally { if (previous === undefined) delete process.env.CI; else process.env.CI = previous; }
 });

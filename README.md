@@ -2,24 +2,24 @@
 
 SiteCAD는 OpenCADStudio 편집기와 AI·MCP를 연결하는 macOS(M계열)·Windows 로컬 브라우저 앱입니다. AI 계정을 연결한 뒤 채팅으로 2D 도면과 지원되는 3D 형상을 만들고 수정하거나 물량을 검토하고 DWG로 저장합니다. CAD 파일 처리와 도구 실행은 내 PC에서 이루어지며 AI 요청은 온라인 서비스를 사용합니다.
 
-**웹앱 다운로드 — 0.16.4: [Windows ZIP](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.4/SiteCAD-0.16.4-local-web-Windows.zip) · [Mac M계열 ZIP](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.4/SiteCAD-0.16.4-local-web-macOS.zip)**
+**웹앱 다운로드 — 0.16.5: [Windows ZIP](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.5/SiteCAD-0.16.5-local-web-Windows.zip) · [Mac M계열 ZIP](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.5/SiteCAD-0.16.5-local-web-macOS.zip)**
 
-**데스크탑 설치 — 0.16.4: [Windows Setup.exe](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.4/SiteCAD-0.16.4-Windows-x64-Setup.exe) · [Mac M계열 DMG — 미공증](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.4/SiteCAD-0.16.4-macOS-arm64.dmg)**
+**데스크탑 설치 — 0.16.5: [Windows Setup.exe](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.5/SiteCAD-0.16.5-Windows-x64-Setup.exe) · [Mac M계열 DMG — 미공증](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.5/SiteCAD-0.16.5-macOS-arm64.dmg)**
 
-[0.16.4 릴리스와 변경 내용](https://github.com/seominpapa/SiteCAD/releases/tag/v0.16.4) · [SHA-256](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.4/SHA256SUMS.txt) · [설치 파일 검증 기록](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.4/sitecad-verification.json) · [소스와 빌드 정보](SOURCE_BUILD.md)
+[0.16.5 릴리스와 변경 내용](https://github.com/seominpapa/SiteCAD/releases/tag/v0.16.5) · [SHA-256](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.5/SHA256SUMS.txt) · [설치 파일 검증 기록](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.5/sitecad-verification.json) · [소스와 빌드 정보](SOURCE_BUILD.md)
 
 > **Mac 데스크탑은 미공증 개발용 배포입니다.** Apple Developer 배포 인증서가 없어 기본 Gatekeeper 보안 승인을 통과하지 못합니다. Mac에서는 웹앱 ZIP 사용을 권장합니다. 앱의 CAD 실행 검사 통과는 운영체제의 보안 승인을 뜻하지 않습니다.
 
 ## 다운로드와 버전 확인
 
-**이 문서는 0.16.4 소스와 배포 파일 기준입니다.** 스킬 개선 배경 기록·전체 스킬 ZIP 내보내기, 데스크탑의 사용자 동의 기반 업데이트와 물량·설계·기성 스킬, 옹벽·통로박스 테스트 도면을 설명합니다. 다운로드 링크가 열리지 않으면 [공개 릴리스 목록](https://github.com/seominpapa/SiteCAD/releases)에서 게시 상태를 확인하세요. 소스 변경이나 GitHub Actions 성공만으로 공개 배포·업그레이드 검증 완료를 뜻하지 않습니다. 배포 파일의 소스 버전·설치 검사 결과·파일별 SHA-256은 해당 릴리스의 `sitecad-verification.json`에서 확인합니다.
+**이 문서는 0.16.5 소스와 배포 파일 기준입니다.** 스킬 개선 배경 기록·전체 스킬 ZIP 내보내기, 데스크탑의 사용자 동의 기반 업데이트와 물량·설계·기성 스킬, 옹벽·통로박스 테스트 도면을 설명합니다. 다운로드 링크가 열리지 않으면 [공개 릴리스 목록](https://github.com/seominpapa/SiteCAD/releases)에서 게시 상태를 확인하세요. 소스 변경이나 GitHub Actions 성공만으로 공개 배포·업그레이드 검증 완료를 뜻하지 않습니다. 배포 파일의 소스 버전·설치 검사 결과·파일별 SHA-256은 해당 릴리스의 `sitecad-verification.json`에서 확인합니다.
 
 | 사용 방식 | 대상 | 받을 파일 | 실행 방식 |
 | --- | --- | --- | --- |
-| 웹앱 | Mac M계열 | [SiteCAD-0.16.4-local-web-macOS.zip](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.4/SiteCAD-0.16.4-local-web-macOS.zip) | 압축을 풀고 `Start SiteCAD.command` 실행 |
-| 웹앱 | Windows 10/11 64비트 | [SiteCAD-0.16.4-local-web-Windows.zip](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.4/SiteCAD-0.16.4-local-web-Windows.zip) | 모두 압축을 풀고 `Start SiteCAD.cmd` 실행 |
-| 데스크탑 | Mac M계열 | [SiteCAD-0.16.4-macOS-arm64.dmg](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.4/SiteCAD-0.16.4-macOS-arm64.dmg) | 미공증 개발용. 일반 사용자는 웹앱 ZIP 권장 |
-| 데스크탑 | Windows x64 | [SiteCAD-0.16.4-Windows-x64-Setup.exe](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.4/SiteCAD-0.16.4-Windows-x64-Setup.exe) | 설치 마법사로 설치 |
+| 웹앱 | Mac M계열 | [SiteCAD-0.16.5-local-web-macOS.zip](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.5/SiteCAD-0.16.5-local-web-macOS.zip) | 압축을 풀고 `Start SiteCAD.command` 실행 |
+| 웹앱 | Windows 10/11 64비트 | [SiteCAD-0.16.5-local-web-Windows.zip](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.5/SiteCAD-0.16.5-local-web-Windows.zip) | 모두 압축을 풀고 `Start SiteCAD.cmd` 실행 |
+| 데스크탑 | Mac M계열 | [SiteCAD-0.16.5-macOS-arm64.dmg](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.5/SiteCAD-0.16.5-macOS-arm64.dmg) | 미공증 개발용. 일반 사용자는 웹앱 ZIP 권장 |
+| 데스크탑 | Windows x64 | [SiteCAD-0.16.5-Windows-x64-Setup.exe](https://github.com/seominpapa/SiteCAD/releases/download/v0.16.5/SiteCAD-0.16.5-Windows-x64-Setup.exe) | 설치 마법사로 설치 |
 
 웹앱은 기본 브라우저와 실행기 터미널을 함께 사용하고, 데스크탑은 전용 앱 창에서 사용합니다. 두 방식 모두 내 PC에서 로컬 서비스와 CAD 도구를 실행합니다. 별도 원격 서버를 준비할 필요는 없으며, 로컬 접속 주소는 다른 사용자를 위한 공개 서비스 주소가 아닙니다.
 
@@ -27,12 +27,12 @@ SiteCAD는 OpenCADStudio 편집기와 AI·MCP를 연결하는 macOS(M계열)·Wi
 
 1. 위 표에서 운영체제에 맞는 **웹앱 ZIP 또는 데스크탑 설치 파일 하나**를 누릅니다. 두 방식을 모두 설치할 필요는 없습니다.
 2. 웹앱은 받은 ZIP 전체를 폴더에 풉니다. 데스크탑은 받은 DMG 또는 Setup.exe를 바로 엽니다. 자세한 절차는 아래 운영체제별 설명을 따르세요.
-3. 파일 전체 목록과 변경 내용은 [0.16.4 릴리스](https://github.com/seominpapa/SiteCAD/releases/tag/v0.16.4)의 **Assets**에서 확인합니다. `SHA256SUMS.txt`와 `sitecad-verification.json`도 함께 제공합니다.
+3. 파일 전체 목록과 변경 내용은 [0.16.5 릴리스](https://github.com/seominpapa/SiteCAD/releases/tag/v0.16.5)의 **Assets**에서 확인합니다. `SHA256SUMS.txt`와 `sitecad-verification.json`도 함께 제공합니다.
 4. GitHub의 **Code → Download ZIP**이나 자동 생성 **Source code.zip**은 설치용 파일이 아닙니다. 일반 사용자는 위 표에 있는 파일을 선택하세요.
 
 릴리스 첨부 파일은 GitHub Actions의 **14일 보관 기간**이 적용되는 임시 Artifacts와 별도로 보관됩니다. 개발 중 빌드가 필요할 때만 [설치 파일 생성 작업](https://github.com/seominpapa/SiteCAD/actions/workflows/windows.yml)에서 Windows·macOS 검사가 모두 통과한 실행의 Artifacts를 선택하세요. Artifacts ZIP 안에는 설치용 파일이 한 번 더 들어 있으며, 실행 중이거나 실패한 작업의 파일은 사용하지 마세요.
 
-이전 버전과 현재 공개된 버전은 [전체 릴리스 목록](https://github.com/seominpapa/SiteCAD/releases)에서 확인합니다. 위의 운영체제별 0.16.4 파일을 사용하세요. **0.16.2 이하 데스크탑에는 업데이트 기능이 없으므로 현재 버전을 한 번 수동 설치해야 합니다. 자동 업데이트는 0.16.3부터 제공합니다.**
+이전 버전과 현재 공개된 버전은 [전체 릴리스 목록](https://github.com/seominpapa/SiteCAD/releases)에서 확인합니다. 위의 운영체제별 0.16.5 파일을 사용하세요. **0.16.2 이하 데스크탑에는 업데이트 기능이 없으므로 현재 버전을 한 번 수동 설치해야 합니다. 자동 업데이트는 0.16.3부터 제공합니다.**
 
 ## 웹앱 설치와 실행
 
@@ -40,7 +40,7 @@ SiteCAD는 OpenCADStudio 편집기와 AI·MCP를 연결하는 macOS(M계열)·Wi
 
 ### Mac M계열
 
-1. 위 다운로드 절차에서 `SiteCAD-0.16.4-local-web-macOS.zip`을 받습니다.
+1. 위 다운로드 절차에서 `SiteCAD-0.16.5-local-web-macOS.zip`을 받습니다.
 2. ZIP을 풀고 안의 `SiteCAD` 폴더 전체를 문서 폴더 등 **본인이 쓸 수 있는 위치**에 둡니다. 실행 파일만 따로 옮기지 마세요.
 3. `SiteCAD` 폴더의 **`Start SiteCAD.command`**를 더블클릭합니다. 터미널이 열리고 최초 준비가 진행됩니다. 완료될 때까지 창을 유지합니다.
 4. 자동으로 열린 기본 브라우저에서 CAD 화면이 준비될 때까지 기다립니다. 브라우저가 열리지 않으면 터미널에 표시된 `http://127.0.0.1:숫자/` 주소로 접속합니다. 포트 번호는 실행 시 정해지므로 예전 주소로 고정하지 마세요.
@@ -50,7 +50,7 @@ macOS가 실행을 차단하면 파일 출처를 확인하고 **시스템 설정
 
 ### Windows
 
-1. `SiteCAD-0.16.4-local-web-Windows.zip`을 받습니다.
+1. `SiteCAD-0.16.5-local-web-Windows.zip`을 받습니다.
 2. 파일 탐색기에서 ZIP을 우클릭해 **모두 압축 풀기**를 선택합니다. 문서 폴더 등 쓰기 가능한 위치에 전체를 풀고, ZIP 미리보기 안에서는 실행하지 마세요.
 3. 압축을 푼 `SiteCAD` 폴더의 **`Start SiteCAD.cmd`**를 더블클릭합니다. 실행 창이 열리고 PowerShell이 전용 실행 환경을 준비합니다. 관리자 권한은 필요하지 않습니다.
 4. 준비가 끝나면 기본 브라우저가 열립니다. 열리지 않으면 실행 창에 나온 `http://127.0.0.1:숫자/` 주소를 사용합니다. 실행 창은 작업 중 유지합니다.
@@ -73,7 +73,7 @@ Windows x64에서 설치·실행을 검증했습니다. 웹앱 실행기는 Wind
 
 ### Mac M계열 — 미공증 개발용 DMG
 
-1. 위 표에서 `SiteCAD-0.16.4-macOS-arm64.dmg`를 다운로드합니다.
+1. 위 표에서 `SiteCAD-0.16.5-macOS-arm64.dmg`를 다운로드합니다.
 2. DMG를 더블클릭하고 창 안의 **`SiteCAD.app`을 Applications(응용 프로그램) 바로가기로 드래그**합니다.
 3. 복사가 끝나면 DMG를 추출하고 **응용 프로그램 → SiteCAD**에서 실행합니다. DMG 안의 앱을 계속 실행하는 방식은 사용하지 마세요.
 4. 이 파일은 현재 Gatekeeper 보안 승인에 실패합니다. 일반 사용자는 웹앱 ZIP을 사용하세요. 개발용 앱의 실행 여부는 파일 출처와 조직 정책을 확인해 사용자가 직접 판단해야 합니다. 실행기가 보안 설정이나 격리 속성을 자동으로 해제하지 않습니다.
@@ -82,11 +82,19 @@ Windows x64에서 설치·실행을 검증했습니다. 웹앱 실행기는 Wind
 
 ### Windows x64 — Setup.exe
 
-1. 위 표에서 `SiteCAD-0.16.4-Windows-x64-Setup.exe`를 다운로드합니다.
+1. 위 표에서 `SiteCAD-0.16.5-Windows-x64-Setup.exe`를 다운로드합니다.
 2. 설치 파일을 실행합니다. 출처 확인 경고가 나타나면 GitHub 저장소와 받은 파일을 확인하고 운영체제 안내에 따라 진행합니다.
 3. 설치 마법사에서 라이선스와 설치 위치를 확인합니다. 기본 경로는 **`%LOCALAPPDATA%\Programs\SiteCAD`**이며 현재 사용자 계정에 설치하므로 관리자 권한이 필요하지 않습니다.
 4. 설치 후 **시작 메뉴 또는 바탕 화면의 SiteCAD**를 엽니다. 별도 실행 창을 유지할 필요는 없습니다.
 5. **설정 → 일반 → 폴더 선택**에서 도면 위치를 확인하고 [AI 연결](#처음-ai-연결)을 진행합니다. 기본 도면 위치는 설치 폴더의 `drawings/`입니다.
+
+### 설치 후 실행 오류가 날 때
+
+0.16.4 이하에서는 어떤 시작 오류에도 macOS 키체인을 확인하라는 문구가 표시될 수 있습니다. **Windows에서 이 문구가 나왔다는 사실만으로 암호화 문제가 확인된 것은 아닙니다.** 0.16.5부터 실패한 시작 단계와 오류 코드를 구분하고, Windows 암호화 오류에는 Windows 계정 저장소(DPAPI)를 안내합니다.
+
+오류창의 **실패 단계·오류 코드**와 진단 파일을 전달해 주세요. Windows 진단 파일은 탐색기 주소창에 `%APPDATA%\SiteCAD\diagnostics`를 입력하면 나오는 `startup-error.json`입니다. Mac은 `~/Library/Application Support/SiteCAD/diagnostics/startup-error.json`입니다. 파일에는 앱 버전·운영체제·시작 단계·오류 코드·발생 시각만 기록합니다. 진단 파일 저장도 실패하면 오류창에 표시합니다. 인증정보 파일이나 API 키를 보내지 마세요.
+
+기존 도면·설정·로그인 파일을 삭제하거나, 원인 확인 없이 보안 프로그램을 해제하지 마세요. 내장 실행 파일 단계에서 차단이 의심되면 Windows 보안의 보호 기록을 확인합니다. 암호화된 인증정보는 저장한 운영체제 계정에서 확인해야 하며 다른 PC·계정으로 옮긴 파일이 자동으로 복호화되는 것은 아닙니다.
 
 ## 처음 AI 연결
 
@@ -105,7 +113,7 @@ CAD 화면이 준비되고 AI 연결을 마치면 빈 채팅의 **“높이 2m �
 
 ## 옹벽·통로박스 스킬 테스트
 
-0.16.4에는 옹벽 3개와 통로박스 4개, 구조물별 **입력 프롬프트·예상 답변 6쌍**을 담은 [테스트 안내](drawings/Test/테스트_안내.md)가 포함됩니다. 웹앱 ZIP은 압축을 푼 `SiteCAD/drawings/Test/`에서 찾고, 데스크탑은 앱 메뉴의 **테스트 도면 폴더 열기**를 사용합니다. 데스크탑의 테스트 도면은 앱에 포함된 예제이며 사용자가 설정한 저장 폴더와 별도입니다. 원본을 열어 시험한 뒤 쓰기 가능한 저장 폴더에 다른 이름으로 저장하세요.
+0.16.5에는 옹벽 3개와 통로박스 4개, 구조물별 **입력 프롬프트·예상 답변 6쌍**을 담은 [테스트 안내](drawings/Test/테스트_안내.md)가 포함됩니다. 웹앱 ZIP은 압축을 푼 `SiteCAD/drawings/Test/`에서 찾고, 데스크탑은 앱 메뉴의 **테스트 도면 폴더 열기**를 사용합니다. 데스크탑의 테스트 도면은 앱에 포함된 예제이며 사용자가 설정한 저장 폴더와 별도입니다. 원본을 열어 시험한 뒤 쓰기 가능한 저장 폴더에 다른 이름으로 저장하세요.
 
 `normal` 도면에서 물량 산출·기성 표시를 시작하고, `noncompliant` 도면에서 피복·뒤채움재·다짐·철근 이음·단중 불일치를 검토합니다. `foundation-progress`는 기초 타설 기성 표시의 비교 예시입니다. 슬래시 없이 자연어로 요청할 수 있습니다. 안내의 예상 답변은 시험 가정으로 계산한 비교값이며, 실행 시 기준·단중 원문을 실제 조회한 결과와 구분해야 합니다. 교육용 도면으로 구조·지반 안전계산 및 시공승인은 받지 않았습니다.
 
@@ -125,7 +133,7 @@ Mac의 읽기 전용 DMG·App Translocation 위치에서 실행하거나 설치 
 
 ### 0.16.2 이하 데스크탑·웹앱 — 수동 업데이트와 백업
 
-0.16.2 이하 데스크탑 사용자는 아래 절차로 현재 0.16.4를 한 번 설치한 뒤부터 업데이트 안내를 받을 수 있습니다. **웹앱 ZIP에는 자동 업데이트가 없으며 계속 수동으로 교체합니다.**
+0.16.2 이하 데스크탑 사용자는 아래 절차로 현재 0.16.5를 한 번 설치한 뒤부터 업데이트 안내를 받을 수 있습니다. **웹앱 ZIP에는 자동 업데이트가 없으며 계속 수동으로 교체합니다.**
 
 1. 기존 버전에서 열린 도면을 모두 저장하고 **DWG와 함께 생성된 `.sitecad.json` 보조 파일**을 백업합니다. 저장 폴더를 별도로 지정했다면 그 위치를 확인하세요.
 2. 웹앱은 **실행기 종료**, 데스크탑은 앱 종료로 기존 버전을 완전히 닫습니다. 두 버전으로 같은 도면을 동시에 편집하지 마세요.

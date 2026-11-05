@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-export const releaseVersion = '0.16.4';
+export const releaseVersion = '0.16.5';
 const releaseTag = `v${releaseVersion}`;
 export const releaseBase = `https://github.com/seominpapa/SiteCAD/releases/download/${releaseTag}/`;
 export const assetNames = platform => {

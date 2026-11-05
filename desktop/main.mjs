@@ -4,7 +4,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from '../server.mjs';
 import { createDesktopController } from '../lib/desktop-controller.mjs';
-import { createSecureStore, desktopPaths, installBundledCodex, isAllowedAuthUrl, drawingFolderInBundle, skillShareDownload } from './runtime.mjs';
+import { createSecureStore, desktopPaths, installBundledCodex, isAllowedAuthUrl, drawingFolderInBundle, skillShareDownload, startupFailure, saveStartupFailure } from './runtime.mjs';
 import { createBrowserAccess } from '../lib/browser-access.mjs';
 import { createDesktopUpdater } from './updater.mjs';
 import { prepareUpdateInstall } from './update-install.mjs';
@@ -23,6 +23,7 @@ let closingPrompt = false;
 let baseUrl;
 let updater;
 let updateHandoff = false;
+let startupStage = 'profile';
 const primary = app.requestSingleInstanceLock();
 if (!primary) app.quit();
 
@@ -104,7 +105,9 @@ async function start() {
   const dataDir = app.getPath('userData');
   const paths = desktopPaths(dataDir);
   for (const directory of [paths.codexHome, paths.workspace, paths.runtime]) await mkdir(directory, { recursive: true, mode: 0o700 });
+  startupStage = 'runtime';
   const codexPath = await installBundledCodex({ sourceDir: join(appRoot, 'runtime'), destination: join(paths.runtime, 'codex') });
+  startupStage = 'settings';
   controller = await createDesktopController({
     dataDir, defaultDrawingsPath: join(app.isPackaged ? (process.platform === 'darwin' ? resolve(app.getPath('exe'), '../../../..') : dirname(app.getPath('exe'))) : appRoot, 'drawings'),
     codexPath, nodePath: process.execPath, nodeEnv: { ELECTRON_RUN_AS_NODE: '1' },
@@ -130,6 +133,7 @@ async function start() {
       await shell.openExternal(url);
     },
   });
+  startupStage = 'server';
   const bundledFixture = join(appRoot, 'fixtures', 'retaining-wall.dwg');
   const fixturePath = await stat(bundledFixture).then(info => info.isFile()).catch(() => false)
     ? bundledFixture : join(appRoot, '../rhino-experiments/retaining-wall-20261020/retaining-wall-drawing-2d.dwg');
@@ -144,6 +148,7 @@ async function start() {
   });
   baseUrl = `http://127.0.0.1:${server.address().port}`;
   await controller.start({ baseUrl });
+  startupStage = 'window';
   if (browserMode) {
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: 'SiteCAD', submenu: [
@@ -209,9 +214,14 @@ if (primary) {
   app.on('before-quit', event => { if ((mainWindow || browserMode) && !exitReady) void confirmClose(event); });
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => app.quit());
   app.on('window-all-closed', () => { if (exitReady) app.quit(); });
-  app.whenReady().then(start).catch(async () => {
-    await closeServices();
-    dialog.showErrorBox('SiteCAD 실행 오류', '로컬 실행 환경을 준비하지 못했습니다. 설치 파일의 무결성과 macOS 키체인 상태를 확인한 뒤 다시 실행해 주세요.');
+  app.whenReady().then(start).catch(async error => {
+    const failure = startupFailure({ error, stage: startupStage, version: app.getVersion() });
+    const logFile = join(app.getPath('userData'), 'diagnostics', 'startup-error.json');
+    let detail;
+    try { await saveStartupFailure(logFile, failure.diagnostic); detail = `진단 파일: ${logFile}`; }
+    catch { detail = '진단 파일을 저장하지 못했습니다. 이 오류창의 실패 단계와 오류 코드를 전달해 주세요.'; }
+    await closeServices().catch(() => {});
+    dialog.showErrorBox('SiteCAD 실행 오류', `${failure.message}\n\n${detail}`);
     closing = true;
     exitReady = true;
     app.quit();

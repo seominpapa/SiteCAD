@@ -9,17 +9,17 @@ import { assetNames, checksumEntries, downloadPublishedAsset, githubMetadataRequ
 test('GitHub metadata authorization is restricted to fixed API endpoints on hosted CI without redirects', () => {
   const token = ['test', 'only'].join('-');
   const env = { CI: 'true', GITHUB_ACTIONS: 'true', GITHUB_TOKEN: token };
-  for (const path of ['releases/tags/v0.16.4', 'git/ref/tags/v0.16.4']) {
+  for (const path of ['releases/tags/v0.16.5', 'git/ref/tags/v0.16.5']) {
     const request = githubMetadataRequest(path, env);
     assert.equal(request.url, `https://api.github.com/repos/seominpapa/SiteCAD/${path}`);
     assert.equal(request.options.headers.Authorization, `Bearer ${token}`);
     assert.equal(request.options.redirect, 'error');
   }
-  assert.equal(githubMetadataRequest('releases/tags/v0.16.4', {}).options.headers.Authorization, undefined);
+  assert.equal(githubMetadataRequest('releases/tags/v0.16.5', {}).options.headers.Authorization, undefined);
   for (const flags of [{}, { CI: 'true' }, { GITHUB_ACTIONS: 'true' }]) {
-    assert.throws(() => githubMetadataRequest('releases/tags/v0.16.4', { ...flags, GITHUB_TOKEN: token }), /hosted CI/);
+    assert.throws(() => githubMetadataRequest('releases/tags/v0.16.5', { ...flags, GITHUB_TOKEN: token }), /hosted CI/);
   }
-  for (const path of ['https://example.test/private', '../private', 'releases/tags/v0.16.4?redirect=other', 'releases/tags/v0.16.3', 'releases/tags/v0.16.2']) {
+  for (const path of ['https://example.test/private', '../private', 'releases/tags/v0.16.5?redirect=other', 'releases/tags/v0.16.3', 'releases/tags/v0.16.2']) {
     assert.throws(() => githubMetadataRequest(path, env), /Fixed GitHub metadata/);
   }
 });
@@ -31,7 +31,7 @@ test('release asset downloads remain anonymous even when metadata uses a GitHub 
   const token = ['test', 'only'].join('-');
   process.env.GITHUB_TOKEN = token;
   t.after(() => { if (previous === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = previous; });
-  const name = 'sitecad-verification.json', bytes = Buffer.from('{"version":"0.16.4"}');
+  const name = 'sitecad-verification.json', bytes = Buffer.from('{"version":"0.16.5"}');
   const sha256 = createHash('sha256').update(bytes).digest('hex');
   const metadata = { assets: [{ name, state: 'uploaded', size: bytes.length, digest: `sha256:${sha256}` }] };
   const report = await downloadPublishedAsset(name, directory, metadata, async (url, options) => {
@@ -54,11 +54,11 @@ test('public verification uses the default branch tools and confines the token t
 });
 
 test('published download checks accept only the fixed supported release files', () => {
-  assert.equal(releaseVersion, '0.16.4');
-  assert.equal(assetNames('darwin')[1], 'SiteCAD-0.16.4-macOS-arm64.dmg');
-  assert.equal(assetNames('win32')[1], 'SiteCAD-0.16.4-Windows-x64-Setup.exe');
+  assert.equal(releaseVersion, '0.16.5');
+  assert.equal(assetNames('darwin')[1], 'SiteCAD-0.16.5-macOS-arm64.dmg');
+  assert.equal(assetNames('win32')[1], 'SiteCAD-0.16.5-Windows-x64-Setup.exe');
   assert.throws(() => assetNames('linux'));
-  assert.equal(new URL(assetNames('win32')[0], releaseBase).href, 'https://github.com/seominpapa/SiteCAD/releases/download/v0.16.4/SiteCAD-0.16.4-local-web-Windows.zip');
+  assert.equal(new URL(assetNames('win32')[0], releaseBase).href, 'https://github.com/seominpapa/SiteCAD/releases/download/v0.16.5/SiteCAD-0.16.5-local-web-Windows.zip');
 });
 
 test('package version and README downloads match the release checked by hosted CI', async () => {
@@ -86,8 +86,8 @@ test('published checksums reject incomplete, duplicate and unsafe names', () => 
 
 test('published source proof binds the released tag commit to the successful build record', () => {
   const sha = 'a'.repeat(40);
-  const ref = { ref: 'refs/tags/v0.16.4', object: { type: 'commit', sha } };
-  const evidence = { version: '0.16.4', releaseTag: 'v0.16.4', sourceCommit: sha, ci: { headSha: sha, conclusion: 'success' } };
+  const ref = { ref: 'refs/tags/v0.16.5', object: { type: 'commit', sha } };
+  const evidence = { version: '0.16.5', releaseTag: 'v0.16.5', sourceCommit: sha, ci: { headSha: sha, conclusion: 'success' } };
   assert.equal(publishedSourceCommit(ref, evidence), sha);
   assert.throws(() => publishedSourceCommit({ ...ref, object: { type: 'commit', sha: 'main' } }, evidence));
   assert.throws(() => publishedSourceCommit({ ...ref, ref: 'refs/tags/v0.16.0' }, evidence));
