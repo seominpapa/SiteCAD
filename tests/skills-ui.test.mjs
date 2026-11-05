@@ -187,7 +187,9 @@ test('skill references precede the conversation and close accessibly from the me
   assert.ok(html.indexOf('id="skill-menu"') < html.indexOf('id="messages"'));
   const composer = html.slice(html.indexOf('<div class="composer-area">'), html.indexOf('</aside>'));
   assert.doesNotMatch(composer, /id="skill-(?:toggle|menu)"/);
-  assert.match(composer, /id="model-choice"/);
+  assert.doesNotMatch(composer, /id="model-choice"/);
+  const topControls=html.slice(html.indexOf('class="skill-menu-controls"'),html.indexOf('<section id="skill-menu"'));
+  assert.ok(topControls.indexOf('id="skill-toggle"')<topControls.indexOf('id="model-choice"'));
   const menu = createSkillMenu({ isBusy: () => false });
   menu.update({ desktop: true }); await flush();
   await ids['skill-toggle'].listeners.click();

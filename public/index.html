@@ -36,7 +36,7 @@
       <aside id="sitecad-chat-panel" class="chat-panel" aria-labelledby="chat-title">
         <button id="chat-collapse" class="chat-edge-toggle chat-edge-close" type="button" aria-label="채팅 접기" title="채팅 접기" aria-controls="sitecad-chat-panel" aria-expanded="true">›</button>
         <div class="chat-heading"><div><p class="eyebrow">DRAWING ASSISTANT</p><h2 id="chat-title">도면에 요청하기</h2></div><span class="local-label">LOCAL</span></div>
-        <div id="skill-reference" class="skill-reference" hidden><div class="skill-menu-controls"><button id="skill-toggle" type="button" aria-expanded="false" aria-controls="skill-menu" hidden>스킬목록(/)</button><span class="skill-reference-note">자연어 요청도 지원</span></div><section id="skill-menu" class="skill-menu" aria-label="설치된 스킬" hidden><p id="skill-status" role="status"></p><div id="skill-list"></div><button id="skill-share-open" type="button" aria-haspopup="dialog" aria-controls="skill-share-dialog" hidden>전체 스킬 ZIP 내보내기</button></section></div>
+        <div id="skill-reference" class="skill-reference" hidden><div class="skill-menu-controls"><button id="skill-toggle" type="button" aria-expanded="false" aria-controls="skill-menu" hidden>스킬목록(/)</button><span class="skill-reference-note">자연어 요청도 지원</span><button id="model-choice" type="button" aria-haspopup="dialog" aria-controls="model-dialog" hidden disabled>모델: 자동 선택</button></div><section id="skill-menu" class="skill-menu" aria-label="설치된 스킬" hidden><p id="skill-status" role="status"></p><div id="skill-list"></div><button id="skill-share-open" type="button" aria-haspopup="dialog" aria-controls="skill-share-dialog" hidden>전체 스킬 ZIP 내보내기</button></section></div>
         <div id="chat-session-controls" class="chat-session-controls" hidden><label class="sr-only" for="chat-select">채팅 선택</label><select id="chat-select" aria-label="채팅 선택" disabled><option>채팅을 준비하고 있습니다</option></select><button id="chat-new" type="button" disabled>새 채팅</button><button id="chat-delete" type="button" disabled>삭제</button><p id="chat-history-status" role="status" aria-live="polite"></p></div>
         <div id="auth-help" class="auth-help" hidden><strong>AI 연결이 필요합니다.</strong><p>설정에서 사용할 AI 서비스와 로그인 또는 API 키 연결을 선택해 주세요.</p></div>
         <div id="messages" class="messages" role="log" aria-label="도면 작업 대화" aria-live="polite" aria-relevant="additions">
@@ -55,7 +55,6 @@
         <div id="chat-progress" class="chat-progress" role="status" hidden><span class="spinner" aria-hidden="true"></span><span id="chat-progress-text">요청을 해석하고 있습니다.</span></div>
         <div class="composer-area">
 
-          <div class="skill-menu-controls"><button id="model-choice" type="button" aria-haspopup="dialog" aria-controls="model-dialog" hidden disabled>모델: 자동 선택</button></div>
           <form id="chat-form"><label for="message-input" class="sr-only">도면 생성 또는 수정 요청</label><textarea id="message-input" rows="3" maxlength="2000" placeholder="도면 요청 · /스킬 · MCP·API·플러그인 등록" aria-controls="skill-menu" disabled></textarea><div class="composer-footer"><span id="composer-hint">Enter 전송 · Shift+Enter 줄바꿈</span><div class="composer-actions"><button id="stop-task" type="button" hidden>정지</button><button id="send-message" class="primary" type="submit" disabled>전송</button></div></div></form>
           <details class="registration-help">
             <summary>스킬·연결 등록 방법</summary>
