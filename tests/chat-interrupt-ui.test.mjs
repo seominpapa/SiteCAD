@@ -6,6 +6,8 @@ import { parseConnectionCommand } from '../public/chat-connections.js';
 import { renderChatContent } from '../public/chat-content.js';
 
 const source = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+const examplesSource = await readFile(new URL('../public/examples.js', import.meta.url), 'utf8');
+const attachmentsSource = await readFile(new URL('../public/chat-attachments.js', import.meta.url), 'utf8');
 const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
 class Element {
   constructor() { Object.assign(this, { hidden: false, disabled: false, value: '', textContent: '', children: [], listeners: {}, style: {}, dataset: {} }); this.classList = { toggle() {} }; }
@@ -16,6 +18,8 @@ class Element {
   replaceChildren(...children) { this.children = children; }
   focus() { this.focused = true; }
   scrollIntoView() {}
+  showModal() { this.open = true; }
+  close() { this.open = false; }
   set textContent(value) { this.text = value; this.children = []; }
   get textContent() { return (this.text ?? '') + this.children.map(child => child.textContent).join(''); }
 }
@@ -25,7 +29,7 @@ function fixture() {
   const stub = () => ({ sync() {}, update() {}, refresh: async () => {}, init: async () => {}, clear() {}, handleCommand() { return false; },
     currentId: () => 'test-chat', isPending: () => false, begin() {}, finish() {}, fail() {}, event() {}, selectedModel() {} });
   const document = { getElementById: id => { assert.ok(ids[id], id); return ids[id]; }, querySelectorAll: () => [], createElement: tag => Object.assign(new Element(), {tagName: tag, ownerDocument: document}) };
-  const context = vm.createContext({ document, renderChatContent,
+  const context = vm.createContext({ document, renderChatContent, File, Response, FormData, AbortController, AbortSignal, URL,
     CadEditor: class {}, createMcpSettings: stub, createSkillMenu: stub, createSkillShare: stub, createChatPanel: stub, createChatRuntime: stub, createSettings: stub,
     createChatConnections: stub, createChatSessionsUI: options => {
       let selectedChat = 'test-chat';
@@ -36,6 +40,8 @@ function fixture() {
     desktopRequest: async (...args) => { calls.push(args); return request(...args); }, appendProvenance() {},
     setInterval() {}, addEventListener() {}, fetch() { throw Error('Unexpected second chat request'); }, console,
   });
+  vm.runInContext(examplesSource.replace(/^export /gm, ''), context);
+  vm.runInContext(attachmentsSource.replace(/^export /gm, ''), context);
   vm.runInContext(source.replace(/^import .*;\n/gm, '').replace(/^export /gm, '').replace('await Promise.all([checkConnection(), connectEditor()]);', ''), context);
   const run = code => vm.runInContext(code, context);
   run('desktop = true; connected = true; ready = true;');
@@ -43,6 +49,44 @@ function fixture() {
 }
 
 const descendants = element => [element, ...element.children.flatMap(descendants)];
+test('pasted screenshot sends native attachment IDs with a default request and retains files after a failed chat', async () => {
+  const { ids, run } = fixture();
+  run(`chatAttachments.update({desktop:true});let chats=[];let failChat=true;
+    cad.context=async()=>({documentId:1});cad.snapshot=async()=>({dirty:false});
+    fetch=async(url,init)=>{
+      if(url==='/api/desktop/chat/attachments')return Response.json({ok:true,data:{attachments:[{id:'11111111-1111-4111-8111-111111111111',name:'screen.png',size:5,mimeType:'image/png',kind:'image'}]}});
+      if(url==='/api/chat'){chats.push(JSON.parse(init.body));return failChat?Response.json({ok:false,error:'연결 재확인 필요'},{status:400}):{ok:true,data:{executed:true,reply:'이미지를 확인했습니다.'}};}
+      throw Error('Unexpected URL '+url);
+    };`);
+  await ids['message-input'].listeners.paste({clipboardData:{files:[new File(['image'],'screen.png',{type:'image/png'})]},preventDefault(){}});
+  assert.equal(ids['send-message'].disabled,false);
+  await ids['chat-form'].listeners.submit({preventDefault(){}});
+  const sent=JSON.parse(run('JSON.stringify(chats)'));
+  assert.equal(sent[0].message,'첨부한 파일을 확인하고 내용을 설명해줘.');
+  assert.deepEqual(sent[0].attachments,['11111111-1111-4111-8111-111111111111']);
+  assert.match(ids.messages.textContent,/screen\.png/);
+  assert.equal(run('chatAttachments.ids().length'),1);
+  run('failChat=false;');await ids['chat-form'].listeners.submit({preventDefault(){}});
+  assert.equal(run('chatAttachments.ids().length'),0);
+  assert.match(ids.messages.textContent,/이미지를 확인했습니다/);
+});
+
+test('real example chooser opens selected bytes through the app CAD callback and blocks busy sessions', async () => {
+  const { ids, run } = fixture();
+  run('busy=true;');
+  await ids['open-example'].listeners.click();
+  assert.equal(ids['examples-dialog'].open, undefined);
+  run(`busy=false; let exampleFiles=[]; cad.snapshot=async()=>({dirty:false}); cad.openFile=async file=>{exampleFiles.push({name:file.name,bytes:await file.text()});};
+    fetch=async url=>url==='/api/examples'?Response.json({ok:true,data:{examples:[{file:'retaining-wall-3m-normal.dwg',name:'옹벽 기본형',description:'물량 검토용'}]}}):new Response('AC1032example');`);
+  await ids['open-example'].listeners.click();
+  assert.equal(ids['examples-dialog'].open, true);
+  await ids['examples-list'].children[0].listeners.click();
+  assert.equal(ids['examples-dialog'].open, false);
+  assert.deepEqual(JSON.parse(run('JSON.stringify(exampleFiles)')), [{ name: 'retaining-wall-3m-normal.dwg', bytes: 'AC1032example' }]);
+  assert.equal(ids['save-name'].value, 'retaining-wall-3m-normal-edited.dwg');
+  assert.match(ids['workspace-notice'].textContent, /SiteCAD에서 열었습니다/);
+});
+
 test('assistant replies render tables while user input remains literal; feedback drafts require the user to send', () => {
   const { ids, calls, run } = fixture();
   run('appendMessage("assistant", "| 항목 | 값 |\\n| --- | --- |\\n| H1 | 8 |", {error:true});');
@@ -98,11 +142,11 @@ test('registration help follows composer and the regional footer is removed', ()
   assert.match(html, /id="stop-task"[^>]*type="button"/);
 });
 
-test('Claude Console login status names Claude and hides unrelated ChatGPT login controls',async()=>{
+test('Claude Code login status names Claude and hides unrelated ChatGPT login controls',async()=>{
   const {ids,run}=fixture();
   run('stopBridge = () => {}; fetch = async()=>({ok:true,json:async()=>({ok:true,data:{desktop:true,llm:{active:"anthropic-oauth",connected:false,pending:true,anthropicOAuth:{pending:true},connections:[{id:"anthropic-oauth",label:"Claude Console OAuth"}]},auth:{pending:false},runtime:{}}})});');
   await run('checkConnection()');
-  assert.match(ids['oauth-status'].textContent,/Claude Console 로그인 진행 중/);
+  assert.match(ids['oauth-status'].textContent,/Claude Code 구독 로그인 진행 중/);
   assert.equal(ids['login-chatgpt'].hidden,true);assert.equal(run('authPending'),true);
 });
 

@@ -1,22 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, chmod, rm, realpath } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { createLlmConnections } from '../lib/llm-connections.mjs';
 
 const TEST_OTHER_ANTHROPIC_KEY = 'sk-ant-another-secret-12345';
 const TEST_PARALLEL_ANTHROPIC_KEY = 'sk-ant-parallel-secret-12345';
 
 const key = 'sk-test-secret-123456789';
-const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 function setup(options = {}) {
   let saved = null; let signedIn = true;
   const requests = [];
   const store = { read: async () => saved, write: async value => { saved = structuredClone(value); }, remove: async () => { saved = null; } };
   const oauth = { status: async () => ({ loggedIn: signedIn, sharing: signedIn }), login: async () => ({ pending: true }), logout: async () => { signedIn = false; }, getAccessToken: async () => 'private-openai-access-token' };
   const fetchImpl = async (url, init) => { requests.push({ url, init }); return new Response(JSON.stringify({ data: [{ id: 'some-model' }] })); };
-  const manager = createLlmConnections({ store, oauth, dataDir: '/private/tmp/sitecad-llm-test', antPath: null, fetchImpl, ...options });
+  const manager = createLlmConnections({ store, oauth, dataDir: '/private/tmp/sitecad-llm-test', claudePath: null, fetchImpl, ...options });
   return { manager, saved: () => saved, store, oauth, requests };
 }
 
@@ -39,7 +35,7 @@ test('API keys persist only through the encrypted store and selection survives m
   const selected = await manager.select({ id: 'openai-api' });
   assert.equal(selected.connected, true);
   assert.doesNotMatch(JSON.stringify(selected), /sk-test-secret/);
-  const next = createLlmConnections({ store, oauth, dataDir: '/private/tmp/sitecad-llm-test', antPath: null });
+  const next = createLlmConnections({ store, oauth, dataDir: '/private/tmp/sitecad-llm-test', claudePath: null });
   assert.equal(await next.activeId(), 'openai-api');
   assert.deepEqual(await next.credentials(), { id: 'openai-api', provider: 'openai', method: 'api', apiKey: key });
 });
@@ -105,68 +101,39 @@ test('storage failures and malformed persisted records never expose stored secre
   await assert.rejects(manager.save({ id: 'openai-api', apiKey: key }), error => !error.message.includes(key));
 });
 
-test('missing Anthropic CLI gives official install action and never invokes a shell', async () => {
-  let calls = 0;
-  const { manager } = setup({ executeImpl: async () => { calls++; } });
-  const result = await manager.login({ id: 'anthropic-oauth' });
-  assert.equal(result.actionNeeded, 'install-anthropic-cli');
-  assert.equal(result.installUrl, 'https://platform.claude.com/docs/en/cli-sdks-libraries/cli/quickstart');
-  assert.equal(calls, 0);
+test('Claude OAuth delegates to official Claude Code without reading subscription credentials', async () => {
+  let loggedIn = false; const calls = [];
+  const claudeCodeAuth = {
+    status: async () => ({ available: true, loggedIn, pending: false }),
+    login: async () => { calls.push('login'); loggedIn = true; return { pending: false }; },
+    logout: async () => { calls.push('logout'); loggedIn = false; },
+    cancel: async () => { calls.push('cancel'); },
+    runtimeOptions: async () => ({ claudePath: '/official/claude', claudeConfigDir: '/private/app/claude-code' }),
+  };
+  const { manager, requests } = setup({ claudeCodeAuth });
+  assert.equal((await manager.status()).connections.find(item => item.id === 'anthropic-oauth').configured, false);
+  await manager.login({ id: 'anthropic-oauth' });
+  await manager.select({ id: 'anthropic-oauth' });
+  assert.equal((await manager.status()).label, 'Claude · OAuth(구독)');
+  await assert.rejects(manager.credentials(), /공식 Claude Code/);
+  assert.deepEqual(await manager.claudeCodeRuntimeOptions(), { claudePath: '/official/claude', claudeConfigDir: '/private/app/claude-code' });
+  assert.equal((await manager.test({ id: 'anthropic-oauth' })).ok, true);
+  assert.equal(requests.length, 0, 'subscription auth is never sent directly to API');
+  await manager.remove({ id: 'anthropic-oauth' });
+  assert.equal(await manager.activeId(), 'openai-oauth');
+  assert.deepEqual(calls, ['login', 'cancel', 'logout']);
 });
 
-async function withCli(task) {
-  const directory = await mkdtemp(join(tmpdir(), 'sitecad-ant-'));
-  const path = join(directory, process.platform === 'win32' ? 'ant.exe' : 'ant');
-  await writeFile(path, 'test fixture'); await chmod(path, 0o700);
-  try { await task(path, directory); } finally { await rm(directory, { recursive: true, force: true }); }
-}
-
-test('Console OAuth uses dedicated CLI profile, background login and ephemeral tokens only', async () => withCli(async (antPath, dataDir) => {
-  const calls = [];
-  const { manager, saved, requests } = setup({ antPath, dataDir, executeImpl: async (command, args, options) => {
-    if (args[0] === '--help') return { stdout: 'CLI for the Claude Developer Platform' };
-    calls.push({ command, args, options });
-    if (args[1] === 'print-credentials') return { stdout: 'private-anthropic-access-token\n' };
-    return { stdout: 'account secret must not escape' };
-  } });
-  const started = await manager.login({ id: 'anthropic-oauth' });
-  assert.equal(started.pending, true);
-  for (let n = 0; n < 20 && (await manager.status()).pending; n++) await tick();
-  assert.equal((await manager.status()).connections.find(item => item.id === 'anthropic-oauth').configured, true);
-  await manager.select({ id: 'anthropic-oauth' });
-  assert.equal((await manager.credentials()).accessToken, 'private-anthropic-access-token');
-  assert.equal((await manager.test({ id: 'anthropic-oauth' })).ok, true);
-  assert.equal(requests[0].init.headers['anthropic-beta'], 'oauth-2025-04-20');
-  assert.deepEqual(calls[0].args, ['auth', 'login', '--profile', 'sitecad']);
-  assert.equal(calls[0].command, await realpath(antPath));
-  assert.equal(calls[0].options.shell, false);
-  assert.equal(calls[0].options.env.ANTHROPIC_CONFIG_DIR, join(dataDir, 'anthropic-cli'));
-  assert.equal(calls[0].options.env.ANTHROPIC_API_KEY, undefined);
-  assert.equal(calls[0].options.env.ANTHROPIC_AUTH_TOKEN, undefined);
-  assert.doesNotMatch(JSON.stringify({ saved: saved(), status: await manager.status(), started }), /private-anthropic|account secret/);
-}));
-
-test('cancelling OAuth aborts official login and cannot publish a late success', async () => withCli(async (antPath, dataDir) => {
-  let finish, markStarted, signal;
-  const started = new Promise(resolve => { markStarted = resolve; });
-  const { manager } = setup({ antPath, dataDir, executeImpl: async (command, args, options) => args[0] === '--help' ? { stdout: 'CLI for the Claude Developer Platform' } : new Promise(resolve => { signal = options.signal; finish = () => resolve({ stdout: '' }); markStarted(); }) });
-  await manager.login({ id: 'anthropic-oauth' });
-  await started;
-  await manager.cancel();
-  assert.equal(signal.aborted, true);
-  finish(); await tick();
-  const status = await manager.status();
-  assert.equal(status.pending, false);
-  assert.equal(status.connections.find(item => item.id === 'anthropic-oauth').configured, false);
-}));
-
-test('OAuth errors are generic and selected key state stays unchanged', async () => withCli(async (antPath, dataDir) => {
-  const { manager } = setup({ antPath, dataDir, executeImpl: async (command, args) => { if (args[0] === '--help') return { stdout: 'CLI for the Claude Developer Platform' }; throw Error(key); } });
-  await manager.login({ id: 'anthropic-oauth' });
-  for (let n = 0; n < 20 && (await manager.status()).pending; n++) await tick();
-  assert.doesNotMatch(JSON.stringify(await manager.status()), /sk-test-secret/);
-  assert.equal(await manager.activeId(), 'openai-oauth');
-}));
+test('legacy Console OAuth marker is dormant and never means Claude Code signed in', async () => {
+  const record = { version: 1, active: 'anthropic-oauth', keys: {}, anthropicOAuth: true };
+  const { manager } = setup({ store: { read: async () => record } });
+  assert.equal((await manager.status()).connected, false);
+  assert.equal((await manager.test({ id: 'anthropic-oauth' })).ok, false);
+  await assert.rejects(manager.select({ id: 'anthropic-oauth' }));
+  const result = await manager.login({ id: 'anthropic-oauth' });
+  assert.equal(result.actionNeeded, 'install-claude-code');
+  assert.equal(result.installUrl, 'https://code.claude.com/docs/en/quickstart');
+});
 
 test('simultaneous key saves preserve both connections without changing the selected provider', async () => {
   const { manager, saved } = setup();
@@ -183,43 +150,3 @@ test('OpenAI OAuth login and logout use the existing protected account manager',
   await assert.rejects(manager.credentials());
   await assert.rejects(manager.login({ id: 'openai-api' }));
 });
-
-test('removing Console OAuth logs out only the dedicated official CLI profile', async () => withCli(async (antPath, dataDir) => {
-  const calls = [];
-  const { manager, saved } = setup({ antPath, dataDir, executeImpl: async (command, args) => { if (args[0] === '--help') return { stdout: 'CLI for the Claude Developer Platform' }; calls.push(args); return { stdout: '' }; } });
-  await manager.login({ id: 'anthropic-oauth' });
-  for (let n = 0; n < 20 && (await manager.status()).pending; n++) await tick();
-  await manager.select({ id: 'anthropic-oauth' });
-  const result = await manager.remove({ id: 'anthropic-oauth' });
-  assert.deepEqual(calls.at(-1), ['auth', 'logout', '--profile', 'sitecad']);
-  assert.equal(result.active, 'openai-oauth');
-  assert.equal(saved().anthropicOAuth, false);
-}));
-
-test('missing official CLI cannot falsely claim an existing Console OAuth profile was logged out', async () => {
-  const store = { read: async () => ({ version: 1, active: 'anthropic-oauth', keys: {}, anthropicOAuth: true }), write: async () => { throw Error('must not silently remove'); } };
-  const { manager } = setup({ store });
-  await assert.rejects(manager.remove({ id: 'anthropic-oauth' }), /공식 CLI/);
-  assert.equal((await manager.status()).connections.find(item => item.id === 'anthropic-oauth').configured, true);
-});
-
-
-test('Apache Ant executable collision is not accepted as Anthropic CLI and identity check is cached', async () => withCli(async (antPath, dataDir) => {
-  let calls = 0;
-  const { manager } = setup({ antPath, dataDir, executeImpl: async () => { calls++; return { stdout: 'Apache Ant(TM) version 1.10.15' }; } });
-  assert.equal((await manager.status()).anthropicOAuth.available, false);
-  assert.equal((await manager.status()).anthropicOAuth.available, false);
-  assert.equal(calls, 1);
-}));
-
-
-test('status rediscovers a newly installed official CLI without restarting the app', async () => withCli(async (antPath, dataDir) => {
-  await rm(antPath);
-  let calls = 0;
-  const { manager } = setup({ antPath, dataDir, executeImpl: async () => { calls++; return { stdout: 'CLI for the Claude Developer Platform' }; } });
-  assert.equal((await manager.status()).anthropicOAuth.available, false);
-  await writeFile(antPath, 'installed fixture'); await chmod(antPath, 0o700);
-  assert.equal((await manager.status()).anthropicOAuth.available, true);
-  assert.equal((await manager.status()).anthropicOAuth.available, true);
-  assert.equal(calls, 1, 'unchanged official binary identity is cached');
-}));

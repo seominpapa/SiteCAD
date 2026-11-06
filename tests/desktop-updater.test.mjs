@@ -113,6 +113,27 @@ test('startup decline never downloads, installs or quits the working app', async
   assert.deepEqual(await readdir(f.directory), []);
 });
 
+test('settings can inspect and refresh an available update without download or native prompts', async t => {
+  const f = await flow(t, [1, 1]);
+  assert.equal(f.updater.status().currentVersion, options.currentVersion);
+  assert.equal(f.updater.status().status, 'unchecked');
+  assert.equal((await f.updater.check({ notify: false })).status, 'available');
+  assert.deepEqual(f.events.filter(event => typeof event === 'string'), ['check']);
+  assert.equal(f.prompts.length, 0);
+  assert.equal(f.updater.status().availableVersion, '0.16.3');
+  assert.equal(f.updater.status().status, 'available');
+  assert.equal((await f.updater.check({ manual: true })).status, 'installing');
+});
+
+test('local web releases select only the platform ZIP with a verified digest', () => {
+  const original = release();
+  const name = 'SiteCAD-0.16.3-local-web-Windows.zip';
+  const web = { ...original, assets: [{ ...original.assets[0], name,
+    browser_download_url: `https://github.com/seominpapa/SiteCAD/releases/download/v0.16.3/${name}` }] };
+  assert.equal(updateFromRelease(web, { ...options, kind: 'web' }).name, name);
+  assert.throws(() => updateFromRelease(web, options));
+});
+
 test('download consent is separate from save-and-quit install consent', async t => {
   const f = await flow(t, [1, 0]);
   assert.equal((await f.updater.check()).status, 'deferred');
@@ -246,4 +267,11 @@ test('repeated native close and quit requests cannot bypass pending update clean
   assert.deepEqual(events, ['prevented', 'prevented', 'prevented', 'quit']);
   context.beforeQuit(event());
   assert.equal(events.at(-1), 'quit');
+});
+
+test('Windows ARM64 web ZIP is supported while desktop installers remain x64 only', () => {
+  const name = 'SiteCAD-0.16.4-local-web-Windows.zip';
+  const value = { tag_name:'v0.16.4', draft:false, prerelease:false, assets:[{ name, state:'uploaded', size:bytes.length, digest:`sha256:${sha256}`, browser_download_url:`https://github.com/seominpapa/SiteCAD/releases/download/v0.16.4/${name}` }] };
+  assert.equal(updateFromRelease(value, {...options, kind:'web', arch:'arm64'}).name, name);
+  assert.throws(() => updateFromRelease(release(), {...options, arch:'arm64'}));
 });

@@ -56,6 +56,30 @@ test('installed skills are listed safely and a selected slash remains chat input
   assert.equal(requests.length, 1);
 });
 
+test('offline users can open the skill menu and reach ZIP export without inserting a skill', async t => {
+  const { ids, html } = await fixture(t);
+  ids['message-input'].disabled = true;
+  ids['message-input'].value = '연결 후 보낼 요청';
+  let changes = 0;
+  const menu = createSkillMenu({ isBusy: () => false, onChange: () => { changes++; } });
+  menu.update({ desktop: true }); await flush();
+  assert.equal(ids['skill-toggle'].disabled, false);
+  await ids['skill-toggle'].listeners.click();
+  assert.equal(ids['skill-menu'].hidden, false);
+  assert.match(html, /<section id="skill-menu"[\s\S]*?id="skill-share-open"[\s\S]*?<\/section>/);
+  for (const choice of ids['skill-list'].children) {
+    assert.equal(choice.disabled, true);
+    choice.listeners.click();
+  }
+  assert.equal(ids['message-input'].value, '연결 후 보낼 요청');
+  assert.equal(changes, 0);
+  ids['message-input'].disabled = false; menu.sync();
+  assert.equal(ids['skill-list'].children[0].disabled, false);
+  ids['skill-list'].children[0].listeners.click();
+  assert.equal(ids['message-input'].value, '/skill-creator 연결 후 보낼 요청');
+  assert.equal(changes, 1);
+});
+
 test('slash suggestions filter installed names without executing or fetching per keystroke', async t => {
   const { ids, requests } = await fixture(t);
   const menu = createSkillMenu({ isBusy: () => false });

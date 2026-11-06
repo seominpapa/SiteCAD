@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sitecad-skill-submissions",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-11-06",
+  "workers_dev": true,
+  "observability": { "enabled": false },
+  "vars": {
+    "PUBLIC_ORIGIN": "https://sitecad-skill-submissions.sjkwak300.workers.dev",
+    "GITHUB_OWNER": "seominpapa",
+    "GITHUB_REPO": "SiteCAD",
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAF1xI6TlxqE_SqQ3",
+    "GITHUB_APP_ID": "5637778",
+    "GITHUB_INSTALLATION_ID": "179146207"
+  },
+  "r2_buckets": [{ "binding": "ARCHIVES", "bucket_name": "sitecad-skill-submissions" }],
+  "ratelimits": [
+    { "name": "API_LIMITER", "namespace_id": "781601", "simple": { "limit": 120, "period": 60 } },
+    { "name": "UPLOAD_LIMITER", "namespace_id": "781602", "simple": { "limit": 3, "period": 60 } },
+    { "name": "GLOBAL_LIMITER", "namespace_id": "781603", "simple": { "limit": 20, "period": 60 } }
+  ]
+}

@@ -22,7 +22,7 @@ class Element {
   set innerHTML(_) { assert.fail('Untrusted HTML rendering'); }
 }
 async function fixture(t, overrides = {}) {
-  const prior = { document: globalThis.document, fetch: globalThis.fetch };
+  const prior = { document: globalThis.document, fetch: globalThis.fetch, window: globalThis.window };
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
   const ids = Object.fromEntries([...html.matchAll(/id="([^"]+)"/g)].map(([_, id]) => [id, new Element()]));
   ids['settings-content'].append(...['general','llm','api','mcp','plugins'].map(tab=>ids[`settings-panel-${tab}`]).filter(Boolean));
@@ -34,6 +34,7 @@ async function fixture(t, overrides = {}) {
     { id: 'anthropic-oauth', label: 'Claude Console · OAuth', provider: 'anthropic', method: 'oauth', configured: false },
   ] };
   globalThis.document = { getElementById: id => { assert.ok(ids[id], id); return ids[id]; }, createElement: tag => new Element(tag) };
+  globalThis.window = { confirm: () => true };
   const storage = { path:'/Applications/SiteCAD/drawings',defaultPath:'/Applications/SiteCAD/drawings',isDefault:true };
   globalThis.fetch = async (url, options = {}) => {
     requests.push({url, ...options});
@@ -55,9 +56,23 @@ test('unified settings open read-only and expose accessible LLM/API/MCP/plugin t
   assert.equal(ids['settings-dialog'].open,true);
   assert.match(html,/id="settings-dialog"[^>]*aria-labelledby="settings-title"/);
   assert.match(html,/role="tablist"/);
-  assert.deepEqual(requests.map(r=>r.url).sort(),['storage','llm','mcp','references','kcsc','plugins','apis'].map(p=>`/api/desktop/${p}`).sort());
+  assert.deepEqual(requests.map(r=>r.url).sort(),['storage','llm','mcp','references','kcsc','plugins','apis','updates'].map(p=>`/api/desktop/${p}`).sort());
   assert.ok(requests.every(r=>!r.method));
   assert.match(content(ids['settings-content']),/OpenAI.*API.*Claude/s);
+});
+
+test('general update button needs a newer version and explicit install consent',async t=>{
+  const f=await fixture(t),original=globalThis.fetch;let update={supported:true,currentVersion:'0.16.3',status:'current',busy:false};
+  globalThis.fetch=async(url,init)=>{
+    if(url.endsWith('/updates'))return Response.json({ok:true,data:update});
+    if(url.endsWith('/updates/check')){assert.deepEqual(JSON.parse(init.body),{});update={...update,status:'available',availableVersion:'0.16.4'};return Response.json({ok:true,data:update});}
+    if(url.endsWith('/updates/install')){assert.deepEqual(JSON.parse(init.body),{approved:true});update={...update,busy:true,status:'scheduled'};return Response.json({ok:true,data:update});}
+    return original(url,init);
+  };
+  await f.ui.open();assert.equal(f.field('updates-install').disabled,true);
+  await f.click('updates-check');assert.equal(f.field('updates-install').disabled,false);assert.match(content(f.ids['settings-panel-general']),/0.16.3.*0.16.4/s);
+  window.confirm=()=>false;await f.click('updates-install');assert.equal(update.busy,false);
+  window.confirm=()=>true;await f.click('updates-install');assert.equal(update.busy,true);assert.equal(f.field('updates-install').disabled,true);
 });
 
 test('general settings show the installation-folder default and settings precedes the header folder action',async t=>{
@@ -146,19 +161,19 @@ test('Claude missing CLI response explains installation and keeps login retry av
   const fetcher=globalThis.fetch;
   globalThis.fetch=async(url,options)=>url.endsWith('/llm/login')?Response.json({ok:true,data:{actionNeeded:'install-anthropic-cli'}}):fetcher(url,options);
   await field('anthropic-oauth-login').listeners.click();
-  assert.match(ids['settings-notice'].textContent,/공식 ant CLI를 설치/);
+  assert.match(ids['settings-notice'].textContent,/공식 Claude Code를 설치/);
   assert.equal(field('anthropic-oauth-login').disabled,false);
 });
 
-test('Claude OAuth presents one billing notice, actionable CLI installation and sanitized login failures',async t=>{
+test('Claude OAuth presents subscription notice, actionable CLI installation and sanitized login failures',async t=>{
   const {ui,state,ids}=await fixture(t),connection=state.connections.find(item=>item.id==='anthropic-oauth');
   connection.notice='Repeated Claude Pro·Max notice';connection.error='Claude Console 로그인을 완료하지 못했습니다.';
   state.anthropicOAuth={available:false,notice:connection.notice};await ui.open();
   const rendered=content(ids['settings-panel-llm']);
   assert.equal((rendered.match(/Pro·Max/g)||[]).length,1);
-  assert.match(rendered,/공식 ant CLI 설치가 필요합니다/);
+  assert.match(rendered,/공식 Claude Code 설치가 필요합니다/);
   assert.match(rendered,/Claude Console 로그인을 완료하지 못했습니다/);
-  assert.ok(descendants(ids['settings-panel-llm']).some(item=>item.href==='https://platform.claude.com/docs/en/cli-sdks-libraries/cli/quickstart'));
+  assert.ok(descendants(ids['settings-panel-llm']).some(item=>item.href==='https://code.claude.com/docs/en/quickstart'));
 });
 
 test('MCP and plugin settings only show chat installation guidance and registered inventories',async t=>{
@@ -300,4 +315,17 @@ test('MCP and plugin installation outcomes remain in collapsed settings history'
   }
   assert.match(content(ids['settings-panel-mcp']),/failed-server.*설치 실패.*weather.*키 등록 필요/s);
   assert.match(content(ids['settings-panel-plugins']),/drawing-check.*설치됨/s);
+});
+
+test('downloaded web update asks to save before enabling the final installation action',async t=>{
+  const f=await fixture(t),original=globalThis.fetch;let installs=0,message='';
+  globalThis.fetch=async(url,init)=>{
+    if(url.endsWith('/updates'))return Response.json({ok:true,data:{supported:true,kind:'web',currentVersion:'0.16.3',availableVersion:'0.16.4',status:'ready',busy:false}});
+    if(url.endsWith('/updates/install')){installs++;return Response.json({ok:true,data:{supported:true,kind:'web',currentVersion:'0.16.3',availableVersion:'0.16.4',status:'installing',busy:true}});}
+    return original(url,init);
+  };
+  await f.ui.open();
+  assert.equal(f.field('updates-install').textContent,'저장 후 재시작하여 설치');assert.equal(f.field('updates-check').disabled,true);
+  window.confirm=value=>{message=value;return false;};await f.click('updates-install');assert.equal(installs,0);assert.match(message,/DWG로 저장/);
+  window.confirm=()=>true;await f.click('updates-install');assert.equal(installs,1);
 });

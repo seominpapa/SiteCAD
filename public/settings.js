@@ -4,7 +4,7 @@ const text = (value, max = 2000) => typeof value === 'string' ? value.slice(0, m
 export function createSettings({ isBusy, onChange = async () => {}, onModelSelect = () => {} }) {
   const $ = id => document.getElementById(id);
   const dialog = $('settings-dialog');
-  let supported = false, pending = false, activeTab = 'general', state = {};
+  let supported = false, pending = false, activeTab = 'general', state = {}, updateTimer;
   const controls = new Map();
   const node = (tag, value = '') => { const item = document.createElement(tag); item.textContent = value; return item; };
   const locked = () => !supported || pending || isBusy();
@@ -39,8 +39,8 @@ export function createSettings({ isBusy, onChange = async () => {}, onModelSelec
     finally { pending = false; sync(); }
   }
   async function refresh() {
-    const [llm,mcp,references,kcsc,plugins,apis,storage] = await Promise.all(['llm','mcp','references','kcsc','plugins','apis','storage'].map(path=>request(path)));
-    state = {llm,mcp,references,kcsc,plugins,apis,storage}; render();
+    const [llm,mcp,references,kcsc,plugins,apis,storage,updates] = await Promise.all(['llm','mcp','references','kcsc','plugins','apis','storage','updates'].map(path=>request(path)));
+    state = {llm,mcp,references,kcsc,plugins,apis,storage,updates}; render();
   }
   async function changed(message = '설정을 반영했습니다.', llmChanged = false) {
     await refresh(); await onChange({llmChanged}); notice(message);
@@ -70,7 +70,36 @@ export function createSettings({ isBusy, onChange = async () => {}, onModelSelec
   function submit(form,handler) {
     form.addEventListener('submit',event=>{event.preventDefault(); if (!locked()) return handler();});
   }
+  function pollUpdates() {
+    clearTimeout(updateTimer);
+    if (!dialog.open || !(state.updates?.busy || state.updates?.status === 'ready')) return;
+    updateTimer = setTimeout(async () => {
+      try {
+        const updates = await request('updates');
+        const changed = JSON.stringify(updates) !== JSON.stringify(state.updates);
+        state = {...state,updates};
+        if (changed && activeTab === 'general' && !pending) render();
+      } catch { /* A successful update closes the old local server. */ }
+      pollUpdates();
+    }, 1500);
+    updateTimer.unref?.();
+  }
   function generalPanel(parent) {
+    const update=state.updates??{};
+    const updateBox=card(parent,'SiteCAD 업데이트',`현재 버전: ${text(update.currentVersion,30)||'확인 필요'}`);
+    const available=typeof update.availableVersion==='string' && /^\d+\.\d+\.\d+$/.test(update.availableVersion);
+    updateBox.append(node('p',available?`새 버전: ${update.availableVersion}`:update.status==='current'?'현재 최신 버전을 사용하고 있습니다.':update.supported===false?'개발용 실행에서는 설치 업데이트를 지원하지 않습니다.':'새 버전이 있는지 확인해 주세요.'));
+    updateBox.append(node('p','업데이트 전에 필요한 도면을 저장해 주세요. 설치 후 앱을 다시 열며 기존 도면·설정·로그인 정보는 유지합니다.'));
+    if(update.status==='ready')updateBox.append(node('p','다운로드가 완료됐습니다. 필요한 도면을 저장한 뒤 아래 버튼을 눌러 설치해 주세요.'));
+    if(update.status==='failed'||update.lastInstallFailed)updateBox.append(node('p','업데이트를 확인하거나 완료하지 못했습니다. 인터넷 연결과 설치 폴더 권한을 확인한 뒤 다시 시도해 주세요.'));
+    if(update.busy===true)updateBox.append(node('p',update.status==='downloading'?`업데이트 다운로드 중${Number.isFinite(update.progress)?` · ${Math.round(update.progress*100)}%`:''}`:'업데이트를 처리하고 있습니다.'));
+    const updateActions=node('div');updateActions.className='settings-actions';updateBox.append(updateActions);
+    button(updateActions,'updates-check','새 버전 확인',()=>action(async()=>{state={...state,updates:await request('updates/check',{})};render();}),()=>update.supported===true&&update.busy!==true&&update.status!=='ready');
+    button(updateActions,'updates-install',update.status==='ready'?'저장 후 재시작하여 설치':available?`${update.availableVersion} 업데이트`:'업데이트',()=>action(async()=>{
+      const message=update.kind==='web'&&update.status!=='ready'?'업데이트를 다운로드할까요? 다운로드 후 도면을 저장하고 설치를 다시 확인할 수 있습니다.': '필요한 도면을 DWG로 저장했나요? 앱을 종료한 뒤 업데이트를 설치합니다. 기존 도면·설정·로그인 정보는 유지합니다.';
+      if(!window.confirm(message))return;
+      state={...state,updates:await request('updates/install',{approved:true})};render();notice('업데이트를 시작했습니다. 설치 안내에 따라 진행해 주세요.');
+    }),()=>update.supported===true&&update.busy!==true&&available);
     const current=text(state.storage?.path,4096),defaultPath=text(state.storage?.defaultPath,4096);
     const box=card(parent,'도면 저장 폴더','기존 도면은 이동하지 않습니다. 변경한 폴더는 다음 DWG 저장부터 사용합니다.');
     for(const [label,path] of [['현재 저장 위치',current],['기본 위치 · 웹앱 폴더의 drawings',defaultPath]]) {
@@ -95,7 +124,7 @@ export function createSettings({ isBusy, onChange = async () => {}, onModelSelec
       const verified=connection.lastCheck?.ok===true;
       const status=current ? configured?'현재 사용':'현재 선택 · 연결 필요' : verified ? '모델 목록 확인됨' : configured ? '등록됨 · 연결 미확인' : '연결 필요';
       const box=card(parent,text(connection.label,120)||id,status);
-      if (connection.notice && id!=='anthropic-oauth') box.append(node('p',text(connection.notice)));
+      if (connection.notice) box.append(node('p',text(connection.notice)));
       if (id==='anthropic-oauth' && connection.error) {
         const error=node('p',text(connection.error));error.className='mcp-notice error';error.setAttribute('role','status');box.append(error);
       }
@@ -111,19 +140,19 @@ export function createSettings({ isBusy, onChange = async () => {}, onModelSelec
           key.value='';
           await action(async()=>{await request('llm/save',{id,apiKey,...(workspaceId?{workspaceId}:{})});await changed('키를 저장했습니다. 사용할 연결 선택과 모델 목록 확인을 진행해 주세요.',true);});
         });
-        external(box,id==='openai-api'?'OpenAI API 키 발급':'Claude Console API 키 발급',id==='openai-api'?'https://platform.openai.com/api-keys':'https://platform.claude.com/settings/keys');
+        external(box,id==='openai-api'?'OpenAI API 키 발급':'Claude API 키 발급',id==='openai-api'?'https://platform.openai.com/api-keys':'https://platform.claude.com/settings/keys');
       } else {
-        if (id==='anthropic-oauth') box.append(node('p','Claude Console OAuth는 API 사용량으로 과금됩니다. Claude Pro·Max 구독의 OAuth 토큰을 가져오거나 재사용하지 않습니다. 공식 ant CLI의 로그인 절차를 사용합니다.'));
+        if (id==='anthropic-oauth') box.append(node('p','Claude 구독 계정으로 공식 Claude Code 로그인 절차를 진행합니다. 로그인 정보는 이 PC의 SiteCAD 전용 프로필에 보관합니다.'));
         const available=id!=='anthropic-oauth'||state.llm.anthropicOAuth?.available!==false;
-        button(form,`${id}-login`,id==='openai-oauth'?'ChatGPT로 로그인':'Claude Console로 로그인·다시 확인',()=>action(async()=>{
+        button(form,`${id}-login`,id==='openai-oauth'?'ChatGPT로 로그인':'Claude로 로그인·다시 확인',()=>action(async()=>{
           const result=await request('llm/login',{id});
-          await changed(result?.actionNeeded==='install-anthropic-cli'?'공식 ant CLI를 설치한 뒤 Claude Console 로그인 버튼을 다시 눌러 주세요.':'기본 브라우저에서 공식 로그인을 완료한 뒤 새로 고침을 눌러 주세요.',true);
+          await changed(['install-anthropic-cli','install-claude-code'].includes(result?.actionNeeded)?'공식 Claude Code를 설치한 뒤 Claude 로그인 버튼을 다시 눌러 주세요.':'기본 브라우저에서 공식 로그인을 완료한 뒤 새로 고침을 눌러 주세요.',true);
         }));
         if (!available) {
-          box.append(node('p','공식 ant CLI 설치가 필요합니다. 설치를 완료한 뒤 로그인 버튼을 다시 눌러 주세요.'));
-          external(box,'공식 ant CLI 설치 안내','https://platform.claude.com/docs/en/cli-sdks-libraries/cli/quickstart');
+          box.append(node('p','공식 Claude Code 설치가 필요합니다. 설치를 완료한 뒤 로그인 버튼을 다시 눌러 주세요.'));
+          external(box,'공식 Claude Code 설치 안내',state.llm.anthropicOAuth?.installUrl||'https://code.claude.com/docs/en/quickstart');
         }
-        external(box,'공식 인증 안내',id==='openai-oauth'?'https://developers.openai.com/codex/auth/':'https://platform.claude.com/docs/en/cli-sdks-libraries/cli/authentication');
+        external(box,'공식 인증 안내',id==='openai-oauth'?'https://developers.openai.com/codex/auth/':'https://code.claude.com/docs/en/authentication');
       }
       const actions=node('div');actions.className='settings-actions';box.append(actions);
       button(actions,`${id}-select`,current?'사용 중':'이 연결 사용',()=>action(async()=>{await request('llm/select',{id});await changed('사용할 AI 연결을 변경했습니다. 다음 요청부터 적용됩니다.',true);}),()=>configured&&!current);
@@ -134,13 +163,13 @@ export function createSettings({ isBusy, onChange = async () => {}, onModelSelec
       }),()=>configured);
       button(actions,`${id}-remove`,id.endsWith('-api')?'키 삭제':'로그아웃',()=>action(async()=>{await request('llm/remove',{id});await changed('이 연결의 로컬 인증을 해제했습니다.',true);}),()=>configured);
     }
-    const catalog=card(parent,'사용 중인 연결의 모델','모델 목록 조회는 추론 요청을 보내지 않습니다. 모델 실행 시 API 비용과 계정 권한이 적용됩니다.');
+    const catalog=card(parent,'사용 중인 연결의 모델','모델 목록 조회는 추론 요청을 보내지 않습니다. 모델 실행에는 선택한 연결의 구독 한도 또는 API 요금과 계정 권한이 적용됩니다.');
     const select=node('select');select.dataset.field='llm-model-select';select.setAttribute('aria-label','사용할 AI 모델');catalog.append(select);
     let models=[];
     register(select,()=>models.length>0);
     button(catalog,'llm-model-load','모델 목록 불러오기',()=>action(async()=>{
       const result=await request('models');
-      models=Array.isArray(result?.models)?result.models.filter(item=>item&&typeof item.id==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(item.id)).slice(0,500):[];
+      models=Array.isArray(result?.models)?result.models.filter(item=>item&&typeof item.id==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,127}$/.test(item.id)).slice(0,500):[];
       if(!models.length)throw Error();
       select.replaceChildren(...models.map(item=>{const option=node('option',text(item.displayName,160)||item.id);option.value=item.id;return option;}));
       select.value=models.find(item=>item.id===result.defaultModel)?.id??models.find(item=>item.isDefault)?.id??models[0].id;
@@ -281,7 +310,7 @@ export function createSettings({ isBusy, onChange = async () => {}, onModelSelec
     for (const [tab,builder] of [['general',generalPanel],['llm',llmPanel],['api',apiPanel],['mcp',mcpPanel],['plugins',pluginPanel]]) {
       const panel=$(`settings-panel-${tab}`);panel.replaceChildren();builder(panel);
     }
-    selectTab(activeTab);sync();
+    selectTab(activeTab);sync();pollUpdates();
   }
   async function open(tab='general',focusId) {
     if (locked()) return;
@@ -293,7 +322,7 @@ export function createSettings({ isBusy, onChange = async () => {}, onModelSelec
   $('settings-open').addEventListener('click',open);
   $('settings-refresh').addEventListener('click',()=>action(refresh));
   $('settings-close').addEventListener('click',()=>{if(!pending)dialog.close();});
-  dialog.addEventListener('close',clearSecrets);
+  dialog.addEventListener('close',()=>{clearSecrets();clearTimeout(updateTimer);});
   dialog.addEventListener('cancel',event=>{if(pending)event.preventDefault();});
   for (const tab of TABS) {
     $(`settings-tab-${tab}`).addEventListener('click',()=>selectTab(tab));

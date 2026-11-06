@@ -6,6 +6,9 @@ import { dirname, extname, isAbsolute, join, relative, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateChat, validatePlan } from './lib/plan.mjs';
 import { oauthStatus, planWithCodex } from './lib/planner.mjs';
+import { drawingExamples } from './lib/examples.mjs';
+import { createSkillSubmission, SKILL_SUBMISSION_ORIGIN } from './lib/skill-submission.mjs';
+import { MAX_CHAT_UPLOAD_BYTES, CHAT_ATTACHMENT_ID } from './lib/chat-attachments.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.jpg': 'image/jpeg', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.dwg': 'application/acad', '.bin': 'application/octet-stream' };
@@ -64,9 +67,11 @@ async function staticFile(res, file, allowedRoot, method, contentType) {
   stream.pipe(res);
 }
 
-export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desktop, browserAccess, browserActions, publicRoot = join(root, 'public'), editorRoot = join(root, 'vendor/editor'), legalRoot = root, fixturePath = join(root, 'fixtures/retaining-wall.dwg'), now = Date.now } = {}) {
+export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desktop, browserAccess, browserActions, updates, skillSubmission = createSkillSubmission({ desktop }), publicRoot = join(root, 'public'), editorRoot = join(root, 'vendor/editor'), legalRoot = root, fixturePath = join(root, 'fixtures/retaining-wall.dwg'), examplesRoot = join(root, 'drawings/Test'), now = Date.now } = {}) {
   let active = false;
+  let manualUpdatePending = false;
   let recent = [];
+  let uploads = [];
   let authCache;
   let authAt = 0;
   async function currentAuth() {
@@ -84,8 +89,10 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
     browserAccess?.assertOwner(req);
     const {chatId,model,...request} = body;
     const input = validateChat(request);
+    if (manualUpdatePending || updates?.status().busy || ['installing', 'scheduled'].includes(updates?.status().status)) throw error('업데이트 작업을 마친 뒤 다시 요청해 주세요.', 409);
+    if (input.attachments?.length && !desktop) throw error('첨부 파일은 로컬 웹앱 또는 데스크탑 앱에서 사용할 수 있습니다.');
     if (chatId !== undefined && (!desktop || typeof chatId !== 'string' || !/^[a-f0-9-]{36}$/.test(chatId))) throw error('채팅을 다시 선택해 주세요.');
-    if (model !== undefined && (!desktop || typeof model !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(model))) throw error('모델 선택을 확인해 주세요.');
+    if (model !== undefined && (!desktop || typeof model !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,127}$/.test(model))) throw error('모델 선택을 확인해 주세요.');
     recent = recent.filter(time => now() - time < 60000);
     if (active || recent.length >= 20) throw error('진행 중인 요청이 끝난 뒤 잠시 후 다시 시도해 주세요.', 429);
     active = true;
@@ -131,9 +138,11 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
       return respond(res, 200, { ok: true, data: await desktop.callCad(method, payload) });
     }
     if (path === '/api/desktop/status' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.status() });
+    if (path === '/api/desktop/updates' && req.method === 'GET') return respond(res, 200, { ok: true, data: updates?.status() ?? { supported: false, status: 'unsupported' } });
     if (path === '/api/desktop/storage' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.storageStatus() });
     if (path === '/api/desktop/mcp' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.mcpList() });
     if (path === '/api/desktop/skills' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.skillsList() });
+    if (path === '/api/desktop/skills/submission-config' && req.method === 'GET') return respond(res, 200, { ok: true, data: await skillSubmission.config() });
     if (path === '/api/desktop/plugins' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.pluginsList() });
     if (path === '/api/desktop/models' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.modelsList() });
     if (path === '/api/desktop/llm' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.llmStatus() });
@@ -144,9 +153,52 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
     if (path === '/api/desktop/kcsc' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.kcscStatus() });
     if (path === '/api/desktop/terrain' && req.method === 'GET') return respond(res, 200, { ok: true, data: await desktop.terrainStatus() });
     if (req.method !== 'POST' || req.headers.origin !== `http://${req.headers.host}`) throw error('이 로컬 앱에서만 요청할 수 있습니다.', 403);
+    if (path === '/api/desktop/chat/attachments') {
+      if (!req.headers['content-type']?.startsWith('multipart/form-data;')) throw error('파일 업로드 요청을 확인해 주세요.', 415);
+      browserAccess?.assertOwner(req);
+      uploads = uploads.filter(time => now() - time < 60000);
+      if (uploads.length >= 12) throw error('첨부 요청이 많습니다. 잠시 후 다시 시도해 주세요.', 429);
+      uploads = [...uploads, now()];
+      const bytes = await readBytes(req, MAX_CHAT_UPLOAD_BYTES + 65536, 60000);
+      let form;
+      try { form = await new Request('http://127.0.0.1', { method: 'POST', headers: { 'Content-Type': req.headers['content-type'] }, body: bytes }).formData(); }
+      catch { throw error('파일 업로드 요청을 확인해 주세요.'); }
+      const entries = [...form.entries()], chatIds = form.getAll('chatId'), files = form.getAll('files');
+      if (chatIds.length !== 1 || typeof chatIds[0] !== 'string' || !CHAT_ATTACHMENT_ID.test(chatIds[0]) || !files.length || files.length > 4 ||
+        entries.some(([key, value]) => !['chatId', 'files'].includes(key) || key === 'files' && typeof value === 'string')) throw error('첨부할 채팅과 1~4개의 파일을 확인해 주세요.');
+      browserAccess?.assertOwner(req);
+      try {
+        return respond(res, 200, { ok: true, data: await desktop.chatAttachmentsUpload({ chatId: chatIds[0], files: await Promise.all(files.map(async file => ({ name: file.name, bytes: Buffer.from(await file.arrayBuffer()) }))) }) });
+      } catch (cause) {
+        throw error(cause.code ? '첨부 파일을 저장하지 못했습니다. 저장 공간과 접근 권한을 확인해 주세요.' : cause.message);
+      }
+    }
     if (req.headers['content-type']?.split(';')[0].trim() !== 'application/json') throw error('JSON 요청만 지원합니다.', 415);
     const body = await readBody(req, path === '/api/desktop/cad/result' ? 42 * 1024 * 1024 : 128 * 1024);
     browserAccess?.assertOwner(req);
+    if (['/api/desktop/updates/check', '/api/desktop/updates/install'].includes(path)) {
+      const install = path.endsWith('/install');
+      if (!body || typeof body !== 'object' || Array.isArray(body) || (install
+        ? Object.keys(body).length !== 1 || body.approved !== true
+        : Object.keys(body).length !== 0)) throw error('업데이트 요청과 설치 동의를 확인해 주세요.');
+      if (!updates?.status().supported) throw error('이 실행 방식에서는 앱 내 업데이트를 지원하지 않습니다.', 409);
+      if (manualUpdatePending || updates.status().busy) throw error('진행 중인 업데이트가 끝난 뒤 다시 요청해 주세요.', 409);
+      if (!install) return respond(res, 200, { ok: true, data: await updates.check() });
+      manualUpdatePending = true;
+      try {
+        const state = await desktop.status();
+        if (active || state.active || state.busy) throw error('진행 중인 작업을 마친 뒤 업데이트해 주세요.', 409);
+        return respond(res, 200, { ok: true, data: await updates.install() });
+      } finally { manualUpdatePending = false; }
+    }
+    if (path === '/api/desktop/skills/submit') return respond(res, 200, { ok: true, data: await skillSubmission.submit(body) });
+    if (['/api/desktop/local/open-drawings', '/api/desktop/local/quit'].includes(path)) {
+      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length) throw error('요청을 확인해 주세요.');
+      const action = path.endsWith('/quit') ? browserActions?.quit : browserActions?.openDrawings;
+      if (typeof action !== 'function') throw error('이 실행 방식에서는 지원하지 않는 메뉴입니다.', 404);
+      await action();
+      return respond(res, 200, { ok: true });
+    }
     if (path === '/api/desktop/skills/export') {
       const archive = await desktop.skillsExport(body);
       res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Length': archive.bytes.length, 'Content-Disposition': `attachment; filename="${archive.name}"`, 'Cache-Control': 'no-store' });
@@ -201,7 +253,7 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
   const server = createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; frame-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'");
+    res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; frame-src 'self' ${SKILL_SUBMISSION_ORIGIN}; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'`);
     try {
       if (!localHost(req, server.address()?.port)) throw error('로컬 주소만 지원합니다.', 403);
       const rawPath = decodeURIComponent(req.url.split('?')[0]);
@@ -251,6 +303,12 @@ export function createApp({ plan = planWithCodex, authStatus = oauthStatus, desk
         const font = cadFont();
         res.setHeader('X-SiteCAD-CAD-Font', font.name);
         return await staticFile(res, join(font.directory, font.name), font.directory, req.method);
+      }
+      if (path === '/api/examples') return respond(res, 200, { ok: true, data: { examples: drawingExamples } });
+      if (path.startsWith('/api/examples/')) {
+        const example = drawingExamples.find(item => path === item.url);
+        if (!example) throw error('예제 도면을 찾을 수 없습니다.', 404);
+        return await staticFile(res, join(examplesRoot, example.file), examplesRoot, req.method);
       }
       if (path.startsWith('/api/')) throw error('경로를 찾을 수 없습니다.', 404);
       if (path === '/legal/opencadstudio-source.tar.gz') {

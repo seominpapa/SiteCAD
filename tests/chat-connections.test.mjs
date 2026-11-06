@@ -118,8 +118,8 @@ test('native terrain picker and standards guidance are not external connection r
 test('app intercepts private connection cards before chat/history and clears them when chats change', async () => {
   const app = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
   const submit = app.slice(app.indexOf('async function submitMessage('));
-  assert.ok(submit.indexOf('chatConnections.handleCommand(message)') < submit.indexOf("appendMessage('user', message)"));
-  assert.match(app, /onSelect\(chat\)\s*\{\s*chatConnections.clear\(\)/);
+  assert.ok(submit.indexOf('chatConnections.handleCommand(message)') < submit.indexOf("appendMessage('user', message, { attachments })"));
+  assert.match(app, /onSelect\(chat\)\s*\{\s*chatAttachments.clear\(\);\s*chatConnections.clear\(\)/);
   assert.match(app, /chatConnections.update\(body.data\)/);
   assert.match(app, /chatConnections.clear\(\);[\s\S]*stopBridge\?\.\(\)/);
   assert.doesNotMatch(app, /mcpSettings.handleCommand/);

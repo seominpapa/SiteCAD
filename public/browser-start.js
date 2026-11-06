@@ -47,6 +47,23 @@ export function monitorBrowserOwner({ request, hooks, suspended, transferred, sc
   return stop;
 }
 
+export function startLocalActions({ browser, supported, blocked, request = fetch, confirm = message => window.confirm(message), alert = message => window.alert(message) }) {
+  if (!supported) return;
+  const $ = id => document.getElementById(id);
+  $('local-actions').hidden = false;
+  $('quit-local').textContent = '종료';
+  for (const [id, action] of [['open-saved-folder', 'open-drawings'], ['quit-local', 'quit']]) {
+    $(id).addEventListener('click', async () => {
+      if (browser && action === 'quit' && !confirm('저장하지 않은 도면과 진행 중인 작업이 사라질 수 있습니다. 필요한 DWG를 저장했는지 확인한 뒤 SiteCAD 실행기를 종료할까요?')) return;
+      try {
+        const res = await request(`/api/${browser ? 'local' : 'desktop/local'}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const value = await res.json(); if (!res.ok || !value.ok) throw Error(value.error || 'SiteCAD 실행 상태를 확인해 주세요.');
+        if (browser && action === 'quit') blocked('SiteCAD 실행기를 종료했습니다. 다시 사용하려면 Start SiteCAD.command 또는 Start SiteCAD.cmd를 열어 주세요.');
+      } catch (error) { alert(error.message); }
+    });
+  }
+}
+
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   const blocked = (text, recoverable = false) => {
     document.getElementById('editor')?.remove();
@@ -102,18 +119,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
             stopMonitoring?.();
             void fetch('/api/browser/release', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', keepalive: true }).catch(() => {});
           }, { once: true });
-          document.getElementById('local-actions').hidden = false;
-          for (const [id, action] of [['open-saved-folder', 'open-drawings'], ['quit-local', 'quit']]) {
-            document.getElementById(id).addEventListener('click', async () => {
-              if (action === 'quit' && !window.confirm('저장하지 않은 도면과 진행 중인 작업이 사라질 수 있습니다. 필요한 DWG를 저장했는지 확인한 뒤 SiteCAD 실행기를 종료할까요?')) return;
-              try {
-                const res = await fetch(`/api/local/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-                const value = await res.json(); if (!res.ok || !value.ok) throw Error(value.error || '로컬 실행기를 확인해 주세요.');
-                if (action === 'quit') blocked('SiteCAD 실행기를 종료했습니다. 다시 사용하려면 Start SiteCAD.command를 열어 주세요.');
-              } catch (error) { window.alert(error.message); }
-            });
-          }
         }
+        startLocalActions({ browser: body.data.browser === true, supported: body.data.browser === true || body.data.desktop === true, blocked });
         document.getElementById('editor').src = '/app/';
         app = await import('./app.js');
       },

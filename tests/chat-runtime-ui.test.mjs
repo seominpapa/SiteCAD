@@ -89,7 +89,7 @@ test('provider changes discard the previous model and settings can apply a curre
   ui.selectModel({id:'openai-model',displayName:'OpenAI 모델'});assert.equal(ui.selectedModel(),'openai-model');
   ui.update({desktop:true,llm:{active:'anthropic-api',connected:true}});assert.equal(ui.selectedModel(),undefined);
   assert.match(ids['model-choice'].textContent,/자동 선택/);
-  ui.selectModel({id:'claude-model',displayName:'Claude 모델'});assert.equal(ui.selectedModel(),'claude-model');
+  ui.selectModel({id:'opus[1m]',displayName:'Claude 모델'});assert.equal(ui.selectedModel(),'opus[1m]');
   ui.resetModels();assert.equal(ui.selectedModel(),undefined);
 });
 

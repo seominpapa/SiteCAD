@@ -6,7 +6,8 @@ export function createSkillMenu({ isBusy, onChange = () => {} }) {
   let error = false;
   let skills = [];
   let open = false;
-  const available = () => supported && !isBusy() && !$('message-input').disabled;
+  const available = () => supported && !isBusy();
+  const canInsert = () => available() && !$('message-input').disabled;
 
   function sync() {
     $('skill-reference').hidden = !supported;
@@ -21,10 +22,10 @@ export function createSkillMenu({ isBusy, onChange = () => {} }) {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'skill-choice';
       const name = document.createElement('strong'); name.textContent = `${skill.displayName && skill.displayName !== skill.name ? `${skill.displayName} · ` : ''}/${skill.name}${skill.builtin ? ' · 기본' : ''}`;
       const description = document.createElement('span'); description.textContent = skill.description;
-      button.disabled = !available();
+      button.disabled = !canInsert();
       button.append(name, description);
       button.addEventListener('click', () => {
-        if (!available()) return;
+        if (!canInsert()) return;
         const value = $('message-input').value;
         const args = value.match(/^\/\S+\s+([\s\S]*)$/u)?.[1] ?? (value.startsWith('/') ? '' : value.trim());
         $('message-input').value = `/${skill.name} ${args}`;

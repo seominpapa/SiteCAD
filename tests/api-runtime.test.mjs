@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import { createSitecadSkills } from '../lib/sitecad-skills.mjs';
 import { researchTools } from '../lib/research-mcp.mjs';
 
+const TEST_API_CREDENTIAL = 'api-test-key';
+
 const input = {message:'현재 도면을 확인해줘',context:{documentId:1,revision:0,units:4,selection:[],entities:[]},history:[]};
 const json = value => new Response(JSON.stringify(value),{headers:{'Content-Type':'application/json'}});
 function fixture(provider, responses = [], extra = {}) {
@@ -21,6 +23,16 @@ function fixture(provider, responses = [], extra = {}) {
     },...extra});
   return {runtime,calls,events,bridge};
 }
+for (const provider of ['openai', 'anthropic']) test(`${provider} sends uploaded images as real vision blocks and treats document text as untrusted data`, async () => {
+  const response = provider === 'openai' ? { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: '첨부 확인' }] }] } : { stop_reason: 'end_turn', content: [{ type: 'text', text: '첨부 확인' }] };
+  const f = fixture(provider, [response]);
+  await f.runtime.chat(input, { attachmentInputs: [{ name: '화면.png', kind: 'image', imageData: 'aW1hZ2U=', imageMimeType: 'image/png' }, { name: '표.csv', kind: 'text', text: '철근,12' }] });
+  const body = f.calls.find(item => item.url.endsWith(provider === 'openai' ? '/responses' : '/messages')).body;
+  const content = (body.input ?? body.messages).at(-1).content;
+  assert.match(content[0].text, /untrusted file contents/); assert.match(content[0].text, /철근,12/);
+  if (provider === 'openai') assert.deepEqual(content[1], { type: 'input_image', image_url: 'data:image/png;base64,aW1hZ2U=', detail: 'auto' });
+  else assert.deepEqual(content[1], { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aW1hZ2U=' } });
+});
 for (const provider of ['openai', 'anthropic']) test(`${provider} receives the real bodies of all automatically selected skills without changing authorization`, async t => {
   const codexHome = await mkdtemp(join(tmpdir(), 'sitecad-selected-skills-'));
   t.after(() => rm(codexHome, { recursive: true, force: true }));
@@ -53,18 +65,24 @@ test('OpenAI Responses runs real guarded internal tools and returns their result
   assert.equal(f.bridge.length,2);
   assert.deepEqual(f.events.filter(x=>x.type==='tool').map(x=>x.status),['running','completed']);
 });
-test('Anthropic Messages uses OAuth bearer credentials, workspace and tool-result blocks',async()=>{
+test('Anthropic Messages uses API keys, workspace and tool-result blocks',async()=>{
   const f=fixture('anthropic',[{stop_reason:'tool_use',content:[{type:'tool_use',id:'c1',name:'sitecad_cad_context',input:{}}]},
     {stop_reason:'end_turn',content:[{type:'text',text:'Claude 확인 완료'}]}],
-    {getCredentials:async()=>({accessToken:'oauth-test-token',workspaceId:'workspace-test'})});
+    {getCredentials:async()=>({apiKey:TEST_API_CREDENTIAL,workspaceId:'workspace-test'})});
   const result=await f.runtime.chat(input);
   const requests=f.calls.filter(x=>x.url.endsWith('/messages'));
-  assert.equal(requests[0].init.headers.Authorization,'Bearer oauth-test-token');
+  assert.equal(requests[0].init.headers.Authorization,undefined);
   assert.equal(requests[0].init.headers['anthropic-workspace-id'],'workspace-test');
-  assert.equal(requests[0].init.headers['x-api-key'],undefined);
+  assert.equal(requests[0].init.headers['x-api-key'],TEST_API_CREDENTIAL);
+  assert.equal(requests[0].init.headers['anthropic-beta'],undefined);
   assert.equal(requests[0].body.max_tokens,8192);
   assert.equal(requests[1].body.messages.at(-1).content[0].tool_use_id,'c1');
   assert.equal(result.reply,'Claude 확인 완료');
+});
+test('API runtime refuses OAuth tokens instead of forwarding them to Messages',async()=>{
+  const f=fixture('anthropic',[],{getCredentials:async()=>({accessToken:'private-subscription-token'})});
+  await assert.rejects(f.runtime.chat(input),/인증/);
+  assert.equal(f.calls.length,0);
 });
 test('model-list tests use no inference and restrict compatible text models',async()=>{
   const f=fixture('openai');

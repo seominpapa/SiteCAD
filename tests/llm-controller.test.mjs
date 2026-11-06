@@ -44,6 +44,33 @@ test('API credentials select a real alternative runtime without requiring ChatGP
   assert.equal((await value.controller.status()).oauth.connected, false);
 });
 
+test('Claude OAuth uses the official CLI runtime and never the API token path', async t => {
+  let cliOptions, started = 0, apiStarts = 0;
+  const value = await setup(t, {
+    claudeCodeAuth: {
+      status: async () => ({ loggedIn: true, available: true, pending: false }),
+      runtimeOptions: async () => ({ claudePath: '/fixture/claude', claudeConfigDir: '/fixture/claude-profile' }),
+      cancel: async () => {},
+    },
+    apiRuntimeFactory: () => { apiStarts++; throw Error('Subscription must not use the API'); },
+    claudeCodeRuntimeFactory: options => {
+      cliOptions = options;
+      return { start: async () => { started++; }, status: () => ({ connected: true }),
+        listModels: async () => [{ id: 'claude-test', isDefault: true }],
+        chat: async () => ({ reply: '공식 CLI 응답', details: [] }),
+        stop: async () => {}, cancel: async () => {} };
+    },
+  });
+  await value.controller.llmSelect({ id: 'anthropic-oauth' });
+  assert.equal((await value.controller.modelsList()).defaultModel, 'claude-test');
+  assert.equal(started, 1);
+  assert.equal(apiStarts, 0);
+  assert.equal(cliOptions.getCredentials, undefined);
+  assert.deepEqual(await cliOptions.getClaudeCodeConfig(), { claudePath: '/fixture/claude', claudeConfigDir: '/fixture/claude-profile' });
+  assert.equal((await value.controller.status()).oauth.method, 'claude-code');
+  assert.equal((await value.controller.chat({ message: '도면을 확인해줘', model: 'opus[1m]', context, history: [] })).reply, '공식 CLI 응답');
+});
+
 test('provider/key changes are rejected during a drawing turn and preserve the active connection', async t => {
   const value = await setup(t);
   await value.controller.llmSave({ id: 'openai-api', apiKey: TEST_OPENAI_KEY });

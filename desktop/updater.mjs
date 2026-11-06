@@ -16,9 +16,9 @@ function versionParts(value) {
   return value.split('.').map(Number);
 }
 
-export function updateFromRelease(release, { currentVersion, platform, arch }) {
+export function updateFromRelease(release, { currentVersion, platform, arch, kind = 'desktop' }) {
   const current = versionParts(currentVersion);
-  if (!(platform === 'win32' && arch === 'x64' || platform === 'darwin' && arch === 'arm64')) throw failure();
+  if (!['desktop', 'web'].includes(kind) || !(platform === 'win32' && (arch === 'x64' || kind === 'web' && arch === 'arm64') || platform === 'darwin' && arch === 'arm64')) throw failure();
   if (!release || typeof release !== 'object' || Array.isArray(release)) throw failure();
   if (release.draft === true || release.prerelease === true) return null;
   if (release.draft !== false || release.prerelease !== false) throw failure();
@@ -26,7 +26,7 @@ export function updateFromRelease(release, { currentVersion, platform, arch }) {
   const version = release.tag_name.slice(1), next = versionParts(version);
   const different = next.findIndex((part, index) => part !== current[index]);
   if (different === -1 || next[different] < current[different]) return null;
-  const name = `SiteCAD-${version}-${platform === 'win32' ? 'Windows-x64-Setup.exe' : 'macOS-arm64.dmg'}`;
+  const name = `SiteCAD-${version}-${kind === 'web' ? `local-web-${platform === 'win32' ? 'Windows' : 'macOS'}.zip` : platform === 'win32' ? 'Windows-x64-Setup.exe' : 'macOS-arm64.dmg'}`;
   const assets = Array.isArray(release.assets) ? release.assets.filter(asset => asset?.name === name) : [];
   if (assets.length !== 1) throw failure();
   const asset = assets[0], url = `${releaseBase}v${version}/${name}`;
@@ -52,7 +52,7 @@ async function installerResponse(url, { fetchImpl, signal }) {
 
 export async function downloadUpdate(update, { directory, fetchImpl = fetch, onProgress = () => {}, signal } = {}) {
   versionParts(update.version);
-  if (!/^SiteCAD-\d+\.\d+\.\d+-(Windows-x64-Setup\.exe|macOS-arm64\.dmg)$/.test(update.name ?? '') ||
+  if (!/^SiteCAD-\d+\.\d+\.\d+-(Windows-x64-Setup\.exe|macOS-arm64\.dmg|local-web-(?:Windows|macOS)\.zip)$/.test(update.name ?? '') ||
       update.url !== `${releaseBase}v${update.version}/${update.name}` || !/^[a-f0-9]{64}$/.test(update.sha256 ?? '') ||
       !Number.isSafeInteger(update.size) || update.size <= 0 || update.size > maxInstallerSize) throw failure();
   const file = join(directory, update.name);
@@ -99,15 +99,17 @@ async function latestRelease(fetchImpl, signal) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
-export function createDesktopUpdater({ currentVersion, platform, arch, updatesDir, fetchImpl = fetch,
+export function createDesktopUpdater({ currentVersion, platform, arch, kind = 'desktop', updatesDir, fetchImpl = fetch,
   showMessage, prepareInstall, install, onProgress = () => {}, isClosing = () => false, canInstall = async () => {},
 }) {
-  let busy = false, active, settled;
+  let busy = false, active, settled, state = { status: 'unchecked' };
   return {
+    status: () => ({ supported: true, kind, currentVersion, ...state, busy }),
     async cancel() { active?.abort(); await settled; },
-    async check({ manual = false } = {}) {
+    async check({ manual = false, notify = true } = {}) {
       if (busy || isClosing()) return { status: 'busy' };
       busy = true;
+      state = { ...state, status: 'checking' };
       active = new AbortController();
       let finish;
       settled = new Promise(resolve => { finish = resolve; });
@@ -115,22 +117,27 @@ export function createDesktopUpdater({ currentVersion, platform, arch, updatesDi
       try {
         const signal = active.signal;
         const release = await latestRelease(fetchImpl, AbortSignal.any([signal, AbortSignal.timeout(15000)]));
-        const update = updateFromRelease(release, { currentVersion, platform, arch });
+        const update = updateFromRelease(release, { currentVersion, platform, arch, kind });
         if (isClosing() || signal.aborted) return { status: 'cancelled' };
         if (!update) {
-          if (manual) await showMessage({ type: 'info', title: 'SiteCAD 업데이트', message: `현재 버전 ${currentVersion}은 최신 버전입니다.`, buttons: ['확인'] });
+          state = { status: 'current' };
+          if (manual && notify) await showMessage({ type: 'info', title: 'SiteCAD 업데이트', message: `현재 버전 ${currentVersion}은 최신 버전입니다.`, buttons: ['확인'] });
           return { status: 'current' };
         }
+        state = { status: 'available', availableVersion: update.version };
+        if (!notify) return { status: 'available', version: update.version };
         prompted = true;
         const consent = await showMessage({ type: 'info', title: 'SiteCAD 업데이트',
           message: `새 버전 ${update.version}이 있습니다.`, detail: `현재 버전: ${currentVersion}\n설치 파일을 다운로드할까요? 다운로드 중에는 작업을 계속할 수 있습니다. 설치 전 도면 저장과 앱 종료를 다시 확인합니다.`,
           buttons: ['나중에', '다운로드'], defaultId: 0, cancelId: 0 });
         if (consent.response !== 1 || isClosing() || signal.aborted) return { status: 'declined' };
+        state = { ...state, status: 'downloading' };
         await mkdir(updatesDir, { recursive: true, mode: 0o700 });
         directory = await mkdtemp(join(updatesDir, 'download-'));
         onProgress(0);
-        const file = await downloadUpdate(update, { directory, fetchImpl, onProgress, signal });
+        const file = await downloadUpdate(update, { directory, fetchImpl, onProgress: value => { state = { ...state, progress: value }; onProgress(value); }, signal });
         onProgress(-1);
+        state = { status: 'available', availableVersion: update.version };
         if (isClosing() || signal.aborted) return { status: 'cancelled' };
         const confirmation = await showMessage({ type: 'warning', title: 'SiteCAD 업데이트 설치',
           message: `버전 ${update.version} 다운로드가 완료됐습니다.`,
@@ -145,9 +152,11 @@ export function createDesktopUpdater({ currentVersion, platform, arch, updatesDi
         if (isClosing() || signal.aborted) return { status: 'cancelled' };
         await install(prepared);
         handedOff = true;
+        state = { status: 'installing', availableVersion: update.version };
         return { status: 'installing', version: update.version };
       } catch {
-        if (!isClosing() && !active.signal.aborted && (manual || prompted)) await showMessage({ type: 'error', title: 'SiteCAD 업데이트',
+        state = { ...state, status: 'failed' };
+        if (notify && !isClosing() && !active.signal.aborted && (manual || prompted)) await showMessage({ type: 'error', title: 'SiteCAD 업데이트',
           message: '업데이트를 완료하지 못했습니다.', detail: '현재 앱과 도면·설정은 유지됩니다. 인터넷 연결, 저장 공간과 앱 설치 위치의 쓰기 권한을 확인해 주세요. Mac은 DMG 안에서 실행하지 말고 응용 프로그램 폴더에 설치해야 합니다. 필요하면 GitHub 릴리스에서 설치 파일을 받아 수동으로 설치해 주세요.', buttons: ['확인'] });
         return { status: 'failed' };
       } finally {

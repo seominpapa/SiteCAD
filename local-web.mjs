@@ -10,6 +10,7 @@ import { createDesktopController } from './lib/desktop-controller.mjs';
 import { createBrowserAccess } from './lib/browser-access.mjs';
 import { createNodeSecretStores } from './lib/node-secret-store.mjs';
 import { desktopPaths, installBundledCodex, isAllowedAuthUrl } from './desktop/runtime.mjs';
+import { createWebUpdater } from './lib/web-update.mjs';
 
 const appRoot = dirname(fileURLToPath(import.meta.url));
 const shutdownSignals = process.platform === 'win32' ? ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] : ['SIGINT', 'SIGTERM'];
@@ -107,7 +108,7 @@ export async function startLocalWeb({ dataDir = defaultDataDir(), codexPath, ent
   const socketDir = process.platform === 'win32' ? join(dataDir, 'launcher')
     : join(process.platform === 'darwin' ? '/private/tmp' : tmpdir(), `sitecad-web-${process.getuid()}`);
   await privateDirectory(socketDir);
-  let controller; let server; let baseUrl; let closePromise; let readyResolve; let readyReject;
+  let controller; let server; let baseUrl; let closePromise; let readyResolve; let readyReject; let updater; let updateHandoff = false;
   const ready = new Promise((resolveReady, rejectReady) => { readyResolve = resolveReady; readyReject = rejectReady; });
   ready.catch(() => {});
   const browserAccess = createBrowserAccess();
@@ -135,7 +136,7 @@ export async function startLocalWeb({ dataDir = defaultDataDir(), codexPath, ent
     closePromise ??= (async () => {
       if (installSignalHandlers) for (const name of shutdownSignals) process.off(name, signalHandler);
       let closeError;
-      try { await controller?.close(); } catch (cause) { closeError = cause; }
+      try { if (!updateHandoff) await updater?.cancel(); await controller?.close(); } catch (cause) { closeError = cause; }
       finally {
         if (server?.listening) await new Promise(resolveClose => { server.close(resolveClose); server.closeAllConnections(); });
         for (const client of clients) client.destroy();
@@ -161,13 +162,17 @@ export async function startLocalWeb({ dataDir = defaultDataDir(), codexPath, ent
     const fixture = join(appRoot, 'fixtures', 'retaining-wall.dwg');
     const fixturePath = await stat(fixture).then(value => value.isFile()).catch(() => false) ? fixture
       : join(appRoot, '../rhino-experiments/retaining-wall-20261020/retaining-wall-drawing-2d.dwg');
-    server = serverFactory({ desktop: controller, browserAccess, fixturePath, browserActions: {
+    const { version } = JSON.parse(await readFile(join(appRoot, 'package.json'), 'utf8'));
+    updater = await createWebUpdater({ appRoot, dataDir, currentVersion: version, drawingDirectory: () => controller.drawingDirectory(), isBusy: async () => { const state = await controller.status(); return Boolean(state.busy || state.active); },
+      isClosing: () => Boolean(closePromise), onInstall: async () => { updateHandoff = true; await close(); } });
+    server = serverFactory({ desktop: controller, browserAccess, fixturePath, updates: updater, browserActions: {
       openDrawings: async () => openLocal(await controller.drawingDirectory()),
       quit: async () => { setTimeout(() => { void close().catch(() => { process.exitCode = 1; }); }, 100); },
     } });
     await new Promise((resolveListen, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolveListen); });
     baseUrl = `http://127.0.0.1:${server.address().port}`;
     await controller.start({ baseUrl });
+    void updater.check();
     const temporary = `${record}.${process.pid}.tmp`;
     await writeFile(temporary, JSON.stringify({ version: 1, pid: process.pid, port: server.address().port }), { mode: 0o600 });
     await rename(temporary, record);
@@ -181,6 +186,6 @@ export async function startLocalWeb({ dataDir = defaultDataDir(), codexPath, ent
 if (import.meta.main) {
   startLocalWeb({ ...(process.env.SITECAD_WEB_DATA_DIR ? { dataDir: process.env.SITECAD_WEB_DATA_DIR } : {}) }).then(instance => {
     console.log(`SiteCAD 로컬 웹앱 ${instance.reused ? '연결됨' : '실행 중'}: ${instance.baseUrl}/`);
-    if (!instance.reused) console.log('브라우저를 닫아도 서버는 유지됩니다. 화면의 실행기 종료를 사용해 주세요.');
+    if (!instance.reused) console.log('브라우저를 닫아도 서버는 유지됩니다. 화면의 종료를 사용해 주세요.');
   }).catch(cause => { console.error(cause.message); process.exitCode = 1; });
 }

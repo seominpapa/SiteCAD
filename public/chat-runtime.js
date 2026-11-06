@@ -137,7 +137,7 @@ export function createChatRuntime({ isBusy, onError = () => {}, onChange = () =>
     sync,
     resetModels() { selected=undefined;selectedName=undefined;actualModel=undefined;models=[];catalogGeneration++;$('model-select').replaceChildren();$('model-description').textContent='';sync(); },
     selectModel(model) {
-      if(!available()||!model||typeof model.id!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(model.id))return;
+      if(!available()||!model||typeof model.id!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,127}$/.test(model.id))return;
       selected=model.id;selectedName=bounded(model.displayName,160)||model.id;sync();onChange();
     },
     selectedModel: () => selected,

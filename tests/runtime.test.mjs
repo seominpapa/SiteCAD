@@ -39,6 +39,16 @@ async function modelRuntime({ list, events = [], holdTurn = false, intercept, ru
   return { runtime, calls, emitted, codexHome: join(directory, 'codex'), cleanup: async () => { await runtime.stop(); await rm(directory, { recursive: true, force: true }); } };
 }
 const modelInput = { message: '모델 검증', context: { documentId: 1, revision: 0, units: 4, selection: [], entities: [] }, history: [] };
+test('Codex receives native localImage paths and document text without serializing image data into RPC', async () => {
+  const f = await modelRuntime();
+  try {
+    await f.runtime.chat(modelInput, { attachmentInputs: [{ name: '화면.png', kind: 'image', imagePath: '/private/sitecad/source.png', imageData: 'aW1hZ2U=' }, { name: '표.csv', kind: 'text', text: '철근,12' }] });
+    const turn = f.calls.find(call => call.method === 'turn/start').params;
+    assert.deepEqual(turn.input[1], { type: 'localImage', path: '/private/sitecad/source.png' });
+    assert.match(turn.input[0].text, /철근,12/); assert.match(turn.input[0].text, /untrusted file contents/);
+    assert.equal(JSON.stringify(turn).includes('aW1hZ2U='), false);
+  } finally { await f.cleanup(); }
+});
 test('compound natural workflows reach Codex as real bounded native skill inputs', async () => {
   const f = await modelRuntime();
   try {

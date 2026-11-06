@@ -13,13 +13,13 @@
     <header class="app-header">
       <div class="brand"><span class="brand-mark" aria-hidden="true">SC</span><div><h1>SiteCAD</h1><p>로컬 도면 작업실 · <a href="/licenses.html" target="_blank" rel="noopener">라이선스·소스</a></p></div></div>
       <div class="connection"><span id="oauth-status" class="status-badge" role="status">OpenAI 연결 확인 중</span><span id="mcp-status" class="status-badge" hidden>내부 MCP 대기</span><button id="login-chatgpt" class="header-button" type="button" hidden>ChatGPT로 계속</button><button id="logout-chatgpt" class="header-button" type="button" hidden>로그아웃</button><button id="cancel-task" class="header-button" type="button" hidden>작업 취소</button><button id="refresh-connection" class="header-button" type="button">연결 확인</button></div>
-      <div class="connection header-actions"><button id="settings-open" class="header-button header-settings" type="button" aria-label="설정" title="설정" aria-haspopup="dialog" aria-controls="settings-dialog" hidden><span aria-hidden="true">⚙︎</span> 설정</button><div id="local-actions" class="connection" hidden><button id="open-saved-folder" class="header-button" type="button">저장 폴더</button><button id="quit-local" class="header-button" type="button">실행기 종료</button></div></div>
+      <div class="connection header-actions"><button id="settings-open" class="header-button header-settings" type="button" aria-label="설정" title="설정" aria-haspopup="dialog" aria-controls="settings-dialog" hidden><span aria-hidden="true">⚙︎</span> 설정</button><div id="local-actions" class="connection" hidden><button id="open-saved-folder" class="header-button" type="button">저장 폴더</button><button id="quit-local" class="header-button" type="button">종료</button></div></div>
     </header>
 
     <main id="workspace" class="workspace">
       <section class="drawing-panel" aria-label="도면 편집">
         <div class="drawing-toolbar" aria-label="도면 도구">
-          <div class="toolbar-group"><button id="new-drawing" type="button" data-action disabled><span aria-hidden="true">＋</span> 새 도면</button><button id="open-drawing" type="button" data-action disabled><span aria-hidden="true">↥</span> 열기</button><input id="file-input" type="file" accept=".dwg,.dxf" hidden /><button id="open-example" type="button" data-action disabled>예제</button></div>
+          <div class="toolbar-group"><button id="new-drawing" type="button" data-action disabled><span aria-hidden="true">＋</span> 새 도면</button><button id="open-drawing" type="button" data-action disabled><span aria-hidden="true">↥</span> 열기</button><input id="file-input" type="file" accept=".dwg,.dxf" hidden /><button id="open-example" type="button" data-action aria-haspopup="dialog" aria-controls="examples-dialog" disabled>예제</button></div>
           <div class="toolbar-group"><button id="fit-drawing" type="button" data-action disabled>전체 보기</button><button id="undo-drawing" type="button" data-action title="실행 취소" disabled>↶ 취소</button><button id="redo-drawing" type="button" data-action title="다시 실행" disabled>↷ 다시</button><button id="clear-selection" type="button" data-action disabled>선택 해제</button></div>
           <div class="save-group"><label for="save-name" class="sr-only">저장할 DWG 파일 이름</label><input id="save-name" value="drawing.dwg" maxlength="120" spellcheck="false" aria-label="저장할 DWG 파일 이름" /><button id="save-drawing" class="primary" type="button" data-action disabled>DWG 저장</button></div>
         </div>
@@ -55,7 +55,7 @@
         <div id="chat-progress" class="chat-progress" role="status" hidden><span class="spinner" aria-hidden="true"></span><span id="chat-progress-text">요청을 해석하고 있습니다.</span></div>
         <div class="composer-area">
 
-          <form id="chat-form"><label for="message-input" class="sr-only">도면 생성 또는 수정 요청</label><textarea id="message-input" rows="3" maxlength="2000" placeholder="도면 요청 · /스킬 · MCP·API·플러그인 등록" aria-controls="skill-menu" disabled></textarea><div class="composer-footer"><span id="composer-hint">Enter 전송 · Shift+Enter 줄바꿈</span><div class="composer-actions"><button id="stop-task" type="button" hidden>정지</button><button id="send-message" class="primary" type="submit" disabled>전송</button></div></div></form>
+          <form id="chat-form"><div id="chat-attachment-list" class="chat-attachment-list" aria-label="전송할 첨부 파일" hidden></div><label for="message-input" class="sr-only">도면 생성 또는 수정 요청</label><textarea id="message-input" rows="3" maxlength="2000" placeholder="도면 요청 · /스킬 · MCP·API·플러그인 등록" aria-controls="skill-menu" aria-describedby="chat-attachment-hint" disabled></textarea><p id="chat-attachment-status" class="chat-attachment-status" role="status" aria-live="polite"></p><div class="composer-footer"><div class="composer-attachment"><button id="chat-attach" type="button" aria-label="파일 첨부" title="파일 첨부" disabled><span aria-hidden="true">＋</span> 첨부</button><input id="chat-attachment-input" type="file" accept=".png,.jpg,.jpeg,.webp,.pdf,.txt,.md,.csv,.json" multiple hidden /><span id="composer-hint">Enter 전송 · Shift+Enter 줄바꿈</span></div><div class="composer-actions"><button id="stop-task" type="button" hidden>정지</button><button id="send-message" class="primary" type="submit" disabled>전송</button></div></div><p id="chat-attachment-hint" class="chat-attachment-hint">파일 끌어놓기 · 스크린샷 붙여넣기 · 최대 4개, 합계 20MB. 전송 시 선택한 AI에 전달됩니다.</p></form>
           <details class="registration-help">
             <summary>스킬·연결 등록 방법</summary>
             <div class="registration-guide">
@@ -78,14 +78,27 @@
         <div class="model-dialog-actions"><button id="models-refresh" type="button" disabled>목록 새로 고침</button><button id="model-apply" class="primary" type="button" disabled>이 모델 사용</button></div>
       </div>
     </dialog>
+    <dialog id="examples-dialog" class="model-dialog" aria-labelledby="examples-title">
+      <div class="mcp-dialog-heading"><h2 id="examples-title">예제 도면</h2><button id="examples-close" type="button" aria-label="예제 목록 닫기">닫기</button></div>
+      <div class="model-dialog-content"><p class="model-description">도면을 선택하면 SiteCAD에서 열립니다. 교육·검토용 예제이며 원본은 변경하지 않습니다. 수정한 도면은 다른 이름으로 저장해 주세요.</p><div id="examples-list" class="examples-list"></div><p id="examples-notice" class="model-notice" role="status"></p></div>
+    </dialog>
     <dialog id="skill-share-dialog" class="model-dialog" aria-labelledby="skill-share-title">
-      <div class="mcp-dialog-heading"><h2 id="skill-share-title">스킬 개선안 내보내기</h2><button id="skill-share-close" type="button" aria-label="스킬 내보내기 닫기">닫기</button></div>
+      <div class="mcp-dialog-heading"><h2 id="skill-share-title">스킬 저장·공유</h2><button id="skill-share-close" type="button" aria-label="스킬 내보내기 닫기">닫기</button></div>
       <div class="model-dialog-content skill-share-content">
-        <p>스킬 폴더 전체와 스킬별 생성·수정 배경 문서를 자동으로 묶어 ZIP으로 저장합니다.</p>
-        <p>저장한 ZIP을 <strong>seominpapa@gmail.com</strong>으로 직접 첨부해 보내 주세요. 이메일은 자동 발송되지 않습니다.</p>
-        <form id="skill-share-form">
-          <button id="skill-share-download" class="primary" type="submit">ZIP 저장</button>
-        </form>
+        <p>전체 스킬과 생성·수정 이유를 자동으로 정리한 설명 문서가 함께 담깁니다. 원하는 방법을 선택하세요.</p>
+        <ol>
+          <li><strong>ZIP으로 저장해 직접 공유</strong><p>내 컴퓨터에 저장해 보관하거나 원하는 사람에게 전달하세요. 저장만 하면 어디에도 전송되지 않습니다.</p>
+            <form id="skill-share-form"><button id="skill-share-download" class="primary" type="submit">ZIP 저장</button></form>
+          </li>
+          <li><strong>개발자에게 이메일로 보내기</strong><p>위에서 ZIP을 저장한 뒤 <strong>seominpapa@gmail.com</strong>으로 직접 첨부해 보내 주세요. <a href="mailto:seominpapa@gmail.com?subject=SiteCAD%20%EC%8A%A4%ED%82%AC%20%EA%B0%9C%EC%84%A0%EC%95%88">이메일 작성</a>은 메일 앱을 열며, 첨부와 발송은 직접 진행합니다.</p></li>
+          <li><strong>GitHub 이슈로 보내기</strong><p>아래 버튼을 누르면 개발자의 GitHub에 개선 요청과 ZIP 링크가 등록됩니다. GitHub 계정은 필요 없습니다.</p>
+            <p>이슈와 ZIP 링크는 누구나 볼 수 있습니다. 스킬에 포함된 개인·현장 정보도 공개될 수 있습니다.</p>
+            <label><input id="skill-share-consent" type="checkbox" /> ZIP과 설명이 공개되는 데 동의합니다.</label>
+            <iframe id="skill-share-verification" title="개선안 제출 보안 확인" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer" hidden></iframe>
+            <button id="skill-share-submit" type="button" disabled>GitHub 이슈로 보내기</button>
+            <a id="skill-share-result" target="_blank" rel="noopener noreferrer" hidden>등록된 GitHub 이슈 열기</a>
+          </li>
+        </ol>
         <p id="skill-share-notice" class="model-notice" role="status"></p>
       </div>
     </dialog>

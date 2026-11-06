@@ -9,6 +9,8 @@ import { createChatConnections, parseConnectionCommand } from './chat-connection
 import { createChatRuntime, readChatStream } from './chat-runtime.js';
 import { createSettings } from './settings.js';
 import { renderChatContent } from './chat-content.js';
+import { createExamples, exampleFile, confirmExampleOpen } from './examples.js';
+import { createChatAttachments, appendAttachmentSummary } from './chat-attachments.js';
 
 const $ = (id) => document.getElementById(id);
 const iframe = $('editor');
@@ -36,7 +38,8 @@ let stopBridge;
 let authPending = false;
 let connectionBusy = false;
 let skillSharing = false;
-const isBusy = () => busy || connectionBusy || skillSharing || browserFrozen || steeringPending || cancelPending;
+let attachmentUploading = false;
+const isBusy = () => busy || connectionBusy || skillSharing || attachmentUploading || browserFrozen || steeringPending || cancelPending;
 const mcpSettings = createMcpSettings({ isBusy, notify: notice });
 const chatConnections = createChatConnections({ isBusy: () => busy || browserFrozen || steeringPending || cancelPending, notify: notice,
   onPending(value) { connectionBusy = value; updateControls(); }, onChange: () => settings.refresh(),
@@ -52,16 +55,19 @@ const settings = createSettings({isBusy,onChange:async({llmChanged}={})=>{
 const chatSessions = createChatSessionsUI({ isBusy, isAvailable: () => desktop,
   onError: message => notice(errorMessage(message), true), onChange: updateControls,
   onSelect(chat) {
+    chatAttachments.clear();
     chatConnections.clear();
     chatRuntime.finish();
     history.splice(0); welcome.hidden = false; $('messages').replaceChildren(welcome); $('message-input').value = '';
     for (const message of chat.messages ?? []) {
       if (!['user', 'assistant'].includes(message.role) || typeof message.text !== 'string') continue;
-      appendMessage(message.role, message.text);
+      appendMessage(message.role, message.text, { attachments: message.attachments });
       history.push({ role: message.role, text: message.text.slice(0, 2000) });
     }
     if (history.length > 8) history.splice(0, history.length - 8);
   } });
+const chatAttachments = createChatAttachments({ isBusy: () => isBusy() || chatRunning, getChatId: () => chatSessions.currentId(),
+  onPending(value) { attachmentUploading = value; updateControls(); }, onChange: updateControls, notify: notice });
 
 function updateControls() {
   const locked = isBusy();
@@ -71,7 +77,7 @@ function updateControls() {
   const composing = !browserFrozen && !connectionBusy && !cancelPending && (!busy || (desktop && chatRunning && !stopRequested));
   $('message-input').disabled = !composing || !ready || !connected || (desktop && chatSessions.isPending());
   $('message-input').placeholder = chatRunning ? '진행 중인 작업에 추가 지시 입력' : '도면 요청 · /스킬 · MCP·API·플러그인 등록';
-  $('send-message').disabled = !composing || steeringPending || chatCompleting || !ready || !connected || (desktop && (!chatSessions.currentId() || chatSessions.isPending())) || !$('message-input').value.trim();
+  $('send-message').disabled = !composing || attachmentUploading || steeringPending || chatCompleting || !ready || !connected || (desktop && (!chatSessions.currentId() || chatSessions.isPending())) || (!chatRunning && !chatAttachments.ready()) || (!$('message-input').value.trim() && (chatRunning || !chatAttachments.ids().length));
   $('send-message').textContent = steeringPending ? '전달 중…' : chatRunning ? '추가 지시' : '전송';
   $('stop-task').hidden = !desktop || (!chatRunning && !cancelPending);
   $('stop-task').disabled = stopRequested || cancelPending;
@@ -84,6 +90,7 @@ function updateControls() {
   $('logout-chatgpt').disabled = locked;
   $('cancel-task').hidden = !desktop || chatRunning || (!busy && !authPending && !cancelPending);
   $('cancel-task').disabled = cancelPending;
+  $('quit-local').disabled = skillSharing;
   iframe.inert = locked || !ready;
   iframe.style.pointerEvents = locked || !ready ? 'none' : '';
   $('editor-stage').setAttribute('aria-busy', String(locked || !ready));
@@ -91,6 +98,7 @@ function updateControls() {
   chatConnections.sync();
   skillMenu.sync();
   skillShare.sync();
+  chatAttachments.sync();
   chatSessions.sync();
   chatRuntime.sync();
   settings.sync();
@@ -172,10 +180,10 @@ async function checkConnection() {
       $('mcp-status').textContent = body.data.runtime?.mcp?.contextVerified ? '내부 MCP 연결됨' : '내부 MCP · 첫 요청 시 연결';
       $('mcp-status').className = `status-badge ${body.data.runtime?.connected ? 'connected' : ''}`;
       $('auth-help').querySelector('p').textContent = authPending
-        ? body.data.llm?.anthropicOAuth?.pending ? '열린 브라우저에서 Claude Console 로그인을 완료해 주세요.' : '열린 브라우저에서 ChatGPT 로그인과 SiteCAD 사용 동의를 완료해 주세요.'
+        ? body.data.llm?.anthropicOAuth?.pending ? '열린 브라우저에서 Claude Code 구독 로그인을 완료해 주세요.' : '열린 브라우저에서 ChatGPT 로그인과 SiteCAD 사용 동의를 완료해 주세요.'
         : (openaiOAuth && body.data.auth?.error) || (openaiOAuth && body.data.auth?.loggedIn && !body.data.auth?.sharing
           ? 'ChatGPT 요금제 사용 권한에 동의해야 AI 도구를 사용할 수 있습니다. 다시 로그인해 주세요.'
-          : '설정에서 AI 제공자와 연결 방식을 선택하세요. ChatGPT 로그인 또는 OpenAI·Claude API 연결을 사용할 수 있습니다.');
+          : '설정에서 AI 제공자와 연결 방식을 선택하세요. ChatGPT·Claude Code 구독 로그인(OAuth) 또는 OpenAI·Claude API 키로 연결할 수 있습니다.');
       if (!stopBridge && !browserFrozen) stopBridge = startDesktopBridge(cad, { isReady: () => ready && !browserFrozen,
         onError: error => { if (!busy) notice(errorMessage(error), true); } });
     }
@@ -186,7 +194,7 @@ async function checkConnection() {
     const connectionLabel = apiConnection ? verified ? '연결됨' : '키 등록됨 · 연결 미확인' : '로그인됨';
     $('oauth-status').textContent = connected ? `${llmLabel} ${connectionLabel}` : 'AI 연결 필요 · 설정에서 연결';
     $('oauth-status').className = `status-badge ${connected && (!apiConnection || verified) ? 'connected' : 'disconnected'}`;
-    if (authPending) $('oauth-status').textContent = body.data.llm?.anthropicOAuth?.pending ? 'Claude Console 로그인 진행 중' : 'ChatGPT 로그인 진행 중';
+    if (authPending) $('oauth-status').textContent = body.data.llm?.anthropicOAuth?.pending ? 'Claude Code 구독 로그인 진행 중' : 'ChatGPT 로그인 진행 중';
     $('auth-help').hidden = connected;
     mcpSettings.update(body.data);
     chatConnections.update(body.data);
@@ -195,6 +203,7 @@ async function checkConnection() {
     chatRuntime.update(body.data);
     settings.update(body.data);
     skillShare.update(body.data);
+    chatAttachments.update(body.data);
     if (desktop) await chatSessions.init();
     if (body.data.editorInstalled === false) notice('OpenCADStudio 파일이 준비되지 않았습니다. 프로젝트 실행 안내를 확인해 주세요.', true);
   } catch (error) {
@@ -265,7 +274,7 @@ function appendQuantityTable(article, report) {
   article.append(section);
 }
 
-function appendMessage(role, text, { error = false, details, progress, reports = [], sources = [], design, savedFiles = [] } = {}) {
+function appendMessage(role, text, { error = false, details, progress, reports = [], sources = [], design, savedFiles = [], attachments = [] } = {}) {
   welcome.hidden = true;
   const article = document.createElement('article');
   article.className = `message ${role}${error ? ' error' : ''}`;
@@ -276,6 +285,7 @@ function appendMessage(role, text, { error = false, details, progress, reports =
   if (role === 'assistant') { body.className = 'chat-content'; renderChatContent(body, text); }
   else body.textContent = text;
   article.append(author, body);
+  appendAttachmentSummary(article, attachments);
   if (progress) article.append(progress);
   for (const report of reports) appendQuantityTable(article, report);
   appendProvenance(article, { sources, design });
@@ -340,14 +350,16 @@ async function submitSteering(message) {
 
 async function submitMessage(event) {
   event.preventDefault();
-  const message = $('message-input').value.trim();
+  const message = $('message-input').value.trim() || (!chatRunning && chatAttachments.ids().length ? '첨부한 파일을 확인하고 내용을 설명해줘.' : '');
   if (!message) return;
   if (chatRunning) return submitSteering(message);
-  if (isBusy()) return;
-  if (chatConnections.handleCommand(message)) { welcome.hidden = true; $('message-input').value = ''; updateControls(); return; }
+  if (isBusy() || !chatAttachments.ready()) return;
+  if (chatAttachments.hasFiles() && parseConnectionCommand(message)) { notice('연결 등록 요청은 첨부 파일을 제거한 뒤 보내 주세요.', true); return; }
+  if (!chatAttachments.hasFiles() && chatConnections.handleCommand(message)) { welcome.hidden = true; $('message-input').value = ''; updateControls(); return; }
   if (!ready || !connected || (desktop && (!chatSessions.currentId() || chatSessions.isPending()))) return;
   const previousHistory = history.slice(-8);
-  appendMessage('user', message);
+  const attachmentIds = chatAttachments.ids(), attachments = chatAttachments.metadata();
+  appendMessage('user', message, { attachments });
   history.push({ role: 'user', text: message });
   $('message-input').value = '';
   busy = true;
@@ -368,7 +380,7 @@ async function submitMessage(event) {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(desktop ? { Accept: 'application/x-ndjson' } : {}) },
-      body: JSON.stringify({ message, context, history: previousHistory, ...(desktop ? { chatId: activeChatId, model: chatRuntime.selectedModel() } : {}) }),
+      body: JSON.stringify({ message, context, history: previousHistory, ...(attachmentIds.length ? { attachments: attachmentIds } : {}), ...(desktop ? { chatId: activeChatId, model: chatRuntime.selectedModel() } : {}) }),
     });
     const body = desktop && response.ok
       ? { ok: true, data: await readChatStream(response, event => chatRuntime.event(event)) }
@@ -377,6 +389,7 @@ async function submitMessage(event) {
     updateControls();
     await steeringRequest;
     if (!response.ok || !body.ok) throw new Error(body.error || '요청을 처리하지 못했습니다.');
+    chatAttachments.clear();
     $('chat-progress-text').textContent = '도면에 적용하고 실행 결과를 확인하고 있습니다.';
     overlay('도면에 적용하고 결과를 확인하고 있습니다.', true);
     const result = body.data.executed ? { message: body.data.reply, details: body.data.details,
@@ -433,15 +446,13 @@ $('file-input').addEventListener('change', (event) => {
     notice(`${file.name} 도면을 열었습니다. 원본은 변경하지 않습니다.`);
   });
 });
-$('open-example').addEventListener('click', () => runAction('옹벽 예제 도면을 열고 있습니다.', async () => {
-  const response = await fetch('/fixtures/retaining-wall.dwg');
-  if (!response.ok) throw new Error('예제 도면을 불러오지 못했습니다.');
-  await cad.openFile(new File([await response.arrayBuffer()], 'retaining-wall.dwg'));
-  $('save-name').value = 'retaining-wall-edited.dwg';
+createExamples({ isBusy, isReady: () => ready, onOpen: example => runAction(`${example.name} 도면을 열고 있습니다.`, async () => {
+  if (!confirmExampleOpen(await cad.snapshot())) return;
+  await cad.openFile(await exampleFile(example));
+  $('save-name').value = example.file.replace(/\.dwg$/i, '-edited.dwg');
   history.splice(0);
-  await cad.fit();
-  notice('옹벽 예제를 열었습니다. 도면에서 객체를 선택한 뒤 수정 요청을 입력해 보세요.');
-}));
+  notice(`${example.name} 예제를 SiteCAD에서 열었습니다. 원본은 변경하지 않습니다.`);
+}) });
 $('fit-drawing').addEventListener('click', () => runAction('전체 도면을 표시하고 있습니다.', () => cad.fit()));
 $('undo-drawing').addEventListener('click', () => runAction('이전 작업을 되돌리고 있습니다.', async () => {
   await cad.undo();
@@ -583,5 +594,5 @@ addEventListener('pagehide', () => {
   if (browser && (busy || authPending)) void fetch('/api/desktop/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', keepalive: true }).catch(() => {});
 });
 addEventListener('beforeunload', event => {
-  if (browser && (busy || unsaved)) { event.preventDefault(); event.returnValue = ''; }
+  if (browser && (busy || unsaved || skillSharing)) { event.preventDefault(); event.returnValue = ''; }
 });

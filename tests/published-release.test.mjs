@@ -61,7 +61,7 @@ test('published download checks accept only the fixed supported release files', 
   assert.equal(new URL(assetNames('win32')[0], releaseBase).href, 'https://github.com/seominpapa/SiteCAD/releases/download/v0.16.5/SiteCAD-0.16.5-local-web-Windows.zip');
 });
 
-test('development metadata stays consistent and README downloads stay on published 0.16.4', async () => {
+test('release metadata and README downloads use the verified release version', async () => {
   const [packageText, lockText, readme, workflow] = await Promise.all([
     '../package.json', '../package-lock.json', '../README.md', '../.github/workflows/published-release.yml',
   ].map(path => readFile(new URL(path, import.meta.url), 'utf8')));
@@ -70,10 +70,9 @@ test('development metadata stays consistent and README downloads stay on publish
   assert.equal(lock.version, releaseVersion);
   assert.equal(lock.packages[''].version, releaseVersion);
   for (const name of [...assetNames('darwin'), ...assetNames('win32')]) {
-    const publishedUrl = (releaseBase + name).replaceAll(releaseVersion, '0.16.4');
+    const publishedUrl = releaseBase + name;
     assert.ok(readme.includes(publishedUrl), `Missing published README download: ${publishedUrl}`);
   }
-  assert.ok(!readme.includes('0.16.5'), 'Unreleased version must not be advertised in README');
   assert.ok(workflow.includes(`Published ${releaseVersion} first-install verification`));
   assert.ok(workflow.includes(`SiteCAD-${releaseVersion}-local-web-`));
 });

@@ -23,6 +23,7 @@ let closingPrompt = false;
 let baseUrl;
 let updater;
 let updateHandoff = false;
+let updateScheduled = false;
 let startupStage = 'profile';
 const primary = app.requestSingleInstanceLock();
 if (!primary) app.quit();
@@ -47,7 +48,7 @@ async function confirmClose(event) {
     const options = {
       type: 'warning', buttons: ['계속 작업', '종료'], defaultId: 0, cancelId: 0,
       title: 'SiteCAD 종료', message: '저장하지 않은 도면 변경은 사라집니다.',
-      detail: '필요한 도면을 DWG로 저장한 뒤 종료해 주세요. 진행 중인 AI 작업도 중단됩니다.',
+      detail: '필요한 도면을 DWG로 저장한 뒤 종료해 주세요. 진행 중인 AI 작업·ZIP 내보내기·개선안 제출도 중단될 수 있습니다.',
     };
     const result = await (mainWindow ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options));
     if (result.response !== 1) return;
@@ -73,6 +74,11 @@ function startUpdater(dataDir) {
     isClosing: () => closing || updateHandoff,
     onProgress: value => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setProgressBar(value); },
     canInstall: async () => {
+      const state = await controller.status();
+      if (state.active || state.busy) {
+        await updateMessage({ type: 'warning', title: '작업 완료 후 설치', message: '진행 중인 작업을 마친 뒤 업데이트를 다시 시도해 주세요.', buttons: ['확인'] });
+        return false;
+      }
       if (process.platform === 'darwin' && await drawingFolderInBundle(resolve(dirname(executable), '../..'), await controller.drawingDirectory())) {
         await updateMessage({ type: 'warning', title: '도면 저장 위치 변경 필요', message: '선택한 도면 폴더가 앱 내부에 있습니다.',
           detail: '도면과 보조 파일을 앱 바깥으로 옮기고 설정에서 새 저장 폴더를 선택한 다음 업데이트해 주세요. 도면 보호를 위해 설치를 중단했습니다.', buttons: ['확인'] });
@@ -94,6 +100,20 @@ function startUpdater(dataDir) {
   });
   void updater.check().catch(() => console.warn('SiteCAD 업데이트 확인을 마치지 못했습니다. 현재 앱은 계속 사용할 수 있습니다.'));
 }
+
+const updateActions = {
+  status: () => ({ ...(updater?.status() ?? { supported: false, kind: 'desktop', currentVersion: app.getVersion(), status: 'unchecked', busy: false }), ...(updateScheduled ? { busy: true, status: 'scheduled' } : {}) }),
+  async check() {
+    if (updater) await updater.check({ notify: false });
+    return updateActions.status();
+  },
+  async install() {
+    if (!updater || updateScheduled || updater.status().busy || !updater.status().availableVersion || closing || updateHandoff) throw Error('작업을 마친 뒤 업데이트를 다시 확인해 주세요.');
+    updateScheduled = true;
+    setTimeout(() => { updateScheduled = false; void updater.check({ manual: true }); }, 100);
+    return updateActions.status();
+  },
+};
 
 async function openTestDrawings() {
   try {
@@ -138,7 +158,7 @@ async function start() {
   const fixturePath = await stat(bundledFixture).then(info => info.isFile()).catch(() => false)
     ? bundledFixture : join(appRoot, '../rhino-experiments/retaining-wall-20261020/retaining-wall-drawing-2d.dwg');
   const browserAccess = browserMode ? createBrowserAccess() : undefined;
-  server = createApp({ desktop: controller, fixturePath, browserAccess, browserActions: {
+  server = createApp({ desktop: controller, fixturePath, browserAccess, updates: updateActions, browserActions: {
     openDrawings: async () => { const message = await shell.openPath(await controller.drawingDirectory()); if (message) throw Error('저장 폴더를 열지 못했습니다.'); },
     quit: async () => { setImmediate(() => { void confirmClose({ preventDefault() {} }).catch(() => {}); }); },
   } });

@@ -1,4 +1,4 @@
-import { cp, chmod, lstat, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { cp, chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -13,7 +13,7 @@ const execute = promisify(execFile);
 export const sourceEntries = Object.freeze([
   'package.json', 'package-lock.json', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'SOURCE_BUILD.md', 'Start SiteCAD.command', 'Start SiteCAD.cmd',
   'server.mjs', 'local-web.mjs', 'lib', 'public', 'skills', 'plan.schema.json', 'codex-models.json',
-  'desktop/runtime.mjs', 'desktop/licenses', 'vendor/editor',
+  'desktop/runtime.mjs', 'desktop/updater.mjs', 'desktop/licenses', 'vendor/editor',
   'scripts/bootstrap-local-web.sh', 'scripts/bootstrap-local-web.ps1', 'scripts/install-codex.mjs', 'scripts/install-editor.mjs', 'scripts/update-model-catalog.mjs', 'scripts/build-local-web.mjs', 'scripts/package-drawings.mjs',
 ]);
 
@@ -43,6 +43,7 @@ export async function buildLocalWeb({ sourceRoot = root, platform = 'darwin', ou
     await mkdir(join(staging, 'fixtures'));
     if ((await lstat(fixturePath)).isSymbolicLink()) throw Error('Drawing fixture must not be a symbolic link');
     await cp(fixturePath, join(staging, 'fixtures/retaining-wall.dwg'));
+    await writeFile(join(staging, '.sitecad-web-release.json'), JSON.stringify({ type: 'sitecad-local-web', version: packageInfo.version, platform }), { flag: 'wx', mode: 0o644 });
     for (const name of ['Start SiteCAD.command', 'scripts/bootstrap-local-web.sh']) await chmod(join(staging, name), 0o755);
     await mkdir(outputDirectory, { recursive: true });
     const archive = resolve(outputDirectory, `SiteCAD-${packageInfo.version}-local-web-${platform === 'win32' ? 'Windows' : 'macOS'}.zip`);

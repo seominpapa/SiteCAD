@@ -1,6 +1,6 @@
 # Source, build instructions and verification status
 
-Updated by SiteCAD contributors on 2026-11-04. SiteCAD is provided under GNU GPL version 3; see `LICENSE` for redistribution terms and the disclaimer of warranty. Other components keep their own licenses; see `THIRD_PARTY_NOTICES.md`.
+Updated by SiteCAD contributors on 2026-11-06. SiteCAD is provided under GNU GPL version 3; see `LICENSE` for redistribution terms and the disclaimer of warranty. Other components keep their own licenses; see `THIRD_PARTY_NOTICES.md`.
 
 ## SiteCAD source
 
@@ -12,11 +12,13 @@ On Apple Silicon macOS, the included `Start SiteCAD.command` prepares pinned Nod
 
 ## Desktop updates and preservation
 
+Version 0.16.5 replaces the former Claude Console OAuth option with **Claude OAuth (subscription)** through the user's installed, unmodified official Claude Code CLI. API-key connections remain a separate choice. SiteCAD invokes `claude auth login --claudeai` and checks the CLI's authentication status in a persistent application-specific `CLAUDE_CONFIG_DIR`; it does not read, extract or forward subscription tokens to the Messages API. A legacy Console login flag does not count as a Claude Code login. Claude Code is not bundled: the settings screen links to its official installation instructions when it is missing. Subscription eligibility and usage limits apply. Real-account login and paid model execution require separate acceptance tests.
+
 Starting with 0.16.3, the packaged desktop checks only the fixed official `seominpapa/SiteCAD` latest stable GitHub release when the application starts; the app menu can check again. An unavailable check or a declined offer leaves the installed application usable. Installation requires consent to download, a matching published file size and SHA-256, and a separate confirmation to save drawings, quit and install. Windows reuses Inno Setup at the exact existing installation directory. Mac stages and validates the new app before replacing the application bundle with a backup; it does not disable Gatekeeper or remove quarantine.
 
 The application name, bundle identifier, Windows AppId and `SiteCAD` userData location stay unchanged. The update does not reset drawing-storage selection, custom drawing folders, settings or encrypted credentials. A drawing folder selected inside the Mac `.app` bundle prevents automatic installation until the user moves it outside and selects the new folder. Read-only/translocated Mac applications or nonwritable installation locations require the documented manual installation fallback. OS trust and Keychain access may require user approval even when existing encrypted files are preserved.
 
-Version 0.16.2 and older desktop builds do not contain this updater: users must install 0.16.5 manually once (the updater is available since 0.16.3). Local-web ZIPs remain manually updated. New updater code/tests are distinct from native upgrade acceptance, browser-origin security prompts and real-account credential migration; consult the matching release's actual verification evidence. No Apple Developer distribution credentials are bundled or newly established by this feature.
+Version 0.16.2 and older desktop builds do not contain this updater and require a manual installation of a released build containing it. Version 0.16.5 adds Settings → General version checks and approved installation while the application is running. Packaged local-web ZIPs containing the new release marker can download the matching official ZIP, then wait for a second browser confirmation after the user saves drawings. Managed application files are staged and backed up on the installation volume; drawings, private runtime/dependencies and user profiles remain in place. Failed replacement restores the previous application files. Source checkouts disable installation updates. Previously downloaded web ZIPs need one manual upgrade to a released build that includes this feature. Public release availability and first-install evidence must be verified separately. New updater code/tests are distinct from native upgrade acceptance, browser-origin security prompts and real-account credential migration; consult the matching release's actual verification evidence. No Apple Developer distribution credentials are bundled or newly established by this feature.
 
 ## macOS distributor signing and notarization
 
