@@ -10,7 +10,7 @@ import { prepareUpdateInstall, windowsUpdateArguments } from '../desktop/update-
 
 async function fixture(t, platform = 'darwin') {
   const directory = await realpath(await mkdtemp(join(tmpdir(), 'sitecad-update-install-')));
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  t.after(() => rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const updatesDir = join(directory, '설정 폴더', 'updates');
   await mkdir(updatesDir, { recursive: true });
   const file = join(updatesDir, `SiteCAD-0.16.3-${platform === 'darwin' ? 'macOS-arm64.dmg' : 'Windows-x64-Setup.exe'}`);
