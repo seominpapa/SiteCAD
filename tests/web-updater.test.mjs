@@ -95,8 +95,8 @@ test('restart uses literal platform arguments instead of shell-interpolated inst
   const calls = [], spawnImpl = (...args) => { calls.push(args); const child = new EventEmitter(); child.unref = () => {}; queueMicrotask(() => child.emit('spawn')); return child; };
   await restartWeb('/tmp/한글 & data/SiteCAD', 'darwin', spawnImpl);
   await restartWeb('/tmp/한글 & data/SiteCAD', 'win32', spawnImpl);
-  assert.deepEqual(calls[0][1], ['/tmp/한글 & data/SiteCAD/Start SiteCAD.command']);
-  assert.equal(calls[1][1].at(-1), '/tmp/한글 & data/SiteCAD/scripts/bootstrap-local-web.ps1');
+  assert.deepEqual(calls[0][1], [join('/tmp/한글 & data/SiteCAD', 'Start SiteCAD.command')]);
+  assert.equal(calls[1][1].at(-1), join('/tmp/한글 & data/SiteCAD', 'scripts/bootstrap-local-web.ps1'));
   assert.equal(calls.every(call => call[2].shell === undefined), true);
 });
 
