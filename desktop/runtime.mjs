@@ -2,6 +2,7 @@ import { copyFile, mkdir, readFile, rename, rm, chmod, writeFile, realpath } fro
 import { isAbsolute, dirname, join, relative, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileSha256, verifyCodexInstallation } from '../scripts/install-codex.mjs';
+import { createNodeSecretStores } from '../lib/node-secret-store.mjs';
 
 export function desktopPaths(dataDir) {
   if (!isAbsolute(dataDir)) throw Error('SiteCAD data path must be absolute');
@@ -90,6 +91,14 @@ export function createSecureStore({ file, safeStorage, platform = process.platfo
     },
     async remove() { await rm(file, { force: true }); },
   };
+}
+
+export function createDesktopSecretStores({ dataDir, safeStorage, platform = process.platform, entry }) {
+  const legacyStore = name => createSecureStore({ file: join(dataDir, name), safeStorage, platform });
+  // Windows Chromium's first key can be lost on forced exit; persist the OS credential before ciphertext.
+  if (platform === 'win32') return createNodeSecretStores({ dataDir, entry, platform, service: 'SiteCAD Desktop', legacyStore });
+  return Object.fromEntries(Object.entries({ auth: 'credentials.enc', mcp: 'mcp-secrets.enc', references: 'vworld-secrets.enc', llm: 'llm-secrets.enc', apis: 'api-secrets.enc' })
+    .map(([key, name]) => [key, legacyStore(name)]));
 }
 
 export async function installBundledCodex({ sourceDir, destination, arch = process.arch, platform = process.platform }) {

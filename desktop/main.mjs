@@ -4,7 +4,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from '../server.mjs';
 import { createDesktopController } from '../lib/desktop-controller.mjs';
-import { createSecureStore, desktopPaths, installBundledCodex, isAllowedAuthUrl, drawingFolderInBundle, skillShareDownload, startupFailure, saveStartupFailure } from './runtime.mjs';
+import { createDesktopSecretStores, desktopPaths, installBundledCodex, isAllowedAuthUrl, drawingFolderInBundle, skillShareDownload, startupFailure, saveStartupFailure } from './runtime.mjs';
 import { createBrowserAccess } from '../lib/browser-access.mjs';
 import { createDesktopUpdater } from './updater.mjs';
 import { prepareUpdateInstall } from './update-install.mjs';
@@ -128,14 +128,15 @@ async function start() {
   startupStage = 'runtime';
   const codexPath = await installBundledCodex({ sourceDir: join(appRoot, 'runtime'), destination: join(paths.runtime, 'codex') });
   startupStage = 'settings';
+  const secretStores = createDesktopSecretStores({ dataDir, safeStorage });
   controller = await createDesktopController({
     dataDir, defaultDrawingsPath: join(app.isPackaged ? (process.platform === 'darwin' ? resolve(app.getPath('exe'), '../../../..') : dirname(app.getPath('exe'))) : appRoot, 'drawings'),
     codexPath, nodePath: process.execPath, nodeEnv: { ELECTRON_RUN_AS_NODE: '1' },
-    secureStore: createSecureStore({ file: paths.secrets, safeStorage }),
-    mcpSecretStore: createSecureStore({ file: join(dataDir, 'mcp-secrets.enc'), safeStorage }),
-    referenceSecretStore: createSecureStore({ file: join(dataDir, 'vworld-secrets.enc'), safeStorage }),
-    llmSecretStore: createSecureStore({ file: join(dataDir, 'llm-secrets.enc'), safeStorage }),
-    apiSecretStore: createSecureStore({ file: join(dataDir, 'api-secrets.enc'), safeStorage }),
+    secureStore: secretStores.auth,
+    mcpSecretStore: secretStores.mcp,
+    referenceSecretStore: secretStores.references,
+    llmSecretStore: secretStores.llm,
+    apiSecretStore: secretStores.apis,
     selectDrawingsFolder: async ({ defaultPath }) => {
       const options = { title: '도면 저장 폴더 선택', defaultPath, properties: ['openDirectory', 'createDirectory'] };
       const selection = await (mainWindow ? dialog.showOpenDialog(mainWindow, options) : dialog.showOpenDialog(options));
